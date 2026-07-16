@@ -1,0 +1,465 @@
+// DarkPay — MySQL (espelho de darkpay.sql — todas as telas)
+// DATABASE_URL=mysql://user:senha@localhost:3306/darkpay
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Manager {
+  id           String   @id @db.VarChar(64)
+  name         String
+  email        String   @unique
+  phone        String?  @db.VarChar(32)
+  document     String?  @db.VarChar(32)
+  status       String   @default("ativo") @db.VarChar(32)
+  permissions  Json
+  sellersCount Int      @default(0)
+  volumeTotal  Decimal  @default(0) @db.Decimal(18, 2)
+  originUserId String?  @db.VarChar(64)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  sellers      User[]
+  @@map("managers")
+}
+
+model User {
+  id                    String    @id @db.VarChar(64)
+  name                  String
+  email                 String    @unique
+  passwordHash          String?   @db.VarChar(255)
+  phone                 String?   @db.VarChar(32)
+  document              String?   @db.VarChar(32)
+  personType            String    @default("pf") @db.VarChar(8)
+  status                String    @default("pendente") @db.VarChar(32)
+  roles                 Json
+  avatarUrl             String?   @db.Text
+  displayName           String?
+  company               String?
+  cnpj                  String?   @db.VarChar(20)
+  address               String?   @db.VarChar(255)
+  city                  String?   @db.VarChar(128)
+  state                 String?   @db.VarChar(8)
+  zip                   String?   @db.VarChar(16)
+  balanceAvailable      Decimal   @default(0) @db.Decimal(18, 2)
+  balancePending        Decimal   @default(0) @db.Decimal(18, 2)
+  balanceHeld           Decimal   @default(0) @db.Decimal(18, 2)
+  volumeTotal           Decimal   @default(0) @db.Decimal(18, 2)
+  platformProfit        Decimal   @default(0) @db.Decimal(18, 2)
+  mdrPercent            Decimal   @default(3) @db.Decimal(8, 4)
+  mdrFixed              Decimal   @default(0.15) @db.Decimal(12, 2)
+  saquePercent          Decimal   @default(0) @db.Decimal(8, 4)
+  saqueFixed            Decimal   @default(0) @db.Decimal(12, 2)
+  saqueAutomatico       Boolean   @default(false)
+  routingMode           String    @default("plataforma") @db.VarChar(32)
+  preferredAdquirenteId String?   @db.VarChar(64)
+  managerId             String?   @db.VarChar(64)
+  lastLoginAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  manager               Manager?  @relation(fields: [managerId], references: [id])
+  transactions          Transaction[]
+  withdrawals           Withdrawal[]
+  charges               PaymentCharge[]
+  documents             Document[]
+  acquirerLinks         UserAcquirer[]
+  customAcquirers       SellerCustomAcquirer[]
+  sessions              Session[]
+  passwordResets        PasswordReset[]
+  twoFactor             User2FA?
+  apiCredentials        ApiCredential[]
+  webhookEndpoints      WebhookEndpoint[]
+  utmify                IntegrationUtmify?
+  notificationSettings  NotificationSetting?
+  saleNotifications     SaleNotification[]
+  ledger                BalanceLedger[]
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @db.VarChar(64)
+  userId    String   @db.VarChar(64)
+  token     String   @unique @db.VarChar(255)
+  expiresAt DateTime
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @db.VarChar(512)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("sessions")
+}
+
+model PasswordReset {
+  id        String    @id @db.VarChar(64)
+  userId    String    @db.VarChar(64)
+  email     String
+  token     String    @unique @db.VarChar(255)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model User2FA {
+  userId      String    @id @db.VarChar(64)
+  enabled     Boolean   @default(false)
+  secret      String?   @db.VarChar(255)
+  backupCodes Json?
+  enabledAt   DateTime?
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("user_2fa")
+}
+
+model Document {
+  id          String    @id @db.VarChar(64)
+  userId      String    @db.VarChar(64)
+  userName    String
+  userEmail   String
+  kind        String    @db.VarChar(64)
+  typeLabel   String    @db.VarChar(128)
+  submittedAt DateTime  @default(now())
+  status      String    @default("pendente") @db.VarChar(32)
+  previewUrl  String?   @db.Text
+  notes       String?   @db.Text
+  reviewedBy  String?   @db.VarChar(64)
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([status])
+  @@map("documents")
+}
+
+model Acquirer {
+  id              String   @id @db.VarChar(64)
+  name            String
+  code            String   @unique @db.VarChar(64)
+  status          String   @default("ativo") @db.VarChar(32)
+  feePercent      Decimal  @default(0) @db.Decimal(8, 4)
+  feeFixed        Decimal  @default(0) @db.Decimal(12, 2)
+  volumeMes       Decimal  @default(0) @db.Decimal(18, 2)
+  transactionsMes Int      @default(0)
+  settlement      String   @default("D+0") @db.VarChar(32)
+  priority        Int      @default(99)
+  conversionRate  Decimal  @default(0) @db.Decimal(8, 4)
+  publicKey       String?  @db.Text
+  privateKey      String?  @db.Text
+  env             String   @default("sandbox") @db.VarChar(32)
+  enabled         Boolean  @default(true)
+  isPrimary       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  userLinks       UserAcquirer[]
+  @@index([status])
+  @@index([priority])
+  @@map("acquirers")
+}
+
+model UserAcquirer {
+  userId     String   @db.VarChar(64)
+  acquirerId String   @db.VarChar(64)
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acquirer   Acquirer @relation(fields: [acquirerId], references: [id], onDelete: Cascade)
+  @@id([userId, acquirerId])
+  @@map("user_acquirers")
+}
+
+model SellerCustomAcquirer {
+  id         String   @id @db.VarChar(64)
+  userId     String   @db.VarChar(64)
+  name       String
+  feePercent Decimal  @default(0) @db.Decimal(8, 4)
+  feeFixed   Decimal  @default(0) @db.Decimal(12, 2)
+  settlement String   @default("D+0") @db.VarChar(32)
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("seller_custom_acquirers")
+}
+
+model Transaction {
+  id               String    @id @db.VarChar(64)
+  date             DateTime  @default(now())
+  sellerId         String    @db.VarChar(64)
+  sellerName       String?
+  kind             String    @default("venda") @db.VarChar(32)
+  direction        String    @default("entrada") @db.VarChar(32)
+  description      String    @default("") @db.VarChar(255)
+  method           String    @default("PIX") @db.VarChar(32)
+  amount           Decimal   @db.Decimal(18, 2)
+  feeAmount        Decimal   @default(0) @db.Decimal(18, 2)
+  netAmount        Decimal   @default(0) @db.Decimal(18, 2)
+  platformFee      Decimal   @default(0) @db.Decimal(18, 2)
+  status           String    @default("pendente") @db.VarChar(32)
+  customer         String?
+  customerEmail    String?
+  customerDocument String?   @db.VarChar(32)
+  product          String?
+  acquirerId       String?   @db.VarChar(64)
+  provider         String?   @db.VarChar(64)
+  providerId       String?   @db.VarChar(128)
+  paidAt           DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@index([date])
+  @@index([providerId])
+  @@map("transactions")
+}
+
+model Withdrawal {
+  id            String    @id @db.VarChar(64)
+  date          DateTime  @default(now())
+  sellerId      String    @db.VarChar(64)
+  sellerName    String
+  amount        Decimal   @db.Decimal(18, 2)
+  feePercent    Decimal   @default(0) @db.Decimal(8, 4)
+  feeFixed      Decimal   @default(0) @db.Decimal(12, 2)
+  feeAmount     Decimal   @default(0) @db.Decimal(18, 2)
+  netAmount     Decimal   @default(0) @db.Decimal(18, 2)
+  method        String    @default("PIX") @db.VarChar(32)
+  destination   String    @db.VarChar(255)
+  pixKeyType    String?   @db.VarChar(32)
+  status        String    @default("processando") @db.VarChar(32)
+  provider      String?   @db.VarChar(64)
+  providerId    String?   @db.VarChar(128)
+  reviewedBy    String?   @db.VarChar(64)
+  reviewedAt    DateTime?
+  failureReason String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  seller        User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@index([date])
+  @@map("withdrawals")
+}
+
+model PaymentCharge {
+  id               String    @id @db.VarChar(64)
+  sellerId         String    @db.VarChar(64)
+  amount           Decimal   @db.Decimal(18, 2)
+  currency         String    @default("BRL") @db.VarChar(8)
+  status           String    @default("waiting_payment") @db.VarChar(32)
+  method           String    @default("PIX") @db.VarChar(32)
+  description      String?   @db.VarChar(255)
+  customerName     String?
+  customerDocument String?   @db.VarChar(32)
+  metadata         Json?
+  pixQrCode        String?   @db.Text
+  pixCopyPaste     String?   @db.Text
+  expiresAt        DateTime
+  paidAt           DateTime?
+  transactionId    String?   @db.VarChar(64)
+  provider         String?   @db.VarChar(64)
+  providerId       String?   @db.VarChar(128)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@map("payment_charges")
+}
+
+model BalanceLedger {
+  id            String   @id @db.VarChar(64)
+  userId        String   @db.VarChar(64)
+  type          String   @db.VarChar(64)
+  amount        Decimal  @db.Decimal(18, 2)
+  bucket        String   @db.VarChar(32)
+  balanceAfter  Decimal? @db.Decimal(18, 2)
+  referenceType String?  @db.VarChar(64)
+  referenceId   String?  @db.VarChar(64)
+  description   String?  @db.VarChar(255)
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([createdAt])
+  @@map("balance_ledger")
+}
+
+model MetricDaily {
+  id                BigInt   @id @default(autoincrement())
+  scope             String   @db.VarChar(32)
+  userId            String?  @db.VarChar(64)
+  date              DateTime @db.Date
+  volumeGross       Decimal  @default(0) @db.Decimal(18, 2)
+  volumeNet         Decimal  @default(0) @db.Decimal(18, 2)
+  platformRevenue   Decimal  @default(0) @db.Decimal(18, 2)
+  sellerProfit      Decimal  @default(0) @db.Decimal(18, 2)
+  txCount           Int      @default(0)
+  txPaid            Int      @default(0)
+  txPending         Int      @default(0)
+  txFailed          Int      @default(0)
+  txRefunded        Int      @default(0)
+  averageTicket     Decimal  @default(0) @db.Decimal(18, 2)
+  conversionRate    Decimal  @default(0) @db.Decimal(8, 4)
+  outflowTotal      Decimal  @default(0) @db.Decimal(18, 2)
+  withdrawalCount   Int      @default(0)
+  withdrawalPaid    Decimal  @default(0) @db.Decimal(18, 2)
+  withdrawalPending Decimal  @default(0) @db.Decimal(18, 2)
+  withdrawalFees    Decimal  @default(0) @db.Decimal(18, 2)
+  heldBalanceEod    Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@unique([scope, userId, date])
+  @@index([date])
+  @@map("metric_daily")
+}
+
+model PlatformFeePlan {
+  id          String   @id @db.VarChar(64)
+  name        String
+  method      String   @default("PIX") @db.VarChar(32)
+  settlement  String   @default("D+0") @db.VarChar(32)
+  mdrPercent  Decimal  @default(3) @db.Decimal(8, 4)
+  mdrFixed    Decimal  @default(0.15) @db.Decimal(12, 2)
+  reserveDays Int      @default(0)
+  description String?  @db.Text
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@map("platform_fee_plans")
+}
+
+model Branding {
+  id           String   @id @default("default") @db.VarChar(64)
+  logoUrl      String   @db.Text
+  faviconUrl   String   @db.Text
+  authImageUrl String   @db.Text
+  updatedAt    DateTime @updatedAt
+  @@map("branding")
+}
+
+model BrandBanner {
+  id        String   @id @db.VarChar(64)
+  imageUrl  String   @db.Text
+  name      String   @default("")
+  linkUrl   String   @default("") @db.VarChar(512)
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([sortOrder])
+  @@map("brand_banners")
+}
+
+model ApiCredential {
+  id            String    @id @db.VarChar(64)
+  userId        String    @db.VarChar(64)
+  name          String    @default("API Integração")
+  publicKey     String    @unique @db.VarChar(128)
+  secretKeyHash String    @db.VarChar(255)
+  secretKeyHint String?   @db.VarChar(32)
+  permissions   Json
+  active        Boolean   @default(true)
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("api_credentials")
+}
+
+model WebhookEndpoint {
+  id         String             @id @db.VarChar(64)
+  userId     String             @db.VarChar(64)
+  url        String             @db.VarChar(512)
+  secret     String?            @db.VarChar(255)
+  events     Json
+  active     Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+  @@index([userId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String          @id @db.VarChar(64)
+  endpointId  String          @db.VarChar(64)
+  event       String          @db.VarChar(128)
+  payload     Json
+  statusCode  Int?
+  success     Boolean         @default(false)
+  attempts    Int             @default(0)
+  lastError   String?         @db.Text
+  createdAt   DateTime        @default(now())
+  deliveredAt DateTime?
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  @@index([endpointId])
+  @@map("webhook_deliveries")
+}
+
+model IntegrationUtmify {
+  id        String   @id @db.VarChar(64)
+  userId    String   @unique @db.VarChar(64)
+  apiToken  String?  @db.Text
+  active    Boolean  @default(false)
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("integration_utmify")
+}
+
+model NotificationSetting {
+  userId            String   @id @db.VarChar(64)
+  saleToastEnabled  Boolean  @default(true)
+  saleSoundEnabled  Boolean  @default(true)
+  emailOnSale       Boolean  @default(false)
+  emailOnWithdrawal Boolean  @default(true)
+  emailOnDocReview  Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("notification_settings")
+}
+
+model SaleNotification {
+  id            String    @id @db.VarChar(64)
+  userId        String    @db.VarChar(64)
+  transactionId String?   @db.VarChar(64)
+  title         String
+  body          String?   @db.VarChar(512)
+  amount        Decimal?  @db.Decimal(18, 2)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("sale_notifications")
+}
+
+model AuditLog {
+  id         String   @id @db.VarChar(64)
+  actorId    String?  @db.VarChar(64)
+  actorEmail String?
+  action     String   @db.VarChar(128)
+  entityType String?  @db.VarChar(64)
+  entityId   String?  @db.VarChar(64)
+  meta       Json?
+  ip         String?  @db.VarChar(64)
+  createdAt  DateTime @default(now())
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

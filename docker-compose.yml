@@ -1,0 +1,30 @@
+# MySQL real para o DarkPay (teste / MVP)
+# Uso: npm run db:up
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: darkpay-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: darkpay_root
+      MYSQL_DATABASE: darkpay
+      MYSQL_USER: darkpay
+      MYSQL_PASSWORD: darkpay_secret
+    volumes:
+      - darkpay_mysql_data:/var/lib/mysql
+      # importa schema na 1ª subida
+      - ./darkpay.sql:/docker-entrypoint-initdb.d/01-darkpay.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=caching_sha2_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pdarkpay_root"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  darkpay_mysql_data:

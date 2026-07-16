@@ -1,0 +1,208 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Layout */
+  --sidebar-width: 228px;
+  --aside-width: 292px;
+  --header-height: 0px;
+  --main-gap: 14px;
+  --kpi-gap: 12px;
+  --section-gap: 16px;
+  --card-padding: 16px;
+
+  /* Surfaces */
+  --bg-app: #0c0e12;
+  --bg-sidebar: #0c0e12;
+  --bg-topbar: #0c0e12;
+  --bg-card: #15181e;
+  --bg-card-hover: #1a1e26;
+  --bg-card-inner-icon: #1a1e26;
+  --bg-elevated: #1c2028;
+  --bg-button-ghost: #15181e;
+  --bg-progress-track: #232a36;
+
+  /* Borders */
+  --border-card: #1f2430;
+  --border-subtle: #1f2430;
+  --border-muted: #2a3140;
+  --border-ghost-btn: #2a3140;
+  --border-focus: #ffffff;
+  --border-green: #ffffff;
+
+  /* Accent (antes verde — agora branco em todo o app) */
+  --green-use: #ffffff;
+  --green-primary: var(--green-use);
+  --green-primary-hover: #f2f4f7;
+  --green-soft: rgba(255, 255, 255, 0.14);
+  --green-glow: rgba(255, 255, 255, 0.22);
+  --green-ring: var(--green-use);
+  --on-green: #0a0f0c;
+  --text-on-green: var(--on-green);
+
+  /* Text */
+  --text-1: #ffffff;
+  --text-2: #a0a8b7;
+  --text-3: #6d7585;
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-muted: var(--text-3);
+  --text-link: var(--green-use);
+  --text-green: var(--green-use);
+
+  /* Icons */
+  --icon-default: #8b93a3;
+  --icon-muted: #8b93a3;
+  --icon-primary: #f2f4f7;
+  --icon-accent: var(--green-use);
+  --icon-on-green: var(--on-green);
+  --star-amber: #f5a623;
+
+  /* Chart */
+  --chart-line: var(--green-use);
+  --chart-dot-fill: var(--green-use);
+  --chart-dot-stroke: #0c0e12;
+  --chart-fill-start: rgba(255, 255, 255, 0.22);
+  --chart-fill-end: rgba(255, 255, 255, 0);
+  --chart-grid: #1c222d;
+  --chart-axis: #6d7585;
+  --chart-plot-height: 260px;
+  --chart-card-height: 360px;
+
+  /* Progress */
+  --progress-track: #232a36;
+  --progress-fill: var(--green-use);
+
+  /* Radius — cantos arredondados em toda a UI */
+  --radius-sm: 12px;
+  --radius-md: 14px;
+  --radius-card: 20px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Sizes — ícones e fundos dos cards maiores */
+  --kpi-icon-size: 48px;
+  --kpi-icon-glyph: 24px;
+  --ring-size: 52px;
+  --ring-stroke: 4.5px;
+  --thumb-size: 36px;
+  --avatar-size: 32px;
+  --nav-icon-size: 18px;
+  --nav-item-height: 40px;
+  --btn-height: 36px;
+  --btn-height-lg: 40px;
+  --progress-bar-height: 4px;
+  --volume-bar-height: 4px;
+  --volume-bar-width: 100px;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* Tabular numbers for money / metrics */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Card surface */
+.surface-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
+}
+
+/* Botões e chips base */
+.btn-round {
+  border-radius: var(--radius-md);
+}
+
+.inner-round {
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbars — thumb branco do tema */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ffffff;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f2f4f7;
+}
+
+/* Recharts tooltip polish */
+.recharts-default-tooltip {
+  border-radius: var(--radius-md) !important;
+}
+
+/* API credentials page — stack columns on small screens */
+@media (max-width: 900px) {
+  .api-creds-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Inputs / superfícies auxiliares */
+input,
+textarea,
+select {
+  border-radius: var(--radius-md);
+}
+
+/* Auth: foco branco (nunca outline verde do browser) */
+.auth-input-field:focus,
+.auth-input-field:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+.auth-input-wrap:focus-within {
+  border-color: var(--border-focus, #ffffff) !important;
+}
+
+/* Autofill do browser — mantém fundo dark e texto branco */
+.auth-input-field:-webkit-autofill,
+.auth-input-field:-webkit-autofill:hover,
+.auth-input-field:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-1) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-elevated) inset !important;
+  box-shadow: 0 0 0 1000px var(--bg-elevated) inset !important;
+  caret-color: var(--text-1);
+  transition: background-color 99999s ease-in-out 0s;
+}
+
+/* Botões de auth: sem anel de foco colorido do browser */
+button.auth-cta:focus,
+button.auth-cta:focus-visible {
+  outline: 2px solid var(--border-focus, #ffffff);
+  outline-offset: 2px;
+}

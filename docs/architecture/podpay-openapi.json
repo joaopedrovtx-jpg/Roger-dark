@@ -1,0 +1,3352 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PodPay API",
+    "version": "1.0.0",
+    "description": "# PodPay API\n\n> **Navegação:** na referência interativa (ex.: [docs.podpay.app](https://docs.podpay.app)), os endpoints estão agrupados na **barra lateral** por domínio: **Transactions**, **Withdrawals**, **Balance** e **Webhooks**. \n\n## Sobre a API\n\nA PodPay é uma plataforma completa de pagamentos e saques que permite processar transações via PIX, Cartão de Crédito e Boleto, além de realizar saques bancários (PIX) e em criptomoedas.\n\n## Funcionalidades Principais\n\n### Pagamentos\n- **PIX**: Pagamentos instantâneos via QR Code ou código copy-paste\n- **Cartão de Crédito**: Pagamentos com suporte a parcelamento (até 12x)\n- **Boleto**: Pagamentos via boleto bancário com vencimento configurável\n\n### Saques\n- **Saques PIX**: Saques bancários instantâneos via chave PIX\n- **Saques Cripto**: Saques em criptomoedas (USDT, BTC, etc.) para carteiras externas\n\n### Gestão\n- **Consulta de Saldo**: Visualização de saldo disponível, em liberação e reservas\n- **Histórico**: Listagem completa de transações e saques com filtros avançados\n- **Webhooks**: Notificações em tempo real sobre mudanças de status\n\n## Ambientes\n\n### Produção\n- **URL**: `https://api.podpay.app`\n- **Uso**: Ambiente de produção para transações reais\n- **API Keys**: Geradas no dashboard com ambiente `live`\n\n### Sandbox\n- **URL**: `https://sandbox.podpay.app`\n- **Uso**: Ambiente de testes para desenvolvimento e validação\n- **API Keys**: Geradas no dashboard com ambiente `test`\n\n## Autenticação e Headers\n\n### Header obrigatório de autenticação\n\nTodas as chamadas autenticadas da API REST devem enviar:\n\n- `x-api-key`: chave secreta da empresa/integrador\n\nExemplo:\n\n```http\nx-api-key: sk_live_xxxxxxxxxxxxx\n```\n\n### Headers recomendados para rastreabilidade\n\n- `X-Idempotency-Key`: evita duplicidade em operações financeiras de criação\n- `x-correlation-id`: ajuda a correlacionar logs do parceiro com os logs da PodPay\n- `Content-Type: application/json`: obrigatório para envio de payload JSON\n\n## Informações Importantes\n\n### Valores em Centavos\n⚠️ **ATENÇÃO**: Todos os valores monetários são enviados e retornados em **centavos** (inteiros).\n\n**Exemplos:**\n- R$ 100,00 = `10000` centavos\n- R$ 1.500,50 = `150050` centavos\n- R$ 0,50 = `50` centavos\n\n**Valor mínimo:** R$ 1,00 (100 centavos)\n\n### Rate Limits\n\n**Transações:**\n- Padrão: **5 requisições por segundo** por API Key (Configurável por Empresa)\n- Headers de resposta incluem: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`\n\n**Saques:**\n- Padrão: 10 saques por minuto (Configurável por Empresa)\n\n**Geral:**\n- 60 requisições por minuto (padrão)\n- Rate limit é aplicado por API Key\n\n### Idempotência (X-Idempotency-Key)\n\n- Header recomendado em `POST /v1/transactions` e `POST /v1/withdrawals`\n- Recomendado usar UUID v4 ou outra chave única estável por intento financeiro\n- Um retry do mesmo pagamento ou saque deve reutilizar exatamente a mesma chave\n- Repetições com a mesma chave do cliente podem retornar a mesma entidade já criada, e incluem headers como:\n  - `X-Idempotency-Key`\n  - `X-Idempotency-Key-Source`\n  - `X-Idempotency-Replayed`\n  - `X-Idempotency-Processed-At`\n- Sem `X-Idempotency-Key` enviada pelo cliente, a API cria uma nova operação e gera apenas uma chave interna para rastreabilidade\n- Com a feature flag de proteção implícita habilitada, a plataforma pode ativar fallback ou bloqueios semânticos adicionais para requests sem chave explícita\n- O parceiro deve sempre reconciliar pelo `id` retornado e pelos webhooks, nunca apenas por \"requisição respondeu com sucesso\"\n\n### Por que a idempotência é importante\n\nSem idempotência bem implementada, um timeout, retry automático do gateway, retry manual do seller ou perda de persistência local pode gerar tentativas duplicadas do mesmo pagamento ou saque. Em operações financeiras isso pode causar:\n\n- duplicidade local no ERP ou checkout do parceiro\n- reenvio do mesmo saque com o mesmo `id` remoto, mas tratado como novo pelo integrador\n- divergência entre pedido local, transação remota e webhook recebido\n- perda de conversão por integrações que não persistem corretamente o `id` devolvido pela API\n\n### Formato de Resposta\n\nTodas as respostas seguem o formato padrão:\n\n```json\n{\n  \"success\": true,\n  \"data\": { /* dados da resposta */ },\n  \"meta\": {\n    \"timestamp\": \"2024-01-01T12:00:00Z\",\n    \"version\": \"v1\",\n    \"requestId\": \"req_1234567890_abc123\"\n  }\n}\n```\n\nEm caso de erro:\n\n```json\n{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"ERROR_CODE\",\n    \"message\": \"Mensagem de erro descritiva\",\n    \"details\": { /* detalhes adicionais */ }\n  },\n  \"meta\": {\n    \"timestamp\": \"2024-01-01T12:00:00Z\",\n    \"version\": \"v1\",\n    \"requestId\": \"req_1234567890_abc123\"\n  }\n}\n```\n\n### IDs e Identificadores\n\n- **Transações**: Formato `tx_...` ou CUID\n- **Saques**: Formato `wd_...` ou CUID\n- **Request IDs**: Formato `req_${timestamp}_${random}`\n- **Event IDs**: Formato `evt_...` (para webhooks)\n\n### Status de Transações\n\n- `pending`: Aguardando pagamento\n- `processing`: Processando pagamento\n- `paid`: Pagamento confirmado\n- `failed`: Pagamento falhou\n- `cancelled`: Transação cancelada\n- `blocked`: Transação bloqueada para análise\n- `refunded`: Transação estornada\n- `pre_chargeback`: Transação em pré-disputa (chargeback iniciado)\n- `chargeback`: Transação em disputa (chargeback confirmado)\n\n### Status de Saques\n\n- `pending`: Aguardando processamento\n- `pending_approval`: Aguardando aprovação manual\n- `processing`: Processando saque\n- `completed`: Saque completado com sucesso\n- `failed`: Saque falhou\n- `cancelled`: Saque cancelado\n\n## Links Úteis\n\n- **Website**: https://podpay.app\n- **Suporte**: contato@podpay.app\n- **Documentação**: https://docs.podpay.app\n- **Termos de Uso**: https://www.podpay.app/docs/termos-e-condicoes\n\n## Suporte\n\nPara dúvidas, problemas ou sugestões, entre em contato:\n\n- **Email**: contato@podpay.app\n- **Horário de Atendimento**: Segunda a Sexta, 9h às 18h (horário de Brasília)",
+    "contact": {
+      "name": "PodPay Suporte",
+      "email": "contato@podpay.app",
+      "url": "https://podpay.app"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://www.podpay.app/docs/termos-e-condicoes"
+    },
+    "x-logo": {
+      "url": "https://www.podpay.app/images/logos/PodPayHeader.svg",
+      "altText": "PodPay Gateway",
+      "backgroundColor": "#0d3323"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.podpay.app",
+      "description": "Produção"
+    },
+    {
+      "url": "https://sandbox.podpay.app",
+      "description": "Sandbox (Testes)"
+    },
+    {
+      "url": "/",
+      "description": "Local (Desenvolvimento)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Transactions",
+      "description": "Endpoints para criação e gerenciamento de transações de pagamento (PIX, Cartão de Crédito, Boleto)"
+    },
+    {
+      "name": "Withdrawals",
+      "description": "Endpoints para criação e gerenciamento de saques bancários (PIX) e criptomoedas"
+    },
+    {
+      "name": "Balance",
+      "description": "Endpoints para consulta de saldo disponível, valores em liberação e reservas"
+    },
+    {
+      "name": "Checkout",
+      "description": "# Introducao\n\nO Checkout hospedado envia o comprador para uma pagina de pagamento da PodPay, sem o integrador precisar construir tela de PIX, cupom ou status.\n\n## Quando usar\n\nUse Checkout quando quiser que a PodPay cuide da experiencia de pagamento: pagina publica, resumo do pedido, cupom, dados do comprador, geracao do PIX e acompanhamento de status.\n\nUse **Transactions** diretamente quando voce ja tem checkout proprio e precisa apenas criar uma cobranca por API.\n\n## Fluxo recomendado para integracao REST\n\n1. Seu backend chama `POST /v1/checkout/sessions` com `x-api-key` (`sk_*` ou `ck_*`) e, de preferencia, `X-Idempotency-Key`.\n2. Envie `productId` copiado da aba Produtos do Checkout. O campo `expiresAt` e opcional e representa minutos; sem ele, a sessao dura 48 horas.\n3. A PodPay cria a sessao e retorna `checkoutUrl` na primeira criacao.\n4. Voce salva essa URL no seu pedido e redireciona o comprador para ela.\n5. O comprador finaliza o pagamento no checkout hospedado.\n6. Voce acompanha a confirmacao por webhook/postback ou pela consulta de transacao.\n\n> Em replay idempotente, a API retorna a sessao ja criada, mas nao promete reconstruir `checkoutUrl`. Salve a URL da primeira resposta.\n\n## Chaves\n\nA chave `sk_*` continua sendo a chave secreta principal da API. A chave `ck_*` e dedicada ao Checkout e so pode ser usada nos endpoints REST de checkout permitidos, como `POST /v1/checkout/sessions`. Ela nao cria transacoes diretas, saques, consultas de saldo ou refunds.\n\n## Fluxo por link de pagamento\n\nQuando o link e criado no painel PodPay, o comprador abre a URL publica do link. O app de checkout chama `POST /v1/checkout/payment-links/{publicToken}/sessions` e redireciona para a `checkoutUrl` retornada. Normalmente esse endpoint e usado pelo proprio app publico, nao pelo backend do integrador.\n\n## Endpoints publicos\n\nOs endpoints que leem sessao, aplicam cupom e geram PIX nao usam API key no browser. Eles sao protegidos por token opaco da sessao, validacao de dominio quando aplicavel e rate limit por IP."
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "Pagamentos",
+      "tags": [
+        "Transactions"
+      ]
+    },
+    {
+      "name": "Saques",
+      "tags": [
+        "Withdrawals"
+      ]
+    },
+    {
+      "name": "Saldo",
+      "tags": [
+        "Balance"
+      ]
+    },
+    {
+      "name": "Checkout",
+      "tags": [
+        "Checkout"
+      ]
+    }
+  ],
+  "paths": {
+    "/v1/transactions": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Criar transação",
+        "description": "Cria uma nova transação de pagamento. Suporta PIX, Cartão de Crédito e Boleto. Rate limit: 5 requisições/segundo (Configurável por Empresa). Use X-Idempotency-Key para retries seguros; durante o periodo de transicao, se o integrador nao enviar o header o servidor aplica fallback tecnico curto apenas para retries imediatos.",
+        "operationId": "createTransaction",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "X-Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 64
+            },
+            "description": "(Opcional) Chave de idempotencia para evitar transacoes duplicadas. Reutilize a mesma chave ao repetir o mesmo intento. Se omitida, a API pode aplicar fallback tecnico. O header x-api-key e obrigatorio em todas as requisicoes autenticadas."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionDto"
+              },
+              "examples": {
+                "pix": {
+                  "summary": "Transação PIX",
+                  "value": {
+                    "paymentMethod": "pix",
+                    "postbackUrl": "https://sua-url-de-postback.com/postback/podpay",
+                    "customer": {
+                      "document": {
+                        "type": "cpf",
+                        "number": "12345678900"
+                      },
+                      "name": "João Silva",
+                      "email": "joao@example.com",
+                      "phone": "11999999999"
+                    },
+                    "amount": 10000,
+                    "items": [
+                      {
+                        "title": "Produto 1",
+                        "unitPrice": 10000,
+                        "quantity": 1,
+                        "tangible": true
+                      }
+                    ]
+                  }
+                },
+                "credit_card": {
+                  "summary": "Transação Cartão de Crédito",
+                  "value": {
+                    "paymentMethod": "credit_card",
+                    "customer": {
+                      "document": {
+                        "type": "cpf",
+                        "number": "12345678900"
+                      },
+                      "name": "João Silva",
+                      "email": "joao@example.com",
+                      "phone": "11999999999"
+                    },
+                    "amount": 50000,
+                    "installments": 3,
+                    "items": [
+                      {
+                        "title": "Produto 2",
+                        "unitPrice": 50000,
+                        "quantity": 1,
+                        "tangible": true
+                      }
+                    ]
+                  }
+                },
+                "boleto": {
+                  "summary": "Transação Boleto",
+                  "value": {
+                    "paymentMethod": "boleto",
+                    "customer": {
+                      "document": {
+                        "type": "cpf",
+                        "number": "12345678900"
+                      },
+                      "name": "João Silva",
+                      "email": "joao@example.com",
+                      "phone": "11999999999"
+                    },
+                    "amount": 100000,
+                    "items": [
+                      {
+                        "title": "Produto 3",
+                        "unitPrice": 100000,
+                        "quantity": 1,
+                        "tangible": true
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transação criada com sucesso",
+            "headers": {
+              "X-Idempotency-Key": {
+                "description": "Chave de idempotencia aplicada na requisicao. Pode ser a chave enviada pelo cliente ou a chave de fallback tecnico gerada pelo servidor durante o periodo de transicao.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Idempotency-Key-Source": {
+                "description": "Origem da chave de idempotencia: client ou server.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "client",
+                    "server"
+                  ]
+                }
+              },
+              "X-Idempotency-Replayed": {
+                "description": "Indica se a resposta veio do cache de idempotencia.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              },
+              "X-Idempotency-Processed-At": {
+                "description": "Data/hora ISO 8601 do processamento original quando houve replay.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/TransactionApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "examples": {
+                  "pix": {
+                    "summary": "Resposta PIX",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": "tx_clx1234567890abcdef",
+                        "status": "pending",
+                        "amount": 10000,
+                        "paymentMethod": "pix",
+                        "customer": {
+                          "document": {
+                            "type": "cpf",
+                            "number": "12345678900"
+                          },
+                          "name": "João Silva",
+                          "email": "joao@example.com",
+                          "phone": "11999999999"
+                        },
+                        "pixQrCode": "00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913FULANO DE TAL6008BRASILIA62070503***63041D3D",
+                        "pixQrCodeImage": "https://api.podpay.app/qrcode/tx_clx1234567890abcdef.png",
+                        "createdAt": "2024-01-15T10:30:00.000Z"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T10:30:00.000Z",
+                        "version": "v1",
+                        "requestId": "req_1705315800000_abc123def"
+                      }
+                    }
+                  },
+                  "credit_card": {
+                    "summary": "Resposta Cartão",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": "tx_clx1234567890abcdef",
+                        "status": "processing",
+                        "amount": 50000,
+                        "paymentMethod": "credit_card",
+                        "customer": {
+                          "document": {
+                            "type": "cpf",
+                            "number": "12345678900"
+                          },
+                          "name": "João Silva",
+                          "email": "joao@example.com",
+                          "phone": "11999999999"
+                        },
+                        "createdAt": "2024-01-15T10:30:00.000Z"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T10:30:00.000Z",
+                        "version": "v1",
+                        "requestId": "req_1705315800000_xyz789ghi"
+                      }
+                    }
+                  },
+                  "boleto": {
+                    "summary": "Resposta Boleto",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": "tx_clx1234567890abcdef",
+                        "status": "pending",
+                        "amount": 100000,
+                        "paymentMethod": "boleto",
+                        "customer": {
+                          "document": {
+                            "type": "cpf",
+                            "number": "12345678900"
+                          },
+                          "name": "João Silva",
+                          "email": "joao@example.com",
+                          "phone": "11999999999"
+                        },
+                        "boletoUrl": "https://api.podpay.app/boleto/tx_clx1234567890abcdef",
+                        "createdAt": "2024-01-15T10:30:00.000Z"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T10:30:00.000Z",
+                        "version": "v1",
+                        "requestId": "req_1705315800000_mno456pqr"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Listar vendas",
+        "description": "Lista todas as transações da empresa com paginação e filtros opcionais.",
+        "operationId": "listTransactions",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "Número da página"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Itens por página (máximo 100)"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processing",
+                "paid",
+                "failed",
+                "canceled",
+                "blocked",
+                "refunded",
+                "pre_chargeback",
+                "chargeback"
+              ]
+            },
+            "description": "Filtrar por status"
+          },
+          {
+            "name": "paymentMethod",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pix",
+                "credit_card",
+                "boleto"
+              ]
+            },
+            "description": "Filtrar por método de pagamento"
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Data inicial (ISO 8601)"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Data final (ISO 8601)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de transações",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ListTransactionsResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "transactions": [
+                      {
+                        "id": "tx_clx1234567890abcdef",
+                        "status": "paid",
+                        "amount": 10000,
+                        "paymentMethod": "pix",
+                        "customer": {
+                          "document": {
+                            "type": "cpf",
+                            "number": "12345678900"
+                          },
+                          "name": "João Silva",
+                          "email": "joao@example.com",
+                          "phone": "11999999999"
+                        },
+                        "createdAt": "2024-01-15T10:30:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "page": 1,
+                      "pageSize": 20,
+                      "total": 150,
+                      "totalPages": 8
+                    }
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T10:35:00.000Z",
+                    "version": "v1",
+                    "requestId": "req_1705316100000_list123"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/transactions/{id}": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Buscar venda por ID",
+        "description": "Busca uma transação específica pelo seu ID.",
+        "operationId": "getTransaction",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID da transação"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transação encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/TransactionApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "id": "tx_clx1234567890abcdef",
+                    "status": "paid",
+                    "amount": 10000,
+                    "paymentMethod": "pix",
+                    "customer": {
+                      "document": {
+                        "type": "cpf",
+                        "number": "12345678900"
+                      },
+                      "name": "João Silva",
+                      "email": "joao@example.com",
+                      "phone": "11999999999"
+                    },
+                    "pixQrCode": "00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913FULANO DE TAL6008BRASILIA62070503***63041D3D",
+                    "pixQrCodeImage": "https://api.podpay.app/qrcode/tx_clx1234567890abcdef.png",
+                    "createdAt": "2024-01-15T10:30:00.000Z"
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T10:35:00.000Z",
+                    "version": "v1",
+                    "requestId": "req_1705316100000_get123"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/transactions/{id}/refund": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Estornar venda",
+        "description": "Estorna uma transação que foi paga. Apenas transações com status 'paid' podem ser estornadas. O valor será debitado do saldo disponível.",
+        "operationId": "refundTransaction",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID da transação"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transação estornada com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/TransactionApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "id": "tx_clx1234567890abcdef",
+                    "status": "refunded",
+                    "amount": 10000,
+                    "paymentMethod": "pix",
+                    "customer": {
+                      "document": {
+                        "type": "cpf",
+                        "number": "12345678900"
+                      },
+                      "name": "João Silva",
+                      "email": "joao@example.com",
+                      "phone": "11999999999"
+                    },
+                    "createdAt": "2024-01-15T10:30:00.000Z"
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T10:40:00.000Z",
+                    "version": "v1",
+                    "requestId": "req_1705316400000_refund123"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Erro de validação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "notPaid": {
+                    "summary": "Transação não está paga",
+                    "value": {
+                      "success": false,
+                      "error": {
+                        "code": "TRANSACTION_NOT_PAID",
+                        "message": "Apenas transações pagas podem ser estornadas"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T10:40:00.000Z",
+                        "version": "v1",
+                        "requestId": "req_1705316400000_refund123"
+                      }
+                    }
+                  },
+                  "alreadyRefunded": {
+                    "summary": "Transação já foi estornada",
+                    "value": {
+                      "success": false,
+                      "error": {
+                        "code": "TRANSACTION_ALREADY_REFUNDED",
+                        "message": "Transação já foi estornada"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T10:40:00.000Z",
+                        "version": "v1",
+                        "requestId": "req_1705316400000_refund123"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/withdrawals": {
+      "post": {
+        "tags": [
+          "Withdrawals"
+        ],
+        "summary": "Criar saque",
+        "description": "Cria um novo saque bancário (PIX) ou em criptomoeda. Rate limit: 10 saques/minuto (Configurável por Empresa). Use X-Idempotency-Key para retries seguros; durante o periodo de transicao, se o integrador nao enviar o header o servidor ainda pode aplicar fallback, mas saques muito semelhantes em janela curta podem ser bloqueados com 409.",
+        "operationId": "createWithdrawal",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "X-Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 64
+            },
+            "description": "(Opcional) Chave de idempotencia para evitar saques duplicados. Reutilize a mesma chave ao repetir o mesmo intento. Se omitida, a API pode aplicar fallback; saques muito semelhantes em janela curta podem retornar 409. O header x-api-key e obrigatorio em todas as requisicoes autenticadas."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWithdrawalDto"
+              },
+              "examples": {
+                "fiat": {
+                  "summary": "Saque PIX",
+                  "value": {
+                    "method": "fiat",
+                    "amount": 50000,
+                    "pixKey": "11999999999",
+                    "pixKeyType": "phone",
+                    "netPayout": true
+                  }
+                },
+                "crypto": {
+                  "summary": "Saque Crypto",
+                  "value": {
+                    "method": "crypto",
+                    "amount": 100000,
+                    "coin": "USDT",
+                    "walletAddress": "TXYZabcdefghijklmnopqrstuvwxyz123456",
+                    "walletNetwork": "TRC20",
+                    "netPayout": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saque criado com sucesso",
+            "headers": {
+              "X-Idempotency-Key": {
+                "description": "Chave de idempotencia aplicada na requisicao. Pode ser a chave enviada pelo cliente ou a chave de fallback gerada pelo servidor durante o periodo de transicao.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Idempotency-Key-Source": {
+                "description": "Origem da chave de idempotencia: client ou server.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "client",
+                    "server"
+                  ]
+                }
+              },
+              "X-Idempotency-Replayed": {
+                "description": "Indica se a resposta veio do cache de idempotencia.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              },
+              "X-Idempotency-Processed-At": {
+                "description": "Data/hora ISO 8601 do processamento original quando houve replay.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WithdrawalApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "examples": {
+                  "fiat": {
+                    "summary": "Resposta Saque PIX",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": "wd_clx9876543210fedcba",
+                        "method": "fiat",
+                        "status": "pending",
+                        "amount": 50000,
+                        "fee": 500,
+                        "netAmount": 49500,
+                        "createdAt": "2024-01-15T11:00:00.000Z"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T11:00:00.000Z",
+                        "version": "1.0"
+                      }
+                    }
+                  },
+                  "crypto": {
+                    "summary": "Resposta Saque Crypto",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": "wd_clx9876543210fedcba",
+                        "method": "crypto",
+                        "status": "pending",
+                        "amount": 100000,
+                        "fee": 1000,
+                        "netAmount": 99000,
+                        "createdAt": "2024-01-15T11:00:00.000Z"
+                      },
+                      "meta": {
+                        "timestamp": "2024-01-15T11:00:00.000Z",
+                        "version": "1.0"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Erro de validacao ou formato invalido da chave de idempotencia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "invalidIdempotencyKey": {
+                    "summary": "Chave invalida",
+                    "value": {
+                      "statusCode": 400,
+                      "message": "Invalid X-Idempotency-Key format. Must be UUID or alphanumeric string (8-64 chars)",
+                      "code": "INVALID_IDEMPOTENCY_KEY"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "409": {
+            "description": "Requisicao com a mesma chave ainda em processamento ou saque muito semelhante bloqueado por risco de duplicidade",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "idempotencyInProgress": {
+                    "summary": "Mesma chave ainda em processamento",
+                    "value": {
+                      "statusCode": 409,
+                      "message": "Request with this idempotency key is currently being processed",
+                      "code": "IDEMPOTENCY_IN_PROGRESS"
+                    }
+                  },
+                  "duplicateWithdrawalRisk": {
+                    "summary": "Saque suspeito de duplicidade",
+                    "value": {
+                      "statusCode": 409,
+                      "code": "DUPLICATE_WITHDRAWAL_RISK",
+                      "message": "Já existe um saque muito semelhante em uma janela curta. Reutilize uma chave de idempotência explícita ou aguarde antes de tentar novamente.",
+                      "reason": "same_company_amount_pix_destination_short_window",
+                      "existingWithdrawalId": "wd_existing_123",
+                      "existingWithdrawalStatus": "PROCESSING"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Withdrawals"
+        ],
+        "summary": "Listar saques",
+        "description": "Lista todos os saques da empresa com paginação.",
+        "operationId": "listWithdrawals",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "Número da página"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Itens por página (máximo 100)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de saques",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ListWithdrawalsResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "withdrawals": [
+                      {
+                        "id": "wd_clx9876543210fedcba",
+                        "method": "fiat",
+                        "status": "completed",
+                        "amount": 50000,
+                        "fee": 500,
+                        "netAmount": 49500,
+                        "createdAt": "2024-01-15T11:00:00.000Z",
+                        "completedAt": "2024-01-15T11:05:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "page": 1,
+                      "pageSize": 20,
+                      "total": 45,
+                      "totalPages": 3
+                    }
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T11:10:00.000Z",
+                    "version": "1.0"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/withdrawals/{id}": {
+      "get": {
+        "tags": [
+          "Withdrawals"
+        ],
+        "summary": "Buscar saque por ID",
+        "description": "Busca um saque específico pelo seu ID.",
+        "operationId": "getWithdrawal",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID do saque"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saque encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WithdrawalApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "id": "wd_clx9876543210fedcba",
+                    "method": "fiat",
+                    "status": "completed",
+                    "amount": 50000,
+                    "fee": 500,
+                    "netAmount": 49500,
+                    "createdAt": "2024-01-15T11:00:00.000Z",
+                    "completedAt": "2024-01-15T11:05:00.000Z"
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T11:10:00.000Z",
+                    "version": "1.0"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/withdrawals/{id}/cancel": {
+      "patch": {
+        "tags": [
+          "Withdrawals"
+        ],
+        "summary": "Cancelar saque",
+        "description": "Cancela um saque que está pendente. Apenas saques com status 'pending' podem ser cancelados.",
+        "operationId": "cancelWithdrawal",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID do saque"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saque cancelado com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WithdrawalApiResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "id": "wd_clx9876543210fedcba",
+                    "method": "fiat",
+                    "status": "canceled",
+                    "amount": 50000,
+                    "fee": 500,
+                    "netAmount": 49500,
+                    "createdAt": "2024-01-15T11:00:00.000Z"
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T11:15:00.000Z",
+                    "version": "1.0"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/withdrawals/simulate": {
+      "post": {
+        "tags": [
+          "Withdrawals"
+        ],
+        "summary": "Simular saque crypto",
+        "description": "Simula um saque em criptomoeda para calcular taxas e valores estimados antes de criar o saque real.",
+        "operationId": "simulateCryptoWithdrawal",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateCryptoDto"
+              },
+              "example": {
+                "amount": 100000,
+                "coin": "USDT"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulação realizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SimulationResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "amount": 100000,
+                    "coin": "USDT",
+                    "estimatedFee": 1000,
+                    "estimatedNetAmount": 99000,
+                    "estimatedGrossAmount": 100000,
+                    "exchangeRate": 5.05,
+                    "processingTime": "5-15 minutos",
+                    "minimumAmount": 10000,
+                    "maximumAmount": 10000000
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T11:20:00.000Z",
+                    "version": "1.0"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          }
+        ]
+      }
+    },
+    "/v1/balance/available": {
+      "get": {
+        "tags": [
+          "Balance"
+        ],
+        "summary": "Obter saldo disponível",
+        "description": "Retorna informações detalhadas sobre o saldo da empresa, incluindo valores disponíveis, em liberação, antecipáveis e em reserva.",
+        "operationId": "getAvailableBalance",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saldo disponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/BalanceAvailableResponse"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "amount": 1500000,
+                    "waitingFunds": 500000,
+                    "maxAntecipable": 800000,
+                    "reserve": 200000
+                  },
+                  "meta": {
+                    "timestamp": "2024-01-15T12:00:00.000Z",
+                    "version": "v1",
+                    "requestId": "req_1705318800000_balance123"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave de API (obrigatoria). Formato sk_live_... ou sk_test_... (dashboard PodPay)."
+          }
+        ]
+      }
+    },
+    "/v1/checkout/sessions": {
+      "post": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Criar sessao de checkout",
+        "description": "Cria uma sessao hospedada e retorna `checkoutUrl` na primeira criacao. Este endpoint deve ser chamado pelo backend do merchant, nunca diretamente pelo navegador do comprador. Envie `productId` com o ID do produto exibido na aba Produtos do Checkout. O campo `expiresAt` agora e a duracao em minutos; omita para usar o padrao de 48 horas.",
+        "operationId": "createCheckoutSession",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chave secreta da empresa. Use `sk_live_...` / `sk_test_...` ou a chave de checkout `ck_live_...` / `ck_test_...`. A chave `ck_*` so funciona em endpoints REST de checkout permitidos."
+          },
+          {
+            "name": "X-Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Chave unica do pedido/tentativa no seu sistema. Reutilize a mesma chave ao repetir exatamente a mesma criacao de checkout."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCreateSessionRequest"
+              },
+              "examples": {
+                "basic": {
+                  "summary": "Checkout PIX hospedado",
+                  "value": {
+                    "expiresAt": 60,
+                    "successUrl": "https://sualoja.com/pedido/123/sucesso",
+                    "cancelUrl": "https://sualoja.com/pedido/123/cancelado",
+                    "postbackUrl": "https://sualoja.com/webhooks/podpay",
+                    "lineItems": [
+                      {
+                        "quantity": 1,
+                        "sortOrder": 0,
+                        "productId": "cmp_product_id_real"
+                      }
+                    ],
+                    "metadata": {
+                      "orderId": "123"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replay idempotente. A sessao ja existia; use a `checkoutUrl` salva na primeira resposta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCreateSessionReplayResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Sessao criada. Redirecione o comprador para `checkoutUrl`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCreateSessionCreatedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Payload invalido, URL invalida ou duracao de expiracao fora do limite."
+          },
+          "401": {
+            "description": "API key ausente ou invalida."
+          },
+          "403": {
+            "description": "A chave enviada nao tem escopo para esta rota. Exemplo: `ck_*` em rotas financeiras fora do Checkout."
+          },
+          "404": {
+            "description": "Checkout desabilitado, empresa indisponivel ou preco/produto nao encontrado."
+          },
+          "409": {
+            "description": "Conflito temporario; tente novamente com a mesma idempotency key."
+          },
+          "429": {
+            "description": "Rate limit atingido."
+          },
+          "500": {
+            "description": "Erro interno."
+          }
+        }
+      }
+    },
+    "/v1/checkout/sessions/{token}": {
+      "get": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Ler sessão pública de checkout",
+        "description": "Devolve totais, itens, URLs e aparência da sessão. Não exige API key. Com query `poll=1`, `true` ou `yes`, responde 200 também para sessão em estado terminal ou expirada (útil para o app de checkout fazer polling). Sem `poll`, estados terminal/expirado retornam 410 Gone.",
+        "operationId": "getCheckoutPublicSession",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Token opaco do path `/s/:token` na `checkoutUrl`."
+          },
+          {
+            "name": "poll",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Hosted polling: permite corpo JSON em estados terminais."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sessão encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutPublicSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sessão não encontrada"
+          },
+          "410": {
+            "description": "Sessão indisponível (terminal ou expirada) quando `poll` não é enviado"
+          }
+        }
+      }
+    },
+    "/v1/checkout/sessions/{token}/coupon": {
+      "post": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Aplicar cupom na sessao",
+        "operationId": "applyCheckoutCoupon",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutApplyCouponRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cupom aplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutApplyCouponResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/checkout/sessions/{token}/pay": {
+      "post": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Criar ou reutilizar PIX (checkout)",
+        "description": "Cria uma transação com origem CHECKOUT (valor igual ao total da sessão). Atualiza a sessão para PIX_CREATED quando aplicável e reutiliza um PIX pendente existente quando fizer sentido.",
+        "operationId": "payCheckoutSession",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutPayRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "QR/copia-e-cola ou estado terminal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutPayResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/checkout/payment-links/{publicToken}/sessions": {
+      "post": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Abrir sessão a partir de link de pagamento",
+        "description": "Usado pela página pública `/l/:publicToken` do checkout. Cria uma sessão com os itens do link e devolve a `checkoutUrl` (URL absoluta, `/s/:token`) para o cliente concluir o PIX. Corpo JSON opcional: `expiresAt` (ISO 8601). Não aceita metadados arbitrários. O `Host` da requisição deve corresponder à empresa do link quando há validação de domínio.",
+        "operationId": "createCheckoutPaymentLinkSession",
+        "parameters": [
+          {
+            "name": "publicToken",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Token público do link (mesmo valor usado no path `/l/{publicToken}`)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutPaymentLinkSessionRequest"
+              },
+              "examples": {
+                "empty": {
+                  "summary": "Sem corpo",
+                  "value": {}
+                },
+                "withExpiry": {
+                  "summary": "Com expiração",
+                  "value": {
+                    "expiresAt": "2026-05-16T18:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sessão criada; redirecionar o browser para `checkoutUrl`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutPaymentLinkSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Link não encontrado ou inativo"
+          },
+          "409": {
+            "description": "Criação em andamento; repetir em instantes"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "transaction.event": {
+      "post": {
+        "summary": "Webhook de transação",
+        "description": "Evento enviado quando o status de uma transação muda.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook recebido com sucesso"
+          }
+        }
+      }
+    },
+    "withdrawal.event": {
+      "post": {
+        "summary": "Webhook de saque",
+        "description": "Evento enviado quando o status de um saque muda.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook recebido com sucesso"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "API Key para autenticacao REST. Use `sk_*` para a API principal ou `ck_*` apenas para Checkout hospedado. Obtenha as chaves no dashboard do PodPay."
+      }
+    },
+    "schemas": {
+      "CreateTransactionDto": {
+        "type": "object",
+        "required": [
+          "paymentMethod",
+          "customer",
+          "amount",
+          "items"
+        ],
+        "properties": {
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "pix",
+              "credit_card",
+              "boleto"
+            ],
+            "description": "Método de pagamento"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/CustomerInfo"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 100,
+            "description": "Valor em centavos (ex: R$ 100,00 = 10000). Valor mínimo: R$ 1,00 (100 centavos)"
+          },
+          "installments": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "description": "Número de parcelas (apenas para cartão de crédito, máximo 12x)"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionItem"
+            },
+            "minItems": 1,
+            "description": "Lista de itens da transação"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/DeliveryInfo",
+            "description": "Informações de entrega (opcional). Se o objeto vier incompleto, será ignorado."
+          },
+          "postbackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL HTTPS adicional para receber webhooks de transação (postback). Envio aditivo aos webhooks configurados no dashboard. URLs inválidas, locais ou privadas são bloqueadas."
+          }
+        }
+      },
+      "CustomerInfo": {
+        "type": "object",
+        "required": [
+          "document",
+          "name",
+          "email",
+          "phone"
+        ],
+        "properties": {
+          "document": {
+            "type": "object",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cpf",
+                  "cnpj"
+                ],
+                "description": "Tipo de documento"
+              },
+              "number": {
+                "type": "string",
+                "description": "Número do documento (apenas dígitos)"
+              }
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Nome completo do cliente"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email do cliente"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Telefone do cliente (formato: DDD + número, ex: 11999999999)"
+          }
+        }
+      },
+      "TransactionItem": {
+        "type": "object",
+        "required": [
+          "title",
+          "unitPrice",
+          "quantity",
+          "tangible"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Nome/título do produto ou serviço"
+          },
+          "unitPrice": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Preço unitário em centavos"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Quantidade do item"
+          },
+          "tangible": {
+            "type": "boolean",
+            "description": "Se o produto é físico (true) ou digital (false)"
+          }
+        }
+      },
+      "DeliveryInfo": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": "string",
+            "description": "Rua/Logradouro"
+          },
+          "number": {
+            "type": "string",
+            "description": "Número"
+          },
+          "neighborhood": {
+            "type": "string",
+            "description": "Bairro"
+          },
+          "city": {
+            "type": "string",
+            "description": "Cidade"
+          },
+          "state": {
+            "type": "string",
+            "description": "Estado (UF)"
+          },
+          "zipcode": {
+            "type": "string",
+            "description": "CEP (apenas dígitos)"
+          }
+        }
+      },
+      "TransactionApiResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID único da transação"
+          },
+          "companyId": {
+            "type": "string",
+            "description": "ID da empresa"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ],
+            "description": "Moeda (sempre BRL)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "PAID",
+              "FAILED",
+              "CANCELED",
+              "BLOCKED",
+              "REFUNDED",
+              "PRE_CHARGEBACK",
+              "CHARGEBACK"
+            ],
+            "description": "Status da transação (UPPERCASE)"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Valor em centavos"
+          },
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "pix",
+              "credit_card",
+              "boleto"
+            ],
+            "description": "Método de pagamento"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/CustomerInfo",
+            "description": "Dados do cliente"
+          },
+          "pixQrCode": {
+            "type": "string",
+            "description": "Código PIX (copy-paste) - apenas para PIX"
+          },
+          "pixQrCodeImage": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL da imagem do QR Code PIX - apenas para PIX"
+          },
+          "boletoUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL do boleto - apenas para Boleto"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data de criação (ISO 8601)"
+          }
+        }
+      },
+      "ListTransactionsResponse": {
+        "type": "object",
+        "properties": {
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionApiResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationInfo"
+          }
+        }
+      },
+      "CreateWithdrawalDto": {
+        "type": "object",
+        "required": [
+          "method",
+          "amount"
+        ],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "fiat",
+              "crypto"
+            ],
+            "description": "Tipo de saque"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 100,
+            "description": "Valor em centavos (ex: R$ 500,00 = 50000). Valor mínimo: R$ 1,00 (100 centavos)"
+          },
+          "netPayout": {
+            "type": "boolean",
+            "default": true,
+            "description": "Padrao true. Se true, amount e o valor liquido a receber; as taxas sao debitadas em separado do saldo. Se false, a taxa e descontada do valor informado."
+          },
+          "pixKey": {
+            "type": "string",
+            "description": "Chave PIX (obrigatório para method=fiat). Pode ser telefone, email, CPF, CNPJ, chave aleatória ou código copy-paste."
+          },
+          "pixKeyType": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "email",
+              "cpf",
+              "cnpj",
+              "evp",
+              "copypaste"
+            ],
+            "description": "Tipo da chave PIX (obrigatório para method=fiat)"
+          },
+          "coin": {
+            "type": "string",
+            "description": "Criptomoeda (obrigatório para method=crypto). Ex: USDT, BTC, ETH"
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Endereço da carteira (obrigatório para method=crypto)"
+          },
+          "walletNetwork": {
+            "type": "string",
+            "description": "Rede da carteira (obrigatório para method=crypto). Ex: TRC20, ERC20"
+          }
+        }
+      },
+      "SimulateCryptoDto": {
+        "type": "object",
+        "required": [
+          "amount",
+          "coin"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "minimum": 100,
+            "description": "Valor em centavos para simular"
+          },
+          "coin": {
+            "type": "string",
+            "description": "Criptomoeda (ex: USDT, BTC, ETH)"
+          }
+        }
+      },
+      "WithdrawalApiResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID único do saque"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "fiat",
+              "crypto"
+            ],
+            "description": "Tipo de saque"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "pending_approval",
+              "processing",
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "description": "Status do saque"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Valor solicitado em centavos"
+          },
+          "fee": {
+            "type": "integer",
+            "description": "Taxa em centavos"
+          },
+          "netAmount": {
+            "type": "integer",
+            "description": "Valor líquido em centavos"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data de criação (ISO 8601)"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data de conclusão (apenas para status=completed)"
+          },
+          "failureReason": {
+            "type": "string",
+            "description": "Motivo da falha (apenas para status=failed)"
+          }
+        }
+      },
+      "SimulationResponse": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "Valor solicitado em centavos"
+          },
+          "coin": {
+            "type": "string",
+            "description": "Criptomoeda"
+          },
+          "estimatedFee": {
+            "type": "integer",
+            "description": "Taxa estimada em centavos"
+          },
+          "estimatedNetAmount": {
+            "type": "integer",
+            "description": "Valor líquido estimado em centavos"
+          },
+          "estimatedGrossAmount": {
+            "type": "integer",
+            "description": "Valor bruto estimado em centavos"
+          },
+          "exchangeRate": {
+            "type": "number",
+            "description": "Taxa de câmbio (se aplicável)"
+          },
+          "processingTime": {
+            "type": "string",
+            "description": "Tempo estimado de processamento (ex: '5-15 minutos')"
+          },
+          "minimumAmount": {
+            "type": "integer",
+            "description": "Valor mínimo permitido em centavos"
+          },
+          "maximumAmount": {
+            "type": "integer",
+            "description": "Valor máximo permitido em centavos"
+          }
+        }
+      },
+      "ListWithdrawalsResponse": {
+        "type": "object",
+        "properties": {
+          "withdrawals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WithdrawalApiResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationInfo"
+          }
+        }
+      },
+      "BalanceAvailableResponse": {
+        "type": "object",
+        "description": "Informações de saldo disponível",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "Saldo disponível atual em centavos (ex: R$ 15.000,00 = 1500000). Este é o valor que pode ser sacado imediatamente."
+          },
+          "waitingFunds": {
+            "type": "integer",
+            "description": "Valor total em saldo a liberar em centavos (pendingBalance). Valores de transações pagas que ainda estão no período de liberação."
+          },
+          "maxAntecipable": {
+            "type": "integer",
+            "description": "Valor máximo disponível para antecipação em centavos. Valor que pode ser antecipado do waitingFunds."
+          },
+          "reserve": {
+            "type": "integer",
+            "description": "Valor do saldo em reserva em centavos (reservedBalance). Valores bloqueados para garantia ou pendências."
+          }
+        },
+        "required": [
+          "amount",
+          "waitingFunds",
+          "maxAntecipable",
+          "reserve"
+        ]
+      },
+      "PaginationInfo": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Página atual"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Itens por página"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total de itens"
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total de páginas"
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "description": "Formato padrão de resposta da API",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indica se a requisição foi bem-sucedida"
+          },
+          "data": {
+            "description": "Dados da resposta (estrutura varia conforme o endpoint)"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorResponse",
+            "description": "Objeto de erro (apenas quando success=false)"
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Timestamp da resposta (ISO 8601)"
+              },
+              "version": {
+                "type": "string",
+                "description": "Versão da API (ex: v1, 1.0)"
+              },
+              "requestId": {
+                "type": "string",
+                "description": "ID único da requisição para rastreamento (formato: req_${timestamp}_${random})"
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard API error object. Fields `traceId`, `timestamp`, `path`, and `details` are optional and additive for integrators. Messages are provider-agnostic (no acquirer/PSP brand names); use `error.code`, `details`, and `traceId` when contacting support.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code (e.g. VALIDATION_ERROR, AUTHENTICATION_ERROR, DUPLICATE_WITHDRAWAL_RISK)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message without acquirer or PSP identifiers"
+          },
+          "details": {
+            "description": "Optional structured payload: validation field list, `retryAfter` seconds, `existingWithdrawalId` for duplicate withdrawal risk, etc. Shape varies by `code`."
+          },
+          "integrationError": {
+            "description": "Optional structured integration hint (transactions). Same additive rules as `details`."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Correlation / trace identifier for support and logs"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the error was materialized (ISO 8601)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Request path that produced the error"
+          }
+        }
+      },
+      "WebhookPayload": {
+        "type": "object",
+        "description": "Estrutura padrão do payload de webhook enviado para clientes",
+        "required": [
+          "event",
+          "timestamp",
+          "data",
+          "signature",
+          "version",
+          "eventId",
+          "source"
+        ],
+        "properties": {
+          "event": {
+            "type": "string",
+            "description": "Tipo do evento",
+            "enum": [
+              "transaction.completed",
+              "transaction.failed",
+              "transaction.pending",
+              "transaction.refunded",
+              "withdrawal.completed",
+              "withdrawal.failed",
+              "withdrawal.canceled"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp do evento em ISO 8601"
+          },
+          "data": {
+            "type": "object",
+            "description": "Dados específicos do evento (estrutura varia conforme o tipo)",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransactionWebhookData"
+              },
+              {
+                "$ref": "#/components/schemas/WithdrawalWebhookData"
+              }
+            ]
+          },
+          "signature": {
+            "type": "string",
+            "description": "Assinatura HMAC-SHA256 do payload (futuro - atualmente vazio)"
+          },
+          "version": {
+            "type": "string",
+            "description": "Versão do formato do webhook",
+            "default": "1.0"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "ID único do evento (formato: evt_...)",
+            "pattern": "^evt_"
+          },
+          "retryCount": {
+            "type": "integer",
+            "description": "Número de tentativas de envio (apenas em retries)",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "source": {
+            "type": "string",
+            "description": "Origem do webhook",
+            "default": "podpay-gateway"
+          }
+        }
+      },
+      "TransactionWebhookData": {
+        "type": "object",
+        "description": "Dados de webhook para eventos de transação",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID da transação"
+          },
+          "companyId": {
+            "type": "string",
+            "description": "ID da empresa"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Valor em centavos"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ],
+            "description": "Moeda (sempre BRL)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "PAID",
+              "FAILED",
+              "CANCELED",
+              "BLOCKED",
+              "REFUNDED",
+              "PRE_CHARGEBACK",
+              "CHARGEBACK"
+            ],
+            "description": "Status da transação (UPPERCASE)"
+          },
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "PIX",
+              "CREDIT_CARD",
+              "BOLETO"
+            ],
+            "description": "Método de pagamento (UPPERCASE)"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "Descrição da transação"
+          },
+          "netTransactionAmount": {
+            "type": "integer",
+            "description": "Valor líquido em centavos (após taxas)"
+          },
+          "installments": {
+            "type": "integer",
+            "description": "Número de parcelas"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data de criação (ISO 8601)"
+          },
+          "paidAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Data de pagamento (ISO 8601)"
+          }
+        }
+      },
+      "WithdrawalWebhookData": {
+        "type": "object",
+        "description": "Dados de webhook para eventos de saque",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID do saque"
+          },
+          "companyId": {
+            "type": "string",
+            "description": "ID da empresa"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "fiat",
+              "crypto"
+            ],
+            "description": "Tipo de saque"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "pending_approval",
+              "processing",
+              "completed",
+              "failed",
+              "canceled"
+            ],
+            "description": "Status do saque"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Valor solicitado em centavos"
+          },
+          "fee": {
+            "type": "integer",
+            "description": "Taxa em centavos"
+          },
+          "netAmount": {
+            "type": "integer",
+            "description": "Valor líquido em centavos"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "processedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Data de conclusão (apenas para status 'completed')"
+          }
+        }
+      },
+      "CheckoutCreateSessionLineItem": {
+        "type": "object",
+        "required": [
+          "productId",
+          "quantity",
+          "sortOrder"
+        ],
+        "properties": {
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Quantidade do item."
+          },
+          "sortOrder": {
+            "type": "integer",
+            "description": "Ordem de exibi??o no resumo do checkout. Comece em 0."
+          },
+          "productId": {
+            "type": "string",
+            "description": "ID real de um produto ativo no catalogo de checkout da empresa. Copie na aba Produtos do Checkout.",
+            "example": "cmp_product_id_real"
+          }
+        }
+      },
+      "CheckoutCreateSessionRequest": {
+        "type": "object",
+        "required": [
+          "successUrl",
+          "cancelUrl",
+          "lineItems"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 10080,
+            "default": 2880,
+            "description": "Duracao da sessao em minutos. Exemplo: 60 = 1 hora. Se omitido, usa 2880 minutos (48 horas)."
+          },
+          "successUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL HTTPS para onde o comprador pode voltar ap?s pagamento confirmado."
+          },
+          "cancelUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL HTTPS para retorno quando o comprador cancelar ou abandonar o checkout."
+          },
+          "postbackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Opcional. URL HTTPS adicional para receber notifica??o server-to-server deste checkout. N?o substitui webhooks configurados no dashboard."
+          },
+          "lineItems": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CheckoutCreateSessionLineItem"
+            },
+            "description": "Itens do checkout. Cada item referencia um produto ativo do catalogo PodPay."
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Opcional. Dados opacos para reconcilia??o interna do integrador, como orderId. N?o ? exibido ao comprador."
+          }
+        }
+      },
+      "CheckoutCreateSessionCreatedResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "expiresAt",
+          "checkoutUrl",
+          "idempotentReplay"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "ID interno da sess?o de checkout."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checkoutUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL absoluta para abrir o checkout hospedado. Salve esta URL no seu pedido antes de redirecionar o comprador."
+          },
+          "idempotentReplay": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "example": {
+          "sessionId": "cs_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          "expiresAt": "2026-05-22T18:00:00.000Z",
+          "checkoutUrl": "https://checkout.exemplo.com/s/opaque_checkout_token",
+          "idempotentReplay": false
+        }
+      },
+      "CheckoutCreateSessionReplayResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "status",
+          "expiresAt",
+          "idempotentReplay"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status atual da sess?o j? criada."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "idempotentReplay": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "example": {
+          "sessionId": "cs_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          "status": "PENDING",
+          "expiresAt": "2026-05-22T18:00:00.000Z",
+          "idempotentReplay": true
+        }
+      },
+      "CheckoutPublicSessionResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "status",
+          "expiresAt",
+          "lineItems",
+          "subtotalAmount",
+          "discountAmount",
+          "shippingAmount",
+          "additionalAmount",
+          "totalAmount",
+          "successUrl",
+          "cancelUrl",
+          "coupon",
+          "appearance"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Estado da sessão (ex.: PENDING, PIX_CREATED, PAID, EXPIRED, CANCELLED)."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lineItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckoutPublicSessionLineItem"
+            }
+          },
+          "subtotalAmount": {
+            "type": "integer",
+            "description": "Centavos"
+          },
+          "discountAmount": {
+            "type": "integer"
+          },
+          "shippingAmount": {
+            "type": "integer"
+          },
+          "additionalAmount": {
+            "type": "integer"
+          },
+          "totalAmount": {
+            "type": "integer"
+          },
+          "successUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "coupon": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountType": {
+                "type": "string"
+              },
+              "appliedAmount": {
+                "type": "integer"
+              }
+            }
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/CheckoutPublicAppearance",
+            "description": "Snapshot imutável da personalização usada para renderizar o checkout. Em sessões antigas sem snapshot, o servidor devolve um padrão seguro (template STANDARD, nome de exibição genérico)."
+          }
+        }
+      },
+      "CheckoutPaymentLinkSessionRequest": {
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Opcional. Data de expiração desejada; o servidor aplica limites máximos."
+          }
+        }
+      },
+      "CheckoutPaymentLinkSessionResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "expiresAt",
+          "checkoutUrl",
+          "idempotentReplay"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Identificador interno da sessão criada."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checkoutUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL absoluta para o cliente abrir o checkout (path `/s/:token`). Se a empresa tiver domínio customizado ativo para checkout, o host segue a mesma regra da criação de sessão autenticada."
+          },
+          "idempotentReplay": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "description": "Reservado para evolução futura; hoje sempre `false`."
+          }
+        },
+        "example": {
+          "sessionId": "cs_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          "expiresAt": "2026-05-15T12:00:00.000Z",
+          "checkoutUrl": "https://checkout.exemplo.com/s/cs_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          "idempotentReplay": false
+        }
+      },
+      "CheckoutPublicSessionLineItem": {
+        "type": "object",
+        "required": [
+          "snapshotProductName",
+          "unitAmount",
+          "quantity",
+          "currency",
+          "sortOrder"
+        ],
+        "properties": {
+          "snapshotProductName": {
+            "type": "string"
+          },
+          "snapshotImageUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "URL HTTPS da imagem do produto capturada na criação da sessão a partir do catálogo. Não é aceita de input livre."
+          },
+          "unitAmount": {
+            "type": "integer"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "productId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ID do produto exibido na aba Produtos do Checkout."
+          }
+        }
+      },
+      "CheckoutPublicAppearance": {
+        "type": "object",
+        "required": [
+          "appearanceVersion",
+          "template",
+          "displayName",
+          "theme",
+          "banners"
+        ],
+        "properties": {
+          "appearanceVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "STANDARD",
+              "BANNER_TOP",
+              "PRODUCT_SHOWCASE",
+              "MINIMAL",
+              "TRUST_CENTER",
+              "MARKETPLACE",
+              "PREMIUM"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "primaryColor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Hex color in #RRGGBB."
+          },
+          "backgroundColor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Hex color in #RRGGBB."
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "LIGHT",
+              "DARK"
+            ]
+          },
+          "banners": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": [
+                "sortOrder",
+                "imageUrl",
+                "href"
+              ],
+              "properties": {
+                "sortOrder": {
+                  "type": "integer"
+                },
+                "imageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "href": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "altText": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "CheckoutApplyCouponRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Codigo do cupom"
+          }
+        }
+      },
+      "CheckoutApplyCouponResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "subtotalAmount",
+          "discountAmount",
+          "totalAmount",
+          "coupon"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "subtotalAmount": {
+            "type": "integer"
+          },
+          "discountAmount": {
+            "type": "integer"
+          },
+          "totalAmount": {
+            "type": "integer"
+          },
+          "coupon": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountType": {
+                "type": "string"
+              },
+              "appliedAmount": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CheckoutPayRequest": {
+        "type": "object",
+        "required": [
+          "customer"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerInfo"
+          }
+        }
+      },
+      "CheckoutPayResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "status",
+          "expiresAt",
+          "amountCents",
+          "successUrl",
+          "cancelUrl"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "transactionId": {
+            "type": "string"
+          },
+          "amountCents": {
+            "type": "integer"
+          },
+          "pixQrCode": {
+            "type": "string"
+          },
+          "pixQrCodeImage": {
+            "type": "string",
+            "description": "data URL ou URL HTTPS"
+          },
+          "successUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Erro de validação",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  }
+                }
+              ]
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Dados inválidos",
+                "details": [
+                  {
+                    "field": "amount",
+                    "message": "Valor mínimo é R$ 1,00 (100 centavos)"
+                  }
+                ]
+              },
+              "meta": {
+                "timestamp": "2024-01-15T12:00:00.000Z",
+                "version": "v1",
+                "requestId": "req_1705318800000_error123"
+              }
+            }
+          }
+        }
+      },
+      "AuthenticationError": {
+        "description": "Erro de autenticação",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  }
+                }
+              ]
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "AUTHENTICATION_ERROR",
+                "message": "API key inválida ou ausente"
+              },
+              "meta": {
+                "timestamp": "2024-01-15T12:00:00.000Z",
+                "version": "v1",
+                "requestId": "req_1705318800000_auth123"
+              }
+            }
+          }
+        }
+      },
+      "RateLimitError": {
+        "description": "Rate limit excedido",
+        "headers": {
+          "X-RateLimit-Limit": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Limite de requisições"
+          },
+          "X-RateLimit-Remaining": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Requisições restantes"
+          },
+          "X-RateLimit-Reset": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Timestamp de reset (Unix timestamp)"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Segundos para tentar novamente"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  }
+                }
+              ]
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Rate limit exceeded. Please try again later."
+              },
+              "meta": {
+                "timestamp": "2024-01-15T12:00:00.000Z",
+                "version": "v1",
+                "requestId": "req_1705318800000_rate123"
+              }
+            }
+          }
+        }
+      },
+      "NotFoundError": {
+        "description": "Recurso não encontrado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  }
+                }
+              ]
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "TRANSACTION_NOT_FOUND",
+                "message": "Transação não encontrada"
+              },
+              "meta": {
+                "timestamp": "2024-01-15T12:00:00.000Z",
+                "version": "v1",
+                "requestId": "req_1705318800000_notfound123"
+              }
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Erro interno do servidor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  }
+                }
+              ]
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "Erro interno do servidor"
+              },
+              "meta": {
+                "timestamp": "2024-01-15T12:00:00.000Z",
+                "version": "v1",
+                "requestId": "req_1705318800000_server123"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-authentication-guide": {
+    "title": "Guia de Autenticação",
+    "description": "Como autenticar requisições na API PodPay Gateway",
+    "gettingStarted": {
+      "title": "Como Obter sua API Key",
+      "steps": [
+        "1. Acesse o dashboard do PodPay: https://podpay.app",
+        "2. Faça login na sua conta",
+        "3. Navegue até a seção 'Integrações' ou 'API Keys'",
+        "4. Gere um novo par de chaves (Public Key + Secret Key)",
+        "5. Escolha o ambiente: 'live' (produção) ou 'test' (sandbox)",
+        "6. Copie a Secret Key (formato: sk_...) - ela só será mostrada uma vez!"
+      ],
+      "important": [
+        "⚠️ A Secret Key é sensível e não deve ser compartilhada",
+        "⚠️ Nunca commite a Secret Key em repositórios públicos",
+        "⚠️ Use variáveis de ambiente para armazenar a chave",
+        "⚠️ A Public Key pode ser compartilhada (usada apenas para identificação)"
+      ]
+    },
+    "usage": {
+      "title": "Como Usar a API Key",
+      "description": "Todas as requisições devem incluir a Secret Key no header 'x-api-key'",
+      "header": {
+        "name": "x-api-key",
+        "value": "sk_...",
+        "description": "Secret Key obtida no dashboard"
+      },
+      "examples": {
+        "curl": {
+          "title": "cURL",
+          "code": "curl -X POST https://api.podpay.app/v1/transactions \\\n  -H 'x-api-key: sk_seu_secret_key_aqui' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"paymentMethod\":\"pix\",\"amount\":10000,\"customer\":{...}}'"
+        },
+        "javascript": {
+          "title": "JavaScript (fetch)",
+          "code": "fetch('https://api.podpay.app/v1/transactions', {\n  method: 'POST',\n  headers: {\n    'x-api-key': 'sk_seu_secret_key_aqui',\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    paymentMethod: 'pix',\n    amount: 10000,\n    customer: { ... }\n  })\n})"
+        },
+        "python": {
+          "title": "Python (requests)",
+          "code": "import requests\n\nheaders = {\n    'x-api-key': 'sk_seu_secret_key_aqui',\n    'Content-Type': 'application/json'\n}\n\nresponse = requests.post(\n    'https://api.podpay.app/v1/transactions',\n    headers=headers,\n    json={\n        'paymentMethod': 'pix',\n        'amount': 10000,\n        'customer': { ... }\n    }\n)"
+        },
+        "nodejs": {
+          "title": "Node.js (axios)",
+          "code": "const axios = require('axios');\n\naxios.post('https://api.podpay.app/v1/transactions', {\n  paymentMethod: 'pix',\n  amount: 10000,\n  customer: { ... }\n}, {\n  headers: {\n    'x-api-key': 'sk_seu_secret_key_aqui',\n    'Content-Type': 'application/json'\n  }\n})"
+        }
+      }
+    },
+    "environments": {
+      "title": "Ambientes",
+      "description": "A PodPay oferece dois ambientes separados",
+      "production": {
+        "url": "https://api.podpay.app",
+        "description": "Ambiente de produção para transações reais",
+        "apiKeys": "Geradas com environment='live'",
+        "rateLimit": "5 requisições/segundo (Configurável por Empresa)"
+      },
+      "sandbox": {
+        "url": "https://sandbox.podpay.app",
+        "description": "Ambiente de testes para desenvolvimento",
+        "apiKeys": "Geradas com environment='test'",
+        "rateLimit": "5 requisições/segundo (Configurável por Empresa)"
+      }
+    },
+    "security": {
+      "title": "Segurança",
+      "bestPractices": [
+        "✅ Sempre use HTTPS (nunca HTTP)",
+        "✅ Armazene a Secret Key em variáveis de ambiente",
+        "✅ Nunca compartilhe sua Secret Key publicamente",
+        "✅ Use diferentes chaves para produção e sandbox",
+        "✅ Revogue chaves comprometidas imediatamente",
+        "✅ Monitore o uso das suas chaves no dashboard",
+        "✅ Use rate limiting no seu código cliente",
+        "✅ Implemente retry com backoff exponencial"
+      ],
+      "whatNotToDo": [
+        "❌ Nunca commite chaves em código fonte",
+        "❌ Nunca envie chaves via email ou mensagens",
+        "❌ Nunca compartilhe chaves entre ambientes",
+        "❌ Nunca use a mesma chave em múltiplos projetos",
+        "❌ Nunca faça log da Secret Key completa"
+      ]
+    },
+    "rateLimiting": {
+      "title": "Rate Limiting",
+      "description": "A API aplica rate limiting por API Key para proteger o sistema",
+      "transactions": {
+        "default": "5 requisições por segundo",
+        "configurable": "Sim (Configurável por Empresa)",
+        "headers": [
+          "X-RateLimit-Limit: Limite de requisições",
+          "X-RateLimit-Remaining: Requisições restantes",
+          "X-RateLimit-Reset: Timestamp de reset",
+          "Retry-After: Segundos para tentar novamente (quando excedido)"
+        ]
+      },
+      "withdrawals": {
+        "default": "10 saques por minuto",
+        "configurable": "Sim (Configurável por Empresa)"
+      },
+      "general": {
+        "default": "60 requisições por minuto",
+        "scope": "Por API Key"
+      },
+      "handling": {
+        "title": "Como Lidar com Rate Limits",
+        "recommendations": [
+          "Implemente retry com backoff exponencial",
+          "Respeite o header Retry-After",
+          "Monitore os headers X-RateLimit-*",
+          "Cache respostas quando possível",
+          "Use webhooks ao invés de polling quando possível"
+        ]
+      }
+    },
+    "errors": {
+      "title": "Erros de Autenticação",
+      "commonErrors": [
+        {
+          "code": "API_KEY_MISSING",
+          "message": "Chave de API é obrigatória",
+          "solution": "Adicione o header 'x-api-key' na requisição"
+        },
+        {
+          "code": "API_KEY_INVALID",
+          "message": "Chave de API inválida",
+          "solution": "Verifique se a chave está correta e ativa no dashboard"
+        },
+        {
+          "code": "AUTHENTICATION_ERROR",
+          "message": "Erro de autenticação",
+          "solution": "Verifique se a chave está no formato correto (sk_...) e se a empresa está aprovada (KYC)"
+        }
+      ]
+    }
+  },
+  "x-ext-urls": {}
+}

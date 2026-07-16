@@ -1,0 +1,466 @@
+// DarkPay — SQLite local (real, sem Docker)
+// Produção MySQL: use prisma/schema.mysql.prisma + darkpay.sql
+// DATABASE_URL="file:./dev.db"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Manager {
+  id           String   @id
+  name         String
+  email        String   @unique
+  phone        String?
+  document     String?
+  status       String   @default("ativo")
+  permissions  Json
+  sellersCount Int      @default(0)
+  volumeTotal  Float  @default(0)
+  originUserId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  sellers      User[]
+  @@map("managers")
+}
+
+model User {
+  id                    String    @id
+  name                  String
+  email                 String    @unique
+  passwordHash          String?
+  phone                 String?
+  document              String?
+  personType            String    @default("pf")
+  status                String    @default("pendente")
+  roles                 Json
+  avatarUrl             String?
+  displayName           String?
+  company               String?
+  cnpj                  String?
+  address               String?
+  city                  String?
+  state                 String?
+  zip                   String?
+  balanceAvailable      Float   @default(0)
+  balancePending        Float   @default(0)
+  balanceHeld           Float   @default(0)
+  volumeTotal           Float   @default(0)
+  platformProfit        Float   @default(0)
+  mdrPercent            Float   @default(3)
+  mdrFixed              Float   @default(0.15)
+  saquePercent          Float   @default(0)
+  saqueFixed            Float   @default(0)
+  saqueAutomatico       Boolean   @default(false)
+  routingMode           String    @default("plataforma")
+  preferredAdquirenteId String?
+  managerId             String?
+  lastLoginAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  manager               Manager?  @relation(fields: [managerId], references: [id])
+  transactions          Transaction[]
+  withdrawals           Withdrawal[]
+  charges               PaymentCharge[]
+  documents             Document[]
+  acquirerLinks         UserAcquirer[]
+  customAcquirers       SellerCustomAcquirer[]
+  sessions              Session[]
+  passwordResets        PasswordReset[]
+  twoFactor             User2FA?
+  apiCredentials        ApiCredential[]
+  webhookEndpoints      WebhookEndpoint[]
+  utmify                IntegrationUtmify?
+  notificationSettings  NotificationSetting?
+  saleNotifications     SaleNotification[]
+  ledger                BalanceLedger[]
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("sessions")
+}
+
+model PasswordReset {
+  id        String    @id
+  userId    String
+  email     String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model User2FA {
+  userId      String    @id
+  enabled     Boolean   @default(false)
+  secret      String?
+  backupCodes Json?
+  enabledAt   DateTime?
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("user_2fa")
+}
+
+model Document {
+  id          String    @id
+  userId      String
+  userName    String
+  userEmail   String
+  kind        String
+  typeLabel   String
+  submittedAt DateTime  @default(now())
+  status      String    @default("pendente")
+  previewUrl  String?
+  notes       String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([status])
+  @@map("documents")
+}
+
+model Acquirer {
+  id              String   @id
+  name            String
+  code            String   @unique
+  status          String   @default("ativo")
+  feePercent      Float  @default(0)
+  feeFixed        Float  @default(0)
+  volumeMes       Float  @default(0)
+  transactionsMes Int      @default(0)
+  settlement      String   @default("D+0")
+  priority        Int      @default(99)
+  conversionRate  Float  @default(0)
+  publicKey       String?
+  privateKey      String?
+  env             String   @default("sandbox")
+  enabled         Boolean  @default(true)
+  isPrimary       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  userLinks       UserAcquirer[]
+  @@index([status])
+  @@index([priority])
+  @@map("acquirers")
+}
+
+model UserAcquirer {
+  userId     String
+  acquirerId String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acquirer   Acquirer @relation(fields: [acquirerId], references: [id], onDelete: Cascade)
+  @@id([userId, acquirerId])
+  @@map("user_acquirers")
+}
+
+model SellerCustomAcquirer {
+  id         String   @id
+  userId     String
+  name       String
+  feePercent Float  @default(0)
+  feeFixed   Float  @default(0)
+  settlement String   @default("D+0")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("seller_custom_acquirers")
+}
+
+model Transaction {
+  id               String    @id
+  date             DateTime  @default(now())
+  sellerId         String
+  sellerName       String?
+  kind             String    @default("venda")
+  direction        String    @default("entrada")
+  description      String    @default("")
+  method           String    @default("PIX")
+  amount           Float
+  feeAmount        Float   @default(0)
+  netAmount        Float   @default(0)
+  platformFee      Float   @default(0)
+  status           String    @default("pendente")
+  customer         String?
+  customerEmail    String?
+  customerDocument String?
+  product          String?
+  acquirerId       String?
+  provider         String?
+  providerId       String?
+  paidAt           DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@index([date])
+  @@index([providerId])
+  @@map("transactions")
+}
+
+model Withdrawal {
+  id            String    @id
+  date          DateTime  @default(now())
+  sellerId      String
+  sellerName    String
+  amount        Float
+  feePercent    Float   @default(0)
+  feeFixed      Float   @default(0)
+  feeAmount     Float   @default(0)
+  netAmount     Float   @default(0)
+  method        String    @default("PIX")
+  destination   String
+  pixKeyType    String?
+  status        String    @default("processando")
+  provider      String?
+  providerId    String?
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  failureReason String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  seller        User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@index([date])
+  @@map("withdrawals")
+}
+
+model PaymentCharge {
+  id               String    @id
+  sellerId         String
+  amount           Float
+  currency         String    @default("BRL")
+  status           String    @default("waiting_payment")
+  method           String    @default("PIX")
+  description      String?
+  customerName     String?
+  customerDocument String?
+  metadata         Json?
+  pixQrCode        String?
+  pixCopyPaste     String?
+  expiresAt        DateTime
+  paidAt           DateTime?
+  transactionId    String?
+  provider         String?
+  providerId       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  @@index([sellerId])
+  @@index([status])
+  @@map("payment_charges")
+}
+
+model BalanceLedger {
+  id            String   @id
+  userId        String
+  type          String
+  amount        Float
+  bucket        String
+  balanceAfter  Float?
+  referenceType String?
+  referenceId   String?
+  description   String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([createdAt])
+  @@map("balance_ledger")
+}
+
+model MetricDaily {
+  id                BigInt   @id @default(autoincrement())
+  scope             String
+  userId            String?
+  date              DateTime
+  volumeGross       Float  @default(0)
+  volumeNet         Float  @default(0)
+  platformRevenue   Float  @default(0)
+  sellerProfit      Float  @default(0)
+  txCount           Int      @default(0)
+  txPaid            Int      @default(0)
+  txPending         Int      @default(0)
+  txFailed          Int      @default(0)
+  txRefunded        Int      @default(0)
+  averageTicket     Float  @default(0)
+  conversionRate    Float  @default(0)
+  outflowTotal      Float  @default(0)
+  withdrawalCount   Int      @default(0)
+  withdrawalPaid    Float  @default(0)
+  withdrawalPending Float  @default(0)
+  withdrawalFees    Float  @default(0)
+  heldBalanceEod    Float  @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@unique([scope, userId, date])
+  @@index([date])
+  @@map("metric_daily")
+}
+
+model PlatformFeePlan {
+  id          String   @id
+  name        String
+  method      String   @default("PIX")
+  settlement  String   @default("D+0")
+  mdrPercent  Float  @default(3)
+  mdrFixed    Float  @default(0.15)
+  reserveDays Int      @default(0)
+  description String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@map("platform_fee_plans")
+}
+
+model Branding {
+  id           String   @id @default("default")
+  logoUrl      String
+  faviconUrl   String
+  authImageUrl String
+  updatedAt    DateTime @updatedAt
+  @@map("branding")
+}
+
+model BrandBanner {
+  id        String   @id
+  imageUrl  String
+  name      String   @default("")
+  linkUrl   String   @default("")
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([sortOrder])
+  @@map("brand_banners")
+}
+
+model ApiCredential {
+  id            String    @id
+  userId        String
+  name          String    @default("API Integração")
+  publicKey     String    @unique
+  secretKeyHash String
+  secretKeyHint String?
+  permissions   Json
+  active        Boolean   @default(true)
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("api_credentials")
+}
+
+model WebhookEndpoint {
+  id         String             @id
+  userId     String
+  url        String
+  secret     String?
+  events     Json
+  active     Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+  @@index([userId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String          @id
+  endpointId  String
+  event       String
+  payload     Json
+  statusCode  Int?
+  success     Boolean         @default(false)
+  attempts    Int             @default(0)
+  lastError   String?
+  createdAt   DateTime        @default(now())
+  deliveredAt DateTime?
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  @@index([endpointId])
+  @@map("webhook_deliveries")
+}
+
+model IntegrationUtmify {
+  id        String   @id
+  userId    String   @unique
+  apiToken  String?
+  active    Boolean  @default(false)
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("integration_utmify")
+}
+
+model NotificationSetting {
+  userId            String   @id
+  saleToastEnabled  Boolean  @default(true)
+  saleSoundEnabled  Boolean  @default(true)
+  emailOnSale       Boolean  @default(false)
+  emailOnWithdrawal Boolean  @default(true)
+  emailOnDocReview  Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("notification_settings")
+}
+
+model SaleNotification {
+  id            String    @id
+  userId        String
+  transactionId String?
+  title         String
+  body          String?
+  amount        Float?
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("sale_notifications")
+}
+
+model AuditLog {
+  id         String   @id
+  actorId    String?
+  actorEmail String?
+  action     String
+  entityType String?
+  entityId   String?
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
