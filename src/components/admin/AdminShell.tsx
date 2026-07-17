@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
 import { AdminSidebar } from "./AdminSidebar";
 import { UserMenu } from "@/components/layout/UserMenu";
@@ -12,10 +14,45 @@ interface AdminShellProps {
 }
 
 export function AdminShell({ children, title }: AdminShellProps) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
+  const router = useRouter();
   const displayName = user?.name ?? (loading ? "…" : "Admin");
   const avatarUrl = user?.avatarUrl ?? null;
   const mustSetup2fa = !!user?.mustSetup2fa;
+
+  // Client guard (layout server já bloqueia; isto evita flash / bypass de UI)
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.replace("/login?next=/admin");
+      return;
+    }
+    if (!isAdmin) {
+      router.replace("/?error=admin_required");
+    }
+  }, [loading, user, isAdmin, router]);
+
+  if (loading) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--bg-app)", color: "var(--text-2)" }}
+      >
+        Verificando acesso…
+      </div>
+    );
+  }
+
+  if (!user || !isAdmin) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--bg-app)", color: "var(--text-2)" }}
+      >
+        Acesso restrito a administradores.
+      </div>
+    );
+  }
 
   return (
     <div
