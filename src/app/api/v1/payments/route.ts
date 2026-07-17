@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     });
 
     const provider = charge.provider || "unknown";
+    const routingMode = charge.routingMode || "plataforma";
 
     return NextResponse.json(
       {
@@ -87,6 +88,8 @@ export async function POST(req: Request) {
         currency: charge.currency,
         method: charge.method,
         provider,
+        routingMode,
+        acquirerId: charge.acquirerId,
         real: provider !== "mock",
         description: charge.description,
         customerName: charge.customerName,
@@ -101,7 +104,9 @@ export async function POST(req: Request) {
         message:
           provider === "mock"
             ? "Cobrança MOCK (ALLOW_MOCK_DATA=1)."
-            : "Cobrança PIX real criada. Pague no app do banco; depois clique em Verificar pagamento (ou aguarde o webhook).",
+            : routingMode === "personalizado"
+              ? `Cobrança PIX via ${provider} (rota personalizada deste seller).`
+              : `Cobrança PIX via ${provider} (principal da plataforma).`,
         syncUrl: `/api/v1/payments/${encodeURIComponent(charge.id)}/sync`,
       },
       { status: 201 }

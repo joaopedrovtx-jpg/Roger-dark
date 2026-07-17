@@ -42,19 +42,27 @@ function detectProvider(a: {
   return null;
 }
 
+export type SellerRouteResult = ResolvedAcquirer & {
+  /** plataforma = principal global · personalizado = só este seller */
+  routingMode: "plataforma" | "personalizado";
+};
+
 /**
- * Rota do seller: se routingMode=personalizado + preferredAdquirenteId,
- * usa essa adquirente (com chave). Senão, principal da plataforma.
+ * Rota do seller:
+ * - routingMode=personalizado + preferredAdquirenteId → SEMPRE essa adquirente
+ *   (não cai na principal da plataforma — é o propósito do override).
+ * - caso contrário → #1 da plataforma.
  */
 export async function resolveAcquirerForSeller(
   sellerId: string
-): Promise<ResolvedAcquirer | null> {
+): Promise<SellerRouteResult | null> {
   try {
     const { prisma, isDatabaseConfigured } = await import(
       "@/lib/server/prisma"
     );
     if (!isDatabaseConfigured() || !sellerId) {
-      return resolveActiveAcquirer();
+      const g = await resolveActiveAcquirer();
+      return g ? { ...g, routingMode: "plataforma" } : null;
     }
     const user = await prisma.user.findUnique({
       where: { id: sellerId },
@@ -67,53 +75,57 @@ export async function resolveAcquirerForSeller(
       user?.routingMode === "personalizado" &&
       user.preferredAdquirenteId
     ) {
+      const pref = user.preferredAdquirenteId.trim();
       const a = await prisma.acquirer.findFirst({
         where: {
           OR: [
-            { id: user.preferredAdquirenteId },
-            { code: user.preferredAdquirenteId },
-            { code: user.preferredAdquirenteId.toUpperCase() },
+            { id: pref },
+            { code: pref },
+            { code: pref.toUpperCase() },
+            { code: pref.toLowerCase() },
           ],
-          enabled: true,
-          status: "ativo",
         },
       });
       if (a) {
         const key = (a.privateKey || "").trim();
         const provider = detectProvider(a);
-        if (provider && key) {
+        if (provider) {
           return {
             provider,
             id: a.id,
             code: a.code,
             isPrimary: false,
             priority: a.priority,
-            hasKey: true,
+            hasKey: !!key,
+            routingMode: "personalizado",
           };
         }
       }
-      // personalizado sem chave → erro explícito no caller; não cai na principal
-      const providerGuess =
-        user.preferredAdquirenteId.toLowerCase().includes("pod")
-          ? ("podpay" as const)
-          : user.preferredAdquirenteId.toLowerCase().includes("vel")
-            ? ("velana" as const)
+      // Preferência apontando id conhecido (podpay/velana) mesmo sem row completa
+      const low = pref.toLowerCase();
+      const providerGuess: AcquirerProvider | null =
+        low === "podpay" || low.includes("pod")
+          ? "podpay"
+          : low === "velana" || low.includes("vel")
+            ? "velana"
             : null;
       if (providerGuess) {
         return {
           provider: providerGuess,
-          id: user.preferredAdquirenteId,
+          id: pref,
           code: providerGuess.toUpperCase(),
           isPrimary: false,
           priority: 0,
           hasKey: false,
+          routingMode: "personalizado",
         };
       }
     }
   } catch {
     /* fall through */
   }
-  return resolveActiveAcquirer();
+  const g = await resolveActiveAcquirer();
+  return g ? { ...g, routingMode: "plataforma" } : null;
 }
 
 /**

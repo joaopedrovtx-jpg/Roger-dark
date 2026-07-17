@@ -72,7 +72,13 @@ async function mockPixPayload(chargeId: string, amount: number) {
 
 export async function createPixCharge(
   input: CreateChargeInput
-): Promise<PaymentCharge & { provider?: string }> {
+): Promise<
+  PaymentCharge & {
+    provider?: string;
+    routingMode?: "plataforma" | "personalizado";
+    acquirerId?: string;
+  }
+> {
   if (!input.sellerId) throw new Error("sellerId obrigatório");
   if (!input.amount || input.amount < 1) {
     throw new Error("Valor mínimo: R$ 1,00");
@@ -99,6 +105,10 @@ export async function createPixCharge(
   // Roteamento: personalizado do seller OU #1 global da plataforma
   // A plataforma intermedia: seller → DarkPay → adquirente
   const active = await resolveAcquirerForSeller(input.sellerId);
+  const routeMeta = {
+    routingMode: active?.routingMode ?? ("plataforma" as const),
+    acquirerId: active?.id,
+  };
 
   async function viaVelana() {
     const config = await resolveVelanaConfigServer();
@@ -114,7 +124,11 @@ export async function createPixCharge(
       externalRef: input.metadata?.orderId || input.metadata?.externalRef,
       config,
     });
-    return { ...charge, provider: "velana" as const };
+    return {
+      ...charge,
+      provider: "velana" as const,
+      ...routeMeta,
+    };
   }
 
   async function viaPodPay() {
@@ -130,15 +144,24 @@ export async function createPixCharge(
       customerPhone: input.customerPhone,
       config,
     });
-    return { ...charge, provider: "podpay" as const };
+    return {
+      ...charge,
+      provider: "podpay" as const,
+      ...routeMeta,
+    };
   }
 
-  // 1) SOMENTE a principal — não “pular” para Velana se PodPay é #1
+  const modeLabel =
+    active?.routingMode === "personalizado"
+      ? "personalizada deste seller"
+      : "principal da plataforma";
+
+  // 1) SOMENTE a rota resolvida — personalizado NUNCA cai na outra
   if (active?.provider === "podpay") {
     const r = await viaPodPay();
     if (r) return r;
     throw new Error(
-      "Adquirente principal é PodPay, mas a chave sk_ não está configurada ou a API falhou. " +
+      `Rota ${modeLabel} = PodPay, mas a chave sk_ não está configurada ou a API falhou. ` +
         "Salve a secret em Admin → Adquirentes → Credenciais (PodPay)."
     );
   }
@@ -146,12 +169,12 @@ export async function createPixCharge(
     const r = await viaVelana();
     if (r) return r;
     throw new Error(
-      "Adquirente principal é Velana, mas a secret key não está configurada ou a API falhou. " +
+      `Rota ${modeLabel} = Velana, mas a secret key não está configurada ou a API falhou. ` +
         "Salve pk_/sk_ em Admin → Adquirentes → Credenciais (Velana)."
     );
   }
 
-  // 2) Sem principal no DB: tenta quem tiver chave (sem preferir Velana à força)
+  // 2) Sem rota no DB: tenta quem tiver chave
   const pod = await viaPodPay();
   if (pod) return pod;
   const vel = await viaVelana();
@@ -160,7 +183,11 @@ export async function createPixCharge(
   const { isMockAllowed } = await import("@/lib/server/security");
   if (isMockAllowed()) {
     console.warn("[payments] ALLOW_MOCK_DATA=1 — cobrança MOCK, não real");
-    return { ...(await createPixChargeMock(input)), provider: "mock" };
+    return {
+      ...(await createPixChargeMock(input)),
+      provider: "mock",
+      routingMode: "plataforma",
+    };
   }
 
   throw new Error(
