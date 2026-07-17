@@ -21,11 +21,6 @@ const NAV: NavItem[] = [
     iconSrc: "/icons/casa.png",
   },
   {
-    label: "Minha Dash",
-    href: "/dash",
-    iconSrc: "/icons/usuario-perfil.png",
-  },
-  {
     label: "Usuários",
     href: "/admin/usuarios",
     iconSrc: "/icons/usuarios.png",
@@ -95,7 +90,6 @@ function NavImgIcon({
 
 function isActive(href: string, pathname: string): boolean {
   if (href === "/admin") return pathname === "/admin";
-  if (href === "/dash") return pathname === "/dash" || pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
