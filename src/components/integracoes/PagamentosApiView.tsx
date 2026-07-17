@@ -18,6 +18,7 @@ type CreateResult = {
   status: string;
   amount: number;
   provider?: string;
+  routingMode?: string;
   real?: boolean;
   env?: string;
   pix?: { qrCode?: string; copyPaste?: string };
@@ -25,6 +26,8 @@ type CreateResult = {
   transactionId?: string;
   message?: string;
   sellerId?: string;
+  sellerEmail?: string;
+  authVia?: string;
   paidAt?: string;
 };
 
@@ -787,12 +790,26 @@ export function PagamentosApiView() {
                   : result.provider
                     ? ` · ${result.provider}`
                     : ""}
+              {result.routingMode === "personalizado"
+                ? " · personalizado"
+                : result.routingMode
+                  ? " · plataforma"
+                  : ""}
             </span>
           </div>
           <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
             {result.message}
           </p>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+            <div>
+              <strong style={{ color: "var(--text-1)" }}>Conta:</strong>{" "}
+              {result.sellerEmail || result.sellerId || "—"}
+            </div>
+            <div>
+              <strong style={{ color: "var(--text-1)" }}>Adquirente:</strong>{" "}
+              {result.provider || "—"}
+              {result.routingMode ? ` (${result.routingMode})` : ""}
+            </div>
             <div>
               <strong style={{ color: "var(--text-1)" }}>ID:</strong> {result.id}
             </div>

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
-import { resolveActiveAcquirer } from "@/lib/acquirers/resolve";
+import {
+  resolveAcquirerForSeller,
+  resolveActiveAcquirer,
+} from "@/lib/acquirers/resolve";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
 function maskSecret(key: string): string {
@@ -12,15 +15,17 @@ function maskSecret(key: string): string {
 
 /**
  * GET /api/v1/acquirers/active
- * Status da adquirente do gateway (PodPay | Velana) — sem expor a secret completa.
- * Usado no playground de Pagamentos para o seller ver qual PSP processa o PIX.
+ * Qual adquirente processa PIX **para a conta logada** (personalizado do seller
+ * ou principal da plataforma). Usado no playground de Pagamentos.
  */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
 
   try {
-    const active = await resolveActiveAcquirer();
+    // Rota do USUÁRIO logado (não só a principal global)
+    const forSeller = await resolveAcquirerForSeller(gate.user.id);
+    const platform = await resolveActiveAcquirer();
 
     const list: Array<{
       id: string;
@@ -44,7 +49,7 @@ export async function GET(req: Request) {
             { code: { in: ["PODPAY", "VELANA"] } },
           ],
         },
-        orderBy: [{ isPrimary: "desc" }, { priority: "asc" }],
+        orderBy: [{ priority: "asc" }, { isPrimary: "desc" }],
       });
 
       for (const a of rows) {
@@ -59,10 +64,9 @@ export async function GET(req: Request) {
         const priv = (a.privateKey || "").trim();
         const pub = (a.publicKey || "").trim();
         const isActive =
-          !!active &&
-          !!priv &&
-          (active.id === a.id ||
-            (provider !== "other" && active.provider === provider));
+          !!forSeller &&
+          (forSeller.id === a.id ||
+            (provider !== "other" && forSeller.provider === provider));
 
         list.push({
           id: a.id,
@@ -70,7 +74,7 @@ export async function GET(req: Request) {
           code: a.code,
           provider,
           configured: !!priv,
-          isPrimary: a.isPrimary,
+          isPrimary: a.isPrimary || a.priority === 1,
           priority: a.priority,
           env: a.env || "live",
           secretHint: priv ? maskSecret(priv) : null,
@@ -80,45 +84,35 @@ export async function GET(req: Request) {
       }
     }
 
-    // Garante entradas mesmo sem DB
-    if (!list.some((x) => x.provider === "velana")) {
-      list.push({
-        id: "velana",
-        name: "Velana",
-        code: "VELANA",
-        provider: "velana",
-        configured: active?.provider === "velana",
-        isPrimary: active?.provider === "velana",
-        priority: 2,
-        env: "live",
-        secretHint: null,
-        publicHint: null,
-        active: active?.provider === "velana",
-      });
-    }
-    if (!list.some((x) => x.provider === "podpay")) {
-      list.push({
-        id: "podpay",
-        name: "PodPay",
-        code: "PODPAY",
-        provider: "podpay",
-        configured: active?.provider === "podpay",
-        isPrimary: active?.provider === "podpay",
-        priority: 1,
-        env: "live",
-        secretHint: null,
-        publicHint: null,
-        active: active?.provider === "podpay",
-      });
-    }
+    const current = list.find((x) => x.active) || null;
 
-    const current =
-      list.find((x) => x.active) ||
-      list.find((x) => x.isPrimary && x.configured) ||
-      null;
+    // Dados de roteamento do user
+    let userRouting: {
+      routingMode: string;
+      preferredAdquirenteId: string | null;
+    } | null = null;
+    if (isDatabaseConfigured()) {
+      const u = await prisma.user.findUnique({
+        where: { id: gate.user.id },
+        select: { routingMode: true, preferredAdquirenteId: true },
+      });
+      if (u) {
+        userRouting = {
+          routingMode: u.routingMode,
+          preferredAdquirenteId: u.preferredAdquirenteId,
+        };
+      }
+    }
 
     return NextResponse.json({
       ok: true,
+      sellerId: gate.user.id,
+      sellerEmail: gate.user.email,
+      routingMode: forSeller?.routingMode ?? userRouting?.routingMode ?? "plataforma",
+      preferredAdquirenteId: userRouting?.preferredAdquirenteId ?? null,
+      platformPrimary: platform
+        ? { id: platform.id, provider: platform.provider, code: platform.code }
+        : null,
       active: current
         ? {
             id: current.id,
@@ -129,23 +123,26 @@ export async function GET(req: Request) {
             secretHint: current.secretHint,
             publicHint: current.publicHint,
             isPrimary: current.isPrimary,
+            routingMode: forSeller?.routingMode ?? "plataforma",
           }
-        : active
+        : forSeller
           ? {
-              id: active.id,
-              name: active.code,
-              code: active.code,
-              provider: active.provider,
+              id: forSeller.id,
+              name: forSeller.code,
+              code: forSeller.code,
+              provider: forSeller.provider,
               env: "live",
               secretHint: null,
               publicHint: null,
-              isPrimary: active.isPrimary,
+              isPrimary: forSeller.isPrimary,
+              routingMode: forSeller.routingMode,
             }
           : null,
       items: list,
       hint:
-        "A secret da adquirente (Admin → Adquirentes → Credenciais) fica só no servidor. " +
-        "Nesta página use a sk_ da sua conta (Integrações → API) para autenticar o teste.",
+        forSeller?.routingMode === "personalizado"
+          ? `Esta conta usa rota PERSONALIZADA → ${forSeller.provider}. Cobranças com a sk_ desta conta vão por ela.`
+          : `Esta conta usa a principal da plataforma → ${forSeller?.provider || platform?.provider || "—"}. Para forçar outra, Admin → Usuários → este seller → Adquirentes → Ativar → Salvar.`,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";

@@ -46,6 +46,8 @@ export async function POST(req: Request) {
       );
     }
 
+    // Conta que paga a taxa / usa a rota = dono da sk_ ou sessão.
+    // Rota personalizada (Admin → seller → Adquirentes) só vale para ESTE sellerId.
     const sellerId = gate.user.id;
 
     let customerDocument = body.customerDocument;
@@ -90,6 +92,7 @@ export async function POST(req: Request) {
         provider,
         routingMode,
         acquirerId: charge.acquirerId,
+        authVia: gate.authVia,
         real: provider !== "mock",
         description: charge.description,
         customerName: charge.customerName,
@@ -101,12 +104,13 @@ export async function POST(req: Request) {
         createdAt: charge.createdAt,
         transactionId: charge.transactionId,
         sellerId: charge.sellerId,
+        sellerEmail: gate.user.email,
         message:
           provider === "mock"
             ? "Cobrança MOCK (ALLOW_MOCK_DATA=1)."
             : routingMode === "personalizado"
-              ? `Cobrança PIX via ${provider} (rota personalizada deste seller).`
-              : `Cobrança PIX via ${provider} (principal da plataforma).`,
+              ? `Cobrança PIX via ${provider} (rota personalizada de ${gate.user.email}).`
+              : `Cobrança PIX via ${provider} (principal da plataforma · conta ${gate.user.email}).`,
         syncUrl: `/api/v1/payments/${encodeURIComponent(charge.id)}/sync`,
       },
       { status: 201 }

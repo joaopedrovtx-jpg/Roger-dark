@@ -1444,11 +1444,11 @@ export function AdminUserDetailModal({
                 }}
               >
                 A <strong>principal da plataforma</strong> fica com o botão{" "}
-                <strong>ligado</strong> por padrão. Se essa rota estiver em
-                alerta para este cliente, ative outra (ex.: PodPay) — só para
-                ele — e clique em <strong>Salvar</strong>. A partir daí todo
-                PIX/saque deste seller vai pela adquirente <strong>Ativa</strong>
-                , não pela principal global.
+                <strong>ligado</strong> por padrão. Ative outra (ex.: PodPay) e
+                clique em <strong>Salvar</strong> — vale{" "}
+                <strong>só para este seller</strong> (
+                {user.email}). Cobranças só mudam de adquirente se forem criadas{" "}
+                <strong>com login ou sk_ desta conta</strong>, não com a do admin.
               </p>
               {acqList.map((acq) => {
                 const on = effectiveActiveId === acq.id;

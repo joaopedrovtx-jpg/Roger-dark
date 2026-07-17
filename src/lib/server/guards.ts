@@ -62,91 +62,57 @@ export async function requireAuth(
 /**
  * Sessão do painel OU chave de API do seller (Bearer sk_live_/sk_test_).
  * Usado em /api/v1/payments e demais endpoints de integração externa.
+ *
+ * IMPORTANTE: se vier Bearer sk_*, a conta da API key manda — NÃO a sessão admin.
+ * Assim a rota personalizada do seller (PodPay/Velana) é a do dono da sk_.
  */
 export async function requireSellerAuth(
   req: Request,
   opts?: { permission?: ApiPermission }
 ): Promise<GuardOk | GuardFail> {
-  // 1) sessão (painel / playground)
-  const sessionToken = extractTokenFromRequest(req);
-  if (sessionToken && !sessionToken.startsWith("sk_")) {
-    // CSRF só para autenticação por sessão (não API key)
-    const csrf = csrfGuard(req);
-    if (csrf) return csrf;
-    const user = await getUserBySessionToken(sessionToken);
-    if (user) {
-      return { user, authVia: "session" };
-    }
-  }
-  // cookie / sessão do painel (playground de Pagamentos)
-  const cookieUser = await getSessionUser(req);
-  if (cookieUser) {
-    const csrf = csrfGuard(req);
-    if (csrf) return csrf;
-    // se mandou sk_ válida, usa API key; se sk_ inválida, CAI NA SESSÃO
-    // (antes o playground com credentials:omit + sk_ errada dava “expirada” falso)
-    const { auth: apiAuth } = await authenticateApiKeyDetailed(req);
-    if (apiAuth) {
-      const u = await loadUser(apiAuth.userId);
-      if (u) {
-        if (opts?.permission && !hasPermission(apiAuth, opts.permission)) {
-          return {
-            error: NextResponse.json(
-              {
-                error: "Permissão insuficiente nesta credencial de API",
-                required: opts.permission,
-              },
-              { status: 403 }
-            ),
-          };
-        }
-        return { user: u, apiAuth, authVia: "api_key" };
-      }
-    }
-    // Sessão válida sempre autentica o playground mesmo com sk_ errada/vazia
-    return { user: cookieUser, authVia: "session" };
-  }
-
-  // 2) API key pura (cassino / checkout externo — sem cookie)
-  const detailed = await authenticateApiKeyDetailed(req);
-  if (detailed.auth) {
-    const apiAuth = detailed.auth;
-    if (opts?.permission && !hasPermission(apiAuth, opts.permission)) {
-      return {
-        error: NextResponse.json(
-          {
-            error: "Permissão insuficiente nesta credencial de API",
-            required: opts.permission,
-            hint: "Em Integrações → API, edite a credencial e marque a permissão necessária.",
-          },
-          { status: 403 }
-        ),
-      };
-    }
-    const u = await loadUser(apiAuth.userId);
-    if (!u) {
-      return {
-        error: NextResponse.json(
-          { error: "Usuário da credencial não encontrado" },
-          { status: 401 }
-        ),
-      };
-    }
-    if (u.status === "bloqueado") {
-      return {
-        error: NextResponse.json({ error: "Conta bloqueada" }, { status: 403 }),
-      };
-    }
-    return { user: u, apiAuth, authVia: "api_key" };
-  }
-
-  // Bearer sk_ presente mas falhou — mensagem específica (não genérica “expirada”)
   const authHdr =
     req.headers.get("authorization") || req.headers.get("Authorization") || "";
   const bearer = authHdr.toLowerCase().startsWith("bearer ")
     ? authHdr.slice(7).trim()
     : "";
-  if (bearer.startsWith("sk_") || detailed.failure) {
+
+  // ── 1) SEMPRE preferir API key (sk_) quando presente ─────────────────
+  // Mesmo com cookie de admin: cobrança usa o seller dono da sk_ e a rota dele.
+  if (bearer.startsWith("sk_")) {
+    const detailed = await authenticateApiKeyDetailed(req);
+    if (detailed.auth) {
+      const apiAuth = detailed.auth;
+      if (opts?.permission && !hasPermission(apiAuth, opts.permission)) {
+        return {
+          error: NextResponse.json(
+            {
+              error: "Permissão insuficiente nesta credencial de API",
+              required: opts.permission,
+              hint: "Em Integrações → API, edite a credencial e marque a permissão necessária.",
+            },
+            { status: 403 }
+          ),
+        };
+      }
+      const u = await loadUser(apiAuth.userId);
+      if (!u) {
+        return {
+          error: NextResponse.json(
+            { error: "Usuário da credencial não encontrado" },
+            { status: 401 }
+          ),
+        };
+      }
+      if (u.status === "bloqueado") {
+        return {
+          error: NextResponse.json(
+            { error: "Conta bloqueada" },
+            { status: 403 }
+          ),
+        };
+      }
+      return { user: u, apiAuth, authVia: "api_key" };
+    }
     const failure =
       detailed.failure ||
       (bearer.includes("…") || bearer.includes("•") || bearer.length < 20
@@ -157,11 +123,28 @@ export async function requireSellerAuth(
         {
           error: messageForApiKeyFailure(failure),
           code: `api_key_${failure}`,
-          hint: "A secret completa só aparece ao criar ou rotacionar em Integrações → API.",
+          hint: "A secret completa só aparece ao criar ou rotacionar em Integrações → API. Cole a sk_ do seller cuja rota personalizada você configurou.",
         },
         { status: 401 }
       ),
     };
+  }
+
+  // ── 2) Sessão cookie (painel / playground sem sk_) ───────────────────
+  const csrf = csrfGuard(req);
+  if (csrf) return csrf;
+
+  const sessionToken = extractTokenFromRequest(req);
+  if (sessionToken && !sessionToken.startsWith("sk_")) {
+    const user = await getUserBySessionToken(sessionToken);
+    if (user) {
+      return { user, authVia: "session" };
+    }
+  }
+
+  const cookieUser = await getSessionUser(req);
+  if (cookieUser) {
+    return { user: cookieUser, authVia: "session" };
   }
 
   return {
@@ -169,7 +152,8 @@ export async function requireSellerAuth(
       {
         error: "Não autenticado",
         hint:
-          "Use Authorization: Bearer sk_live_… (ou sk_test_…) gerada em Integrações → API, ou faça login no painel.",
+          "Use Authorization: Bearer sk_live_… do seller (Integrações → API) ou faça login no painel. " +
+          "A rota personalizada (PodPay/Velana) é sempre a da conta autenticada.",
       },
       { status: 401 }
     ),
