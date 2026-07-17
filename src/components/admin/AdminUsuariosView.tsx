@@ -185,17 +185,64 @@ export function AdminUsuariosView() {
     data: {
       saqueAutomatico?: boolean;
       adquirenteIds?: string[];
+      routingMode?: "plataforma" | "personalizado";
+      preferredAdquirenteId?: string | null;
     }
   ) {
-    try {
-      await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
+    const { authedFetch } = await import("@/lib/client/session");
+    const res = await authedFetch(
+      `/api/v1/admin/users/${encodeURIComponent(id)}`,
+      {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      });
-    } catch {
-      /* local */
+      }
+    );
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(j.error || `Falha ao salvar (${res.status})`);
     }
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === id
+          ? {
+              ...u,
+              saqueAutomatico:
+                data.saqueAutomatico !== undefined
+                  ? data.saqueAutomatico
+                  : u.saqueAutomatico,
+              routingMode: data.routingMode ?? u.routingMode,
+              preferredAdquirenteId:
+                data.preferredAdquirenteId !== undefined
+                  ? data.preferredAdquirenteId
+                  : u.preferredAdquirenteId,
+              adquirenteIds:
+                data.adquirenteIds !== undefined
+                  ? data.adquirenteIds
+                  : u.adquirenteIds,
+            }
+          : u
+      )
+    );
+    setSelectedUser((cur) =>
+      cur && cur.id === id
+        ? {
+            ...cur,
+            saqueAutomatico:
+              data.saqueAutomatico !== undefined
+                ? data.saqueAutomatico
+                : cur.saqueAutomatico,
+            routingMode: data.routingMode ?? cur.routingMode,
+            preferredAdquirenteId:
+              data.preferredAdquirenteId !== undefined
+                ? data.preferredAdquirenteId
+                : cur.preferredAdquirenteId,
+            adquirenteIds:
+              data.adquirenteIds !== undefined
+                ? data.adquirenteIds
+                : cur.adquirenteIds,
+          }
+        : cur
+    );
   }
 
   return (

@@ -72,6 +72,7 @@ export async function PATCH(
     if (
       body.saqueAutomatico !== undefined ||
       body.routingMode ||
+      body.preferredAdquirenteId !== undefined ||
       body.adquirenteIds
     ) {
       const r = await dbUpdateUserRouting(id, body);

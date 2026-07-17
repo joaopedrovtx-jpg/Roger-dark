@@ -318,6 +318,9 @@ export async function listAdminUsers(opts?: {
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
+      include: {
+        acquirerLinks: { where: { enabled: true } },
+      },
     }),
   ]);
 
@@ -348,6 +351,7 @@ export async function listAdminUsers(opts?: {
       saqueAutomatico: u.saqueAutomatico,
       routingMode: u.routingMode,
       preferredAdquirenteId: u.preferredAdquirenteId,
+      adquirenteIds: u.acquirerLinks.map((l) => l.acquirerId),
       fees: {
         mdrPercent: n(u.mdrPercent),
         mdrFixed: n(u.mdrFixed),
@@ -749,7 +753,7 @@ export async function dbUpdateUserFees(
   };
 }
 
-/** Saque automático + rota de adquirentes */
+/** Saque automático + rota de adquirentes (personalizado / plataforma) */
 export async function dbUpdateUserRouting(
   id: string,
   data: {
@@ -760,12 +764,28 @@ export async function dbUpdateUserRouting(
   }
 ) {
   if (!(await dbAvailable())) return null;
+
+  const mode =
+    data.routingMode === "personalizado" || data.routingMode === "plataforma"
+      ? data.routingMode
+      : undefined;
+
+  // null limpa preferred; undefined mantém
+  const preferred =
+    data.preferredAdquirenteId === null
+      ? null
+      : data.preferredAdquirenteId !== undefined
+        ? data.preferredAdquirenteId
+        : undefined;
+
   const u = await prisma.user.update({
     where: { id },
     data: {
-      saqueAutomatico: data.saqueAutomatico,
-      routingMode: data.routingMode,
-      preferredAdquirenteId: data.preferredAdquirenteId ?? undefined,
+      ...(data.saqueAutomatico !== undefined
+        ? { saqueAutomatico: data.saqueAutomatico }
+        : {}),
+      ...(mode ? { routingMode: mode } : {}),
+      ...(preferred !== undefined ? { preferredAdquirenteId: preferred } : {}),
     },
   });
   if (data.adquirenteIds) {
@@ -781,7 +801,12 @@ export async function dbUpdateUserRouting(
     }
   }
   await audit("user.routing", "user", id, data);
-  return { id: u.id };
+  return {
+    id: u.id,
+    routingMode: u.routingMode,
+    preferredAdquirenteId: u.preferredAdquirenteId,
+    saqueAutomatico: u.saqueAutomatico,
+  };
 }
 
 /** Status adquirente: ativo | manutencao | inativo */

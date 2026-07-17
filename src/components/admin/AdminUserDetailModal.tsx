@@ -40,11 +40,24 @@ interface AdminUserDetailModalProps {
   ) => void | Promise<void>;
   onSaveRouting?: (
     id: string,
-    data: { saqueAutomatico?: boolean; adquirenteIds?: string[] }
+    data: {
+      saqueAutomatico?: boolean;
+      adquirenteIds?: string[];
+      routingMode?: "plataforma" | "personalizado";
+      preferredAdquirenteId?: string | null;
+    }
   ) => void | Promise<void>;
   /** Aba inicial ao abrir (ex.: documentos na fila de compliance) */
   initialTab?: DetailTab;
 }
+
+type SellerAcqRow = {
+  id: string;
+  name: string;
+  code: string;
+  priority: number;
+  status: string;
+};
 
 /**
  * Inputs com a mesma cor de fundo das abas (--bg-elevated),
@@ -593,7 +606,14 @@ export function AdminUserDetailModal({
   const [tab, setTab] = useState<DetailTab>(initialTab);
   const [viewingDoc, setViewingDoc] = useState<DocPreviewItem | null>(null);
   const [fees, setFees] = useState<SellerFees>({ ...DEFAULT_SELLER_FEES });
-  const [enabledAcqIds, setEnabledAcqIds] = useState<string[]>([]);
+  /** Adquirente ativa p/ este seller (modo personalizado) — 0 ou 1 */
+  const [activeSellerAcqId, setActiveSellerAcqId] = useState<string | null>(
+    null
+  );
+  const [platformAcqs, setPlatformAcqs] = useState<SellerAcqRow[]>([]);
+  const [routingDirty, setRoutingDirty] = useState(false);
+  const [savingRouting, setSavingRouting] = useState(false);
+  const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   /** Overrides de status dos docs (Ativar aprova todos) */
   const [docStatusMap, setDocStatusMap] = useState<DocStatusMap | null>(null);
   const [saqueAutomatico, setSaqueAutomatico] = useState(false);
@@ -604,20 +624,79 @@ export function AdminUserDetailModal({
       setTab("dados");
       setViewingDoc(null);
       setDocStatusMap(null);
+      setRoutingDirty(false);
+      setRoutingMsg(null);
       return;
     }
     setTab(initialTab);
     setViewingDoc(null);
     setDocStatusMap(null);
     setFees({ ...DEFAULT_SELLER_FEES, ...user.fees });
-    setEnabledAcqIds(
-      user.adquirenteIds?.length
-        ? [...user.adquirenteIds]
-        : adquirentesMock.filter((a) => a.status === "ativo").map((a) => a.id)
-    );
+    // Preferida personalizada, ou única liberada, ou null (= plataforma)
+    const preferred =
+      user.preferredAdquirenteId ||
+      (user.routingMode === "personalizado" && user.adquirenteIds?.[0]) ||
+      null;
+    setActiveSellerAcqId(preferred);
     setSaqueAutomatico(!!user.saqueAutomatico);
+    setRoutingDirty(false);
+    setRoutingMsg(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só reabre por user.id
   }, [open, user?.id, initialTab]);
+
+  // Catálogo real de adquirentes (PodPay / Velana)
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { authedFetch } = await import("@/lib/client/session");
+        const res = await authedFetch("/api/v1/admin/acquirers");
+        if (!res.ok) throw new Error("fail");
+        const json = (await res.json()) as {
+          items?: Array<{
+            id: string;
+            name: string;
+            code: string;
+            priority: number;
+            status: string;
+          }>;
+        };
+        if (cancelled) return;
+        if (json.items?.length) {
+          setPlatformAcqs(
+            [...json.items]
+              .filter((a) => a.status === "ativo" || a.status === "manutencao")
+              .sort((a, b) => a.priority - b.priority)
+              .map((a) => ({
+                id: a.id,
+                name: a.name,
+                code: a.code,
+                priority: a.priority,
+                status: a.status,
+              }))
+          );
+          return;
+        }
+      } catch {
+        /* mock */
+      }
+      if (!cancelled) {
+        setPlatformAcqs(
+          adquirentesMock.map((a) => ({
+            id: a.id,
+            name: a.name,
+            code: a.code,
+            priority: a.priority,
+            status: a.status,
+          }))
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -684,26 +763,51 @@ export function AdminUserDetailModal({
     onStatusChange?.(user.id, "pendente");
   }
 
-  function toggleAcq(id: string) {
-    setEnabledAcqIds((prev) => {
-      const next = prev.includes(id)
-        ? prev.filter((x) => x !== id)
-        : [...prev, id];
-      if (user) {
-        void onSaveRouting?.(user.id, { adquirenteIds: next });
-      }
-      return next;
-    });
+  /**
+   * Ativa/desativa adquirente só neste seller.
+   * Liga = modo personalizado com esta como Ativa.
+   * Desliga a ativa = volta a usar a principal da plataforma (após Salvar).
+   */
+  function toggleSellerAcq(id: string) {
+    setActiveSellerAcqId((prev) => (prev === id ? null : id));
+    setRoutingDirty(true);
+    setRoutingMsg(null);
   }
 
   function toggleSaqueAutomatico() {
     setSaqueAutomatico((prev) => {
       const next = !prev;
-      if (user) {
-        void onSaveRouting?.(user.id, { saqueAutomatico: next });
-      }
+      setRoutingDirty(true);
+      setRoutingMsg(null);
       return next;
     });
+  }
+
+  async function saveSellerRouting() {
+    if (!user) return;
+    setSavingRouting(true);
+    setRoutingMsg(null);
+    try {
+      const personalizado = !!activeSellerAcqId;
+      await onSaveRouting?.(user.id, {
+        saqueAutomatico,
+        routingMode: personalizado ? "personalizado" : "plataforma",
+        preferredAdquirenteId: activeSellerAcqId,
+        adquirenteIds: activeSellerAcqId ? [activeSellerAcqId] : [],
+      });
+      setRoutingDirty(false);
+      setRoutingMsg(
+        personalizado
+          ? "Rota personalizada salva — PIX deste seller usa a adquirente Ativa."
+          : "Salvo — este seller usa a principal da plataforma."
+      );
+    } catch (e) {
+      setRoutingMsg(
+        e instanceof Error ? e.message : "Falha ao salvar roteamento."
+      );
+    } finally {
+      setSavingRouting(false);
+    }
   }
 
   return (
@@ -1284,53 +1388,117 @@ export function AdminUserDetailModal({
           ) : null}
 
           {tab === "adquirentes" ? (
-            <div className="flex flex-col" style={{ gap: 8 }}>
-              {adquirentesMock.map((acq) => {
-                const on = enabledAcqIds.includes(acq.id);
-                return (
-                  <div
-                    key={acq.id}
-                    className="flex items-center gap-3 w-full"
-                    style={{
-                      ...fieldShell,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      minHeight: 52,
-                    }}
-                  >
-                    <ToggleSwitch
-                      on={on}
-                      onToggle={() => toggleAcq(acq.id)}
-                      ariaLabel={
-                        on
-                          ? `Desativar ${acq.name}`
-                          : `Ativar ${acq.name}`
-                      }
-                    />
-                    <span
-                      className="font-medium truncate min-w-0 flex-1"
-                      style={{ fontSize: 14, color: "var(--text-1)" }}
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12.5,
+                  color: "var(--text-3)",
+                  lineHeight: 1.45,
+                }}
+              >
+                Por padrão o seller usa a <strong>principal da plataforma</strong>
+                . Ative uma adquirente aqui para forçar rota{" "}
+                <strong>personalizada</strong> só nesta conta (ex.: a principal
+                global está instável). Depois clique em <strong>Salvar</strong>.
+              </p>
+              {(platformAcqs.length ? platformAcqs : adquirentesMock).map(
+                (acq) => {
+                  const on = activeSellerAcqId === acq.id;
+                  const isPlatformPrimary = acq.priority === 1;
+                  return (
+                    <div
+                      key={acq.id}
+                      className="flex items-center gap-3 w-full"
+                      style={{
+                        ...fieldShell,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        minHeight: 52,
+                      }}
                     >
-                      {acq.name}
-                    </span>
-                    {acq.priority === 1 ? (
+                      <ToggleSwitch
+                        on={on}
+                        onToggle={() => toggleSellerAcq(acq.id)}
+                        ariaLabel={
+                          on
+                            ? `Desativar ${acq.name} neste seller`
+                            : `Ativar ${acq.name} neste seller`
+                        }
+                      />
                       <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: "#0a0f0c",
-                          background: "#ffffff",
-                          borderRadius: 8,
-                          padding: "2px 7px",
-                          flexShrink: 0,
-                        }}
+                        className="font-medium truncate min-w-0 flex-1"
+                        style={{ fontSize: 14, color: "var(--text-1)" }}
                       >
-                        Principal
+                        {acq.name}
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--text-3)",
+                          }}
+                        >
+                          {acq.code}
+                        </span>
                       </span>
-                    ) : null}
-                  </div>
-                );
-              })}
+                      {on ? (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#0a0f0c",
+                            background: "#ffffff",
+                            borderRadius: 8,
+                            padding: "2px 7px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          Ativo
+                        </span>
+                      ) : isPlatformPrimary && !activeSellerAcqId ? (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "var(--text-2)",
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-muted)",
+                            borderRadius: 8,
+                            padding: "2px 7px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          Principal (plataforma)
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                }
+              )}
+              {routingMsg ? (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12.5,
+                    color: routingMsg.startsWith("Falha")
+                      ? "#f87171"
+                      : "var(--text-2)",
+                  }}
+                >
+                  {routingMsg}
+                </p>
+              ) : routingDirty ? (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12.5,
+                    color: "#eab308",
+                  }}
+                >
+                  Alterações não salvas — clique em Salvar.
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1459,6 +1627,52 @@ export function AdminUserDetailModal({
             >
               Salvar
             </button>
+          ) : tab === "adquirentes" ? (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
+                style={{
+                  height: 38,
+                  padding: "0 18px",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--border-muted)",
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-1)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                disabled={savingRouting || !routingDirty}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void saveSellerRouting();
+                }}
+                className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
+                style={{
+                  height: 38,
+                  padding: "0 18px",
+                  borderRadius: "var(--radius-md)",
+                  border: "none",
+                  background: "#ffffff",
+                  color: "#0a0f0c",
+                  fontSize: 13,
+                  cursor:
+                    savingRouting || !routingDirty ? "not-allowed" : "pointer",
+                  opacity: savingRouting || !routingDirty ? 0.55 : 1,
+                }}
+              >
+                {savingRouting ? "Salvando…" : "Salvar"}
+              </button>
+            </>
           ) : (
             <button
               type="button"

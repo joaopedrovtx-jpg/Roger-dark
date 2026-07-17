@@ -23,7 +23,7 @@ import {
   createWithdrawalViaVelana,
   syncBalanceFromVelana,
 } from "@/lib/acquirers/velana/gateway";
-import { resolveActiveAcquirer } from "@/lib/acquirers/resolve";
+import { resolveAcquirerForSeller } from "@/lib/acquirers/resolve";
 import {
   isVelanaEnabled,
   isVelanaEnabledServer,
@@ -137,7 +137,7 @@ export async function createWithdrawal(
   }
   const netAmount = round2(input.amount - feeAmount);
 
-  const active = await resolveActiveAcquirer();
+  const active = await resolveAcquirerForSeller(sellerId);
 
   const { debitAvailableBalance } = await import("@/lib/server/balance");
   const { isDatabaseConfigured } = await import("@/lib/server/prisma");

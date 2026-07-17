@@ -43,6 +43,80 @@ function detectProvider(a: {
 }
 
 /**
+ * Rota do seller: se routingMode=personalizado + preferredAdquirenteId,
+ * usa essa adquirente (com chave). Senão, principal da plataforma.
+ */
+export async function resolveAcquirerForSeller(
+  sellerId: string
+): Promise<ResolvedAcquirer | null> {
+  try {
+    const { prisma, isDatabaseConfigured } = await import(
+      "@/lib/server/prisma"
+    );
+    if (!isDatabaseConfigured() || !sellerId) {
+      return resolveActiveAcquirer();
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: {
+        routingMode: true,
+        preferredAdquirenteId: true,
+      },
+    });
+    if (
+      user?.routingMode === "personalizado" &&
+      user.preferredAdquirenteId
+    ) {
+      const a = await prisma.acquirer.findFirst({
+        where: {
+          OR: [
+            { id: user.preferredAdquirenteId },
+            { code: user.preferredAdquirenteId },
+            { code: user.preferredAdquirenteId.toUpperCase() },
+          ],
+          enabled: true,
+          status: "ativo",
+        },
+      });
+      if (a) {
+        const key = (a.privateKey || "").trim();
+        const provider = detectProvider(a);
+        if (provider && key) {
+          return {
+            provider,
+            id: a.id,
+            code: a.code,
+            isPrimary: false,
+            priority: a.priority,
+            hasKey: true,
+          };
+        }
+      }
+      // personalizado sem chave → erro explícito no caller; não cai na principal
+      const providerGuess =
+        user.preferredAdquirenteId.toLowerCase().includes("pod")
+          ? ("podpay" as const)
+          : user.preferredAdquirenteId.toLowerCase().includes("vel")
+            ? ("velana" as const)
+            : null;
+      if (providerGuess) {
+        return {
+          provider: providerGuess,
+          id: user.preferredAdquirenteId,
+          code: providerGuess.toUpperCase(),
+          isPrimary: false,
+          priority: 0,
+          hasKey: false,
+        };
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return resolveActiveAcquirer();
+}
+
+/**
  * Escolhe a adquirente #1 da fila com credenciais.
  * Se a #1 não tem chave, tenta a próxima da ordem (fallback de rota).
  */

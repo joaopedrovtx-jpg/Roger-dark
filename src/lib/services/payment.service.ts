@@ -22,7 +22,7 @@ import {
   isVelanaEnabledServer,
   resolveVelanaConfigServer,
 } from "@/lib/acquirers/velana/config";
-import { resolveActiveAcquirer } from "@/lib/acquirers/resolve";
+import { resolveAcquirerForSeller } from "@/lib/acquirers/resolve";
 
 export interface CreateChargeInput {
   sellerId: string;
@@ -96,9 +96,9 @@ export async function createPixCharge(
     if (e instanceof Error && e.message.includes("bloqueada")) throw e;
   }
 
-  // Roteamento: #1 do painel (priority / isPrimary) → API usa a MESMA adquirente
-  // A plataforma intermedia: seller → DarkPay → adquirente principal
-  const active = await resolveActiveAcquirer();
+  // Roteamento: personalizado do seller OU #1 global da plataforma
+  // A plataforma intermedia: seller → DarkPay → adquirente
+  const active = await resolveAcquirerForSeller(input.sellerId);
 
   async function viaVelana() {
     const config = await resolveVelanaConfigServer();
