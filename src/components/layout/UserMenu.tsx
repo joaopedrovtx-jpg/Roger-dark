@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -11,22 +11,36 @@ interface UserMenuProps {
   avatarUrl?: string | null;
 }
 
-const MENU_LINKS = [
-  { label: "Perfil", href: "/configuracoes/perfil" },
-  { label: "Notificações", href: "/configuracoes/notificacoes" },
-  { label: "Configuração", href: "/configuracoes" },
-  { label: "Documentação de API", href: "/docs" },
-  { label: "Meus documentos", href: "/configuracoes/documentos" },
-  { label: "Painel Admin", href: "/admin" },
-] as const;
-
 export function UserMenu({ name, avatarUrl }: UserMenuProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { logout, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+
+  const onAdminPanel = pathname.startsWith("/admin");
+
+  const links = useMemo(() => {
+    const base: { label: string; href: string }[] = [
+      { label: "Perfil", href: "/configuracoes/perfil" },
+      { label: "Notificações", href: "/configuracoes/notificacoes" },
+      { label: "Configuração", href: "/configuracoes" },
+      { label: "Documentação de API", href: "/docs" },
+      { label: "Meus documentos", href: "/configuracoes/documentos" },
+    ];
+    if (isAdmin) {
+      if (onAdminPanel) {
+        // No admin: atalho para a dash de usuário (seller)
+        base.push({ label: "Minha Dash", href: "/dash" });
+      } else {
+        // No painel seller: atalho de volta ao admin
+        base.push({ label: "Painel Admin", href: "/admin" });
+      }
+    }
+    return base;
+  }, [isAdmin, onAdminPanel]);
 
   const initials = name
     .split(" ")
@@ -72,10 +86,6 @@ export function UserMenu({ name, avatarUrl }: UserMenuProps) {
     // hard navigate garante cookie limpo + middleware
     window.location.href = "/login";
   }
-
-  const links = MENU_LINKS.filter((item) =>
-    item.href === "/admin" ? isAdmin : true
-  );
 
   const avatar = (
     <span

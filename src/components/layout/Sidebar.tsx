@@ -20,7 +20,8 @@ interface NavItem {
 const NAV: NavItem[] = [
   {
     label: "Dashboard",
-    href: "/",
+    // /dash funciona para seller e para admin (home `/` redireciona admin → /admin)
+    href: "/dash",
     iconSrc: "/icons/casa.png",
   },
   { label: "Transações", href: "/transacoes", icon: ArrowLeftRight },
@@ -80,7 +81,9 @@ function NavImgIcon({
 }
 
 function isActive(href: string, pathname: string): boolean {
-  if (href === "/") return pathname === "/";
+  if (href === "/dash" || href === "/") {
+    return pathname === "/dash" || pathname === "/";
+  }
   if (href === "/financeiro") return pathname === "/financeiro";
   return pathname === href || pathname.startsWith(`${href}/`);
 }

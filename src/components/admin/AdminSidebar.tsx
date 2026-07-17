@@ -20,6 +20,8 @@ const NAV: NavItem[] = [
     href: "/admin",
     iconSrc: "/icons/casa.png",
   },
+  // Atalho no menu lateral: dash do seller (conta admin)
+  // (também no menu do avatar como "Minha Dash")
   {
     label: "Usuários",
     href: "/admin/usuarios",
