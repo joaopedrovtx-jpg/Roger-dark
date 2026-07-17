@@ -117,6 +117,7 @@ export async function middleware(req: NextRequest) {
       (await cookieLooksValid(token)) &&
       (pathname.startsWith("/login") || pathname.startsWith("/registro"))
     ) {
+      // Vai pra home; page `/` redireciona admin → /admin
       return NextResponse.redirect(new URL("/", req.url));
     }
     return NextResponse.next();

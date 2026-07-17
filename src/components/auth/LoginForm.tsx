@@ -22,12 +22,26 @@ export function LoginForm() {
       typeof window !== "undefined"
         ? new URLSearchParams(window.location.search).get("next")
         : null;
-    const dest =
-      next && next.startsWith("/") && !next.startsWith("//")
-        ? next
-        : isAdmin
-          ? "/admin"
-          : "/";
+    const safeNext =
+      next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+
+    let dest = isAdmin ? "/admin" : "/";
+    if (safeNext) {
+      if (isAdmin) {
+        // Admin: só segue next se for área admin ou configurações (ex.: 2FA)
+        if (
+          safeNext.startsWith("/admin") ||
+          safeNext.startsWith("/configuracoes")
+        ) {
+          dest = safeNext;
+        } else {
+          dest = "/admin";
+        }
+      } else {
+        // Seller: nunca manda para /admin
+        dest = safeNext.startsWith("/admin") ? "/" : safeNext;
+      }
+    }
     window.location.assign(dest);
   }
 
