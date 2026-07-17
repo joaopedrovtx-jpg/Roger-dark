@@ -36,15 +36,18 @@ function rolesFromJson(raw: unknown): Role[] {
   return ["seller"];
 }
 
-function toAuthUser(u: {
-  id: string;
-  name: string;
-  email: string;
-  status: string;
-  roles: unknown;
-  avatarUrl?: string | null;
-  displayName?: string | null;
-}): AuthUser {
+function toAuthUser(
+  u: {
+    id: string;
+    name: string;
+    email: string;
+    status: string;
+    roles: unknown;
+    avatarUrl?: string | null;
+    displayName?: string | null;
+  },
+  extras?: { twoFactorEnabled?: boolean; mustSetup2fa?: boolean }
+): AuthUser {
   return {
     id: u.id,
     name: u.name,
@@ -53,11 +56,31 @@ function toAuthUser(u: {
     roles: rolesFromJson(u.roles),
     avatarUrl: u.avatarUrl ?? null,
     displayName: u.displayName ?? undefined,
+    twoFactorEnabled: extras?.twoFactorEnabled,
+    mustSetup2fa: extras?.mustSetup2fa,
   };
 }
 
+/** Enriquece AuthUser com flags 2FA (policy admin). */
+export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
+  try {
+    const {
+      userHas2faEnabled,
+      adminMustSetup2fa,
+    } = await import("@/lib/server/admin-2fa-policy");
+    const twoFactorEnabled = await userHas2faEnabled(user.id);
+    const mustSetup2fa = await adminMustSetup2fa(user.id, user.roles);
+    return { ...user, twoFactorEnabled, mustSetup2fa };
+  } catch {
+    return user;
+  }
+}
+
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  // crypto forte (não Date/Math.random)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomBytes } = require("crypto") as typeof import("crypto");
+  return `${prefix}_${randomBytes(24).toString("base64url")}`;
 }
 
 export async function assertDatabase(): Promise<void> {
@@ -90,7 +113,7 @@ export async function verifyPassword(
 export async function createSessionForUser(
   userId: string,
   meta?: { ip?: string; userAgent?: string }
-): Promise<{ session: Session; token: string }> {
+): Promise<{ session: Session; token: string; rawToken: string }> {
   await assertDatabase();
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("Usuário não encontrado");
@@ -98,7 +121,9 @@ export async function createSessionForUser(
     throw new Error("Conta bloqueada. Fale com o suporte.");
   }
 
-  const token = newId("tok");
+  // Token forte (32 bytes)
+  const { generateSecureToken } = await import("@/lib/server/security");
+  const token = generateSecureToken("tok");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 864e5);
   await prisma.session.create({
     data: {
@@ -115,11 +140,19 @@ export async function createSessionForUser(
     data: { lastLoginAt: new Date() },
   });
 
+  // Cookie assinado: middleware valida exp+HMAC; API valida token no DB
+  const { packSessionCookie } = await import("@/lib/server/signed-token");
+  const cookieToken = packSessionCookie(token, expiresAt);
+
+  const base = toAuthUser(user);
+  const enriched = await enrichAuthUser(base);
+
   return {
-    token,
+    token: cookieToken,
+    rawToken: token,
     session: {
-      user: toAuthUser(user),
-      token,
+      user: enriched,
+      token: cookieToken,
       expiresAt: expiresAt.toISOString(),
     },
   };
@@ -155,9 +188,9 @@ export async function registerWithPassword(
   await assertDatabase();
 
   const email = input.email.trim().toLowerCase();
-  if (input.password.length < 6) {
-    throw new Error("Senha mínima: 6 caracteres.");
-  }
+  const { validatePasswordStrength } = await import("@/lib/server/security");
+  const pwdErr = validatePasswordStrength(input.password);
+  if (pwdErr) throw new Error(pwdErr);
 
   const exists = await prisma.user.findUnique({ where: { email } });
   if (exists) throw new Error("Este e-mail já está cadastrado.");
@@ -197,7 +230,16 @@ export async function logoutByToken(token: string | undefined) {
   if (!token) return;
   try {
     await assertDatabase();
-    await prisma.session.deleteMany({ where: { token } });
+    // Cookie assinado (payload.sig) ou legado: sempre apaga o rawToken no DB
+    let raw = token.trim();
+    try {
+      const { unpackSessionCookie } = await import("@/lib/server/signed-token");
+      const unpacked = unpackSessionCookie(raw);
+      if (unpacked.ok) raw = unpacked.token;
+    } catch {
+      /* legado */
+    }
+    await prisma.session.deleteMany({ where: { token: raw } });
   } catch {
     /* cookie ainda é limpo na route */
   }
@@ -213,8 +255,24 @@ export async function getUserBySessionToken(
     return null;
   }
 
+  // Cookie assinado (token|exp.hmac) ou legado (só token)
+  let raw = token.trim();
+  try {
+    const { unpackSessionCookie } = await import("@/lib/server/signed-token");
+    const unpacked = unpackSessionCookie(raw);
+    if (unpacked.ok) {
+      raw = unpacked.token;
+    } else if (unpacked.reason === "expired" || unpacked.reason === "sig") {
+      // cookie assinado inválido/expirado
+      if (raw.includes(".")) return null;
+      // legado sem ponto: tenta DB
+    }
+  } catch {
+    /* continue */
+  }
+
   const ses = await prisma.session.findUnique({
-    where: { token: token.trim() },
+    where: { token: raw },
     include: { user: true },
   });
   if (!ses) return null;
@@ -223,7 +281,7 @@ export async function getUserBySessionToken(
     return null;
   }
   if (ses.user.status === "bloqueado") return null;
-  return toAuthUser(ses.user);
+  return enrichAuthUser(toAuthUser(ses.user));
 }
 
 /** Extrai token do cookie e/ou Authorization: Bearer */

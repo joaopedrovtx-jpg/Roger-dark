@@ -53,63 +53,68 @@ export async function dbAvailable(): Promise<boolean> {
   }
 }
 
-/** Cards da Dashboard Admin */
+/** Cards da Dashboard Admin — agregações no SQL (não carrega todas as TXs). */
 export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
   if (!(await dbAvailable())) return null;
 
   const [
     users,
-    txs,
-    withdrawals,
-    acquirers,
+    paidSales,
+    decidedSales,
+    totalSalesCount,
+    paidWdFees,
+    pendingWd,
+    acquirersActive,
     pendingDocs,
+    balAgg,
   ] = await Promise.all([
     prisma.user.groupBy({ by: ["status"], _count: true }),
-    prisma.transaction.findMany({
-      where: { kind: "venda" },
-      select: { amount: true, status: true, platformFee: true },
+    prisma.transaction.aggregate({
+      where: { kind: "venda", status: "aprovada" },
+      _sum: { amount: true, platformFee: true },
+      _count: true,
     }),
-    prisma.withdrawal.findMany({
-      select: { amount: true, status: true, feeAmount: true },
+    prisma.transaction.count({
+      where: {
+        kind: "venda",
+        status: { in: ["aprovada", "recusada", "reembolsada"] },
+      },
     }),
-    prisma.acquirer.findMany({
-      select: { status: true, enabled: true },
+    prisma.transaction.count({ where: { kind: "venda" } }),
+    prisma.withdrawal.aggregate({
+      where: { status: "pago" },
+      _sum: { feeAmount: true },
+    }),
+    prisma.withdrawal.aggregate({
+      where: { status: "processando" },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.acquirer.count({
+      where: { status: "ativo", enabled: true },
     }),
     prisma.document.count({ where: { status: "pendente" } }),
+    prisma.user.aggregate({
+      _sum: {
+        balanceHeld: true,
+        balanceAvailable: true,
+        balancePending: true,
+        platformProfit: true,
+      },
+    }),
   ]);
 
   const countBy = (s: string) =>
     users.find((u) => u.status === s)?._count ?? 0;
 
   const totalUsers = users.reduce((a, u) => a + u._count, 0);
-  const paid = txs.filter((t) => t.status === "aprovada");
-  const volumeProcessed = paid.reduce((a, t) => a + n(t.amount), 0);
-  const platformFromTx = paid.reduce((a, t) => a + n(t.platformFee), 0);
-  const platformFromWd = withdrawals
-    .filter((w) => w.status === "pago")
-    .reduce((a, w) => a + n(w.feeAmount), 0);
-  const totalTransactions = txs.length;
-  const averageTicket =
-    paid.length > 0 ? volumeProcessed / paid.length : 0;
-
-  const decided = txs.filter((t) =>
-    ["aprovada", "recusada", "reembolsada"].includes(t.status)
-  );
+  const volumeProcessed = n(paidSales._sum.amount);
+  const platformFromTx = n(paidSales._sum.platformFee);
+  const platformFromWd = n(paidWdFees._sum.feeAmount);
+  const paidCount = paidSales._count;
+  const averageTicket = paidCount > 0 ? volumeProcessed / paidCount : 0;
   const conversionRate =
-    decided.length > 0
-      ? (paid.length / decided.length) * 100
-      : 0;
-
-  const balAgg = await prisma.user.aggregate({
-    _sum: {
-      balanceHeld: true,
-      balanceAvailable: true,
-      balancePending: true,
-      platformProfit: true,
-    },
-  });
-
-  const pendingWd = withdrawals.filter((w) => w.status === "processando");
+    decidedSales > 0 ? (paidCount / decidedSales) * 100 : 0;
   const platformRevenue = platformFromTx + platformFromWd;
 
   return {
@@ -118,17 +123,14 @@ export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
     pendingUsers: countBy("pendente"),
     blockedUsers: countBy("bloqueado"),
     pendingDocs,
-    pendingSaques: pendingWd.length,
-    pendingSaquesAmount: pendingWd.reduce((a, w) => a + n(w.amount), 0),
+    pendingSaques: pendingWd._count,
+    pendingSaquesAmount: n(pendingWd._sum.amount),
     volumeProcessed,
-    /** Lucro plataforma = taxas MDR das vendas pagas + taxas de saque pagos */
     platformRevenue,
     platformRevenueSales: platformFromTx,
     platformRevenueWithdrawals: platformFromWd,
-    activeAdquirentes: acquirers.filter(
-      (a) => a.status === "ativo" && a.enabled
-    ).length,
-    totalTransactions,
+    activeAdquirentes: acquirersActive,
+    totalTransactions: totalSalesCount,
     averageTicket,
     totalHeldBalance: n(balAgg._sum.balanceHeld),
     totalAvailableBalance: n(balAgg._sum.balanceAvailable),
@@ -162,26 +164,58 @@ export async function getAdminVolumeHistory(
       .reverse();
   }
 
-  // Fallback: agrega transactions aprovadas por dia
-  const txs = await prisma.transaction.findMany({
-    where: { kind: "venda", status: "aprovada" },
-    select: { date: true, amount: true },
-    orderBy: { date: "desc" },
-    take: 5000,
-  });
+  // Fallback: GROUP BY no SQL (SQLite/MySQL) — evita carregar milhares de rows
+  try {
+    const since = new Date(Date.now() - days * 864e5);
+    // Prisma raw: date(date) funciona em SQLite; DATE(date) no MySQL
+    const isMysql = (process.env.DATABASE_URL || "").startsWith("mysql");
+    const rows = isMysql
+      ? await prisma.$queryRaw<Array<{ d: Date | string; total: unknown }>>`
+          SELECT DATE(\`date\`) AS d, SUM(amount) AS total
+          FROM \`transactions\`
+          WHERE kind = 'venda' AND status = 'aprovada' AND \`date\` >= ${since}
+          GROUP BY DATE(\`date\`)
+          ORDER BY d ASC
+        `
+      : await prisma.$queryRaw<Array<{ d: string; total: unknown }>>`
+          SELECT date(date) AS d, SUM(amount) AS total
+          FROM transactions
+          WHERE kind = 'venda' AND status = 'aprovada' AND date >= ${since}
+          GROUP BY date(date)
+          ORDER BY d ASC
+        `;
 
-  const map = new Map<string, number>();
-  for (const t of txs) {
-    const d =
-      t.date instanceof Date
-        ? t.date.toISOString().slice(0, 10)
-        : String(t.date).slice(0, 10);
-    map.set(d, (map.get(d) ?? 0) + n(t.amount));
+    return rows.map((r) => ({
+      date:
+        r.d instanceof Date
+          ? r.d.toISOString().slice(0, 10)
+          : String(r.d).slice(0, 10),
+      amount: n(r.total),
+      grain: "day" as const,
+    }));
+  } catch {
+    // último recurso: sample limitado
+    const txs = await prisma.transaction.findMany({
+      where: {
+        kind: "venda",
+        status: "aprovada",
+        date: { gte: new Date(Date.now() - days * 864e5) },
+      },
+      select: { date: true, amount: true },
+      take: 2000,
+    });
+    const map = new Map<string, number>();
+    for (const t of txs) {
+      const d =
+        t.date instanceof Date
+          ? t.date.toISOString().slice(0, 10)
+          : String(t.date).slice(0, 10);
+      map.set(d, (map.get(d) ?? 0) + n(t.amount));
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, amount]) => ({ date, amount, grain: "day" as const }));
   }
-  return [...map.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(-days)
-    .map(([date, amount]) => ({ date, amount, grain: "day" as const }));
 }
 
 /** Histórico unificado vendas + saques (Dashboard Admin) */
@@ -324,20 +358,29 @@ export async function listAdminUsers(opts?: {
   };
 }
 
-/** Cards Saques admin */
+/** Cards Saques admin — agregações SQL (não carrega todos os saques). */
 export async function getAdminSaquesMetrics() {
   if (!(await dbAvailable())) return null;
-  const items = await prisma.withdrawal.findMany();
-  const paid = items.filter((w) => w.status === "pago");
-  const pending = items.filter((w) => w.status === "processando");
-  const rejected = items.filter((w) => w.status === "recusado");
+  const [paid, pending, rejected] = await Promise.all([
+    prisma.withdrawal.aggregate({
+      where: { status: "pago" },
+      _sum: { amount: true, feeAmount: true },
+      _count: true,
+    }),
+    prisma.withdrawal.aggregate({
+      where: { status: "processando" },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.withdrawal.count({ where: { status: "recusado" } }),
+  ]);
   return {
-    totalOut: paid.reduce((a, w) => a + n(w.amount), 0),
-    pendingAmount: pending.reduce((a, w) => a + n(w.amount), 0),
-    lucroSobreSaque: paid.reduce((a, w) => a + n(w.feeAmount), 0),
-    paidCount: paid.length,
-    pendingCount: pending.length,
-    rejectedCount: rejected.length,
+    totalOut: n(paid._sum.amount),
+    pendingAmount: n(pending._sum.amount),
+    lucroSobreSaque: n(paid._sum.feeAmount),
+    paidCount: paid._count,
+    pendingCount: pending._count,
+    rejectedCount: rejected,
   };
 }
 
@@ -372,29 +415,98 @@ export async function listAdminWithdrawals(status?: string) {
 }
 
 /** Cards + lista Adquirentes */
+/** Garante PodPay + Velana no catálogo (credenciais / gerenciamento). */
+async function ensureGatewayAcquirers() {
+  // Velana = rota principal padrão (prioridade 1)
+  const velana = await prisma.acquirer.findUnique({ where: { id: "velana" } });
+  if (!velana) {
+    await prisma.acquirer.create({
+      data: {
+        id: "velana",
+        name: "Velana",
+        code: "VELANA",
+        status: "ativo",
+        priority: 1,
+        isPrimary: true,
+        enabled: true,
+        env: "live",
+        // Custo plataforma → Velana: R$ 0,80 / TX
+        feePercent: 0,
+        feeFixed: 0.8,
+        settlement: "D+0",
+      },
+    });
+  }
+  const podpay = await prisma.acquirer.findUnique({ where: { id: "podpay" } });
+  if (!podpay) {
+    await prisma.acquirer.create({
+      data: {
+        id: "podpay",
+        name: "PodPay",
+        code: "PODPAY",
+        status: "ativo",
+        priority: 2,
+        isPrimary: false,
+        enabled: true,
+        env: "sandbox",
+        feePercent: 1.49,
+        feeFixed: 0.15,
+        settlement: "D+0",
+      },
+    });
+  }
+}
+
 export async function listAdminAcquirers() {
   if (!(await dbAvailable())) return null;
+  try {
+    await ensureGatewayAcquirers();
+  } catch {
+    /* ignore race / unique */
+  }
   const items = await prisma.acquirer.findMany({
     orderBy: { priority: "asc" },
   });
-  return items.map((a) => ({
+  return items.map((a) => {
+    const pub = (a.publicKey ?? "").trim();
+    const priv = (a.privateKey ?? "").trim();
+    return {
+      id: a.id,
+      name: a.name,
+      code: a.code,
+      status: a.status,
+      feePercent: n(a.feePercent),
+      feeFixed: n(a.feeFixed),
+      volumeMes: n(a.volumeMes),
+      transactionsMes: a.transactionsMes,
+      settlement: a.settlement,
+      priority: a.priority,
+      conversionRate: n(a.conversionRate),
+      // Nunca devolver secret completa na listagem
+      publicKey: "",
+      privateKey: "",
+      hasPublicKey: !!pub,
+      hasPrivateKey: !!priv,
+      publicKeyHint: pub ? `…${pub.slice(-4)}` : null,
+      privateKeyHint: priv ? `…${priv.slice(-4)}` : null,
+      env: a.env,
+      enabled: a.enabled,
+      isPrimary: a.isPrimary,
+    };
+  });
+}
+
+/** Revele chaves completas (admin only) — uso sob demanda no painel. */
+export async function getAcquirerSecrets(id: string) {
+  if (!(await dbAvailable())) return null;
+  const a = await findAcquirerByRef(id);
+  if (!a) return null;
+  return {
     id: a.id,
-    name: a.name,
-    code: a.code,
-    status: a.status,
-    feePercent: n(a.feePercent),
-    feeFixed: n(a.feeFixed),
-    volumeMes: n(a.volumeMes),
-    transactionsMes: a.transactionsMes,
-    settlement: a.settlement,
-    priority: a.priority,
-    conversionRate: n(a.conversionRate),
     publicKey: a.publicKey ?? "",
     privateKey: a.privateKey ?? "",
     env: a.env,
-    enabled: a.enabled,
-    isPrimary: a.isPrimary,
-  }));
+  };
 }
 
 export async function getAdminAcquirersMetrics() {
@@ -725,13 +837,28 @@ async function findAcquirerByRef(id: string) {
 /** Credenciais (chave pública/privada) — grava no DB (SQLite/MySQL) */
 export async function dbSaveAcquirerCredentials(
   id: string,
-  data: { publicKey: string; privateKey: string; env?: string }
+  data: {
+    publicKey?: string;
+    privateKey?: string;
+    env?: string;
+    /** Se true, promove a adquirente a primária (rota de PIX) */
+    setPrimary?: boolean;
+  }
 ) {
   if (!(await dbAvailable())) return null;
+
+  // Garante PodPay/Velana no catálogo antes de salvar
+  try {
+    await ensureGatewayAcquirers();
+  } catch {
+    /* race */
+  }
 
   let existing = await findAcquirerByRef(id);
   const isPodPay =
     id.toLowerCase() === "podpay" || id.toUpperCase() === "PODPAY";
+  const isVelana =
+    id.toLowerCase() === "velana" || id.toUpperCase() === "VELANA";
 
   // Seed mínimo se PodPay ainda não existir
   if (!existing && isPodPay) {
@@ -745,8 +872,11 @@ export async function dbSaveAcquirerCredentials(
         isPrimary: true,
         enabled: true,
         env: data.env === "live" ? "live" : "sandbox",
-        publicKey: data.publicKey || null,
-        privateKey: data.privateKey || null,
+        publicKey: (data.publicKey ?? "").trim() || null,
+        privateKey: (data.privateKey ?? "").trim() || null,
+        feePercent: 1.49,
+        feeFixed: 0.15,
+        settlement: "D+0",
       },
     });
     await audit("acquirer.credentials", "acquirer", existing.id, {
@@ -757,6 +887,49 @@ export async function dbSaveAcquirerCredentials(
       publicKey: existing.publicKey ?? "",
       privateKey: existing.privateKey ? "••••" : "",
       hasPrivateKey: !!existing.privateKey,
+      hasPublicKey: !!existing.publicKey,
+      env: existing.env,
+      isPrimary: existing.isPrimary,
+    };
+  }
+
+  // Seed mínimo se Velana ainda não existir
+  // Custo: R$ 0,80 / TX (feeFixed). Seller paga taxa maior (2,99% + R$ 1,00 no gateway).
+  if (!existing && isVelana) {
+    existing = await prisma.acquirer.create({
+      data: {
+        id: "velana",
+        name: "Velana",
+        code: "VELANA",
+        status: "ativo",
+        priority: 2,
+        isPrimary: !!data.setPrimary,
+        enabled: true,
+        env: data.env === "sandbox" ? "sandbox" : "live",
+        publicKey: (data.publicKey ?? "").trim() || null,
+        privateKey: (data.privateKey ?? "").trim() || null,
+        feePercent: 0,
+        feeFixed: 0.8,
+        settlement: "D+0",
+      },
+    });
+    if (data.setPrimary) {
+      await prisma.acquirer.updateMany({
+        where: { id: { not: "velana" } },
+        data: { isPrimary: false },
+      });
+    }
+    await audit("acquirer.credentials", "acquirer", existing.id, {
+      created: true,
+    });
+    return {
+      id: existing.id,
+      publicKey: existing.publicKey ?? "",
+      privateKey: existing.privateKey ? "••••" : "",
+      hasPrivateKey: !!existing.privateKey,
+      hasPublicKey: !!existing.publicKey,
+      env: existing.env,
+      isPrimary: existing.isPrimary,
     };
   }
 
@@ -766,23 +939,61 @@ export async function dbSaveAcquirerCredentials(
     );
   }
 
-  const privateKey = (data.privateKey ?? "").trim();
-  const publicKey = (data.publicKey ?? "").trim();
-  const env =
-    data.env === "live" || data.env === "sandbox"
-      ? data.env
-      : privateKey.includes("test")
-        ? "sandbox"
-        : existing.env || "sandbox";
+  // Campos vazios = manter valor atual (não apagar chave sem querer)
+  const incomingPrivate = (data.privateKey ?? "").trim();
+  const incomingPublic = (data.publicKey ?? "").trim();
+  const privateKey =
+    incomingPrivate && incomingPrivate !== "••••" && !incomingPrivate.startsWith("••")
+      ? incomingPrivate
+      : (existing.privateKey ?? "").trim();
+  const publicKey =
+    incomingPublic && incomingPublic !== "••••" && !incomingPublic.startsWith("••")
+      ? incomingPublic
+      : (existing.publicKey ?? "").trim();
 
+  if (!privateKey && !publicKey) {
+    throw new Error(
+      isVelana
+        ? "Informe a secret key da Velana (Configurações → Credenciais de API)."
+        : "Informe ao menos a chave privada."
+    );
+  }
+
+  // PodPay: se enviou chave nova, validar prefixo sk_
   if (
     (existing.code === "PODPAY" || existing.id === "podpay" || isPodPay) &&
-    privateKey &&
-    !privateKey.startsWith("sk_")
+    incomingPrivate &&
+    !incomingPrivate.startsWith("sk_")
   ) {
     throw new Error(
       "Chave privada PodPay inválida. Use sk_test_… (sandbox) ou sk_live_… (produção)."
     );
+  }
+
+  // Velana: qualquer secret key (a API usa Basic Auth secretKey:x).
+  // NÃO rejeitar sk_ — a Velana pode emitir chaves com esse prefixo.
+  if (
+    (existing.code === "VELANA" || existing.id === "velana" || isVelana) &&
+    !privateKey
+  ) {
+    throw new Error(
+      "Velana exige a secret key (chave secreta da API). A public key sozinha não autentica PIX."
+    );
+  }
+
+  const env =
+    data.env === "live" || data.env === "sandbox"
+      ? data.env
+      : privateKey.toLowerCase().includes("test") ||
+          privateKey.toLowerCase().includes("sandbox")
+        ? "sandbox"
+        : existing.env || "live";
+
+  if (data.setPrimary) {
+    await prisma.acquirer.updateMany({
+      where: { id: { not: existing.id } },
+      data: { isPrimary: false },
+    });
   }
 
   const a = await prisma.acquirer.update({
@@ -791,16 +1002,23 @@ export async function dbSaveAcquirerCredentials(
       publicKey: publicKey || null,
       privateKey: privateKey || null,
       env,
-      // Ao salvar chave, mantém habilitada
-      ...(privateKey ? { enabled: true } : {}),
+      enabled: true,
+      status: "ativo",
+      ...(data.setPrimary ? { isPrimary: true } : {}),
     },
   });
-  await audit("acquirer.credentials", "acquirer", a.id);
+  await audit("acquirer.credentials", "acquirer", a.id, {
+    hasPrivateKey: !!a.privateKey,
+    setPrimary: !!data.setPrimary,
+  });
   return {
     id: a.id,
     publicKey: a.publicKey ?? "",
     privateKey: a.privateKey ? "••••" : "",
     hasPrivateKey: !!a.privateKey,
+    hasPublicKey: !!a.publicKey,
+    env: a.env,
+    isPrimary: a.isPrimary,
   };
 }
 

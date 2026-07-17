@@ -9,12 +9,14 @@ import {
 } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/domain/types";
 import {
-  authenticateApiKey,
+  authenticateApiKeyDetailed,
   hasPermission,
+  messageForApiKeyFailure,
   type ApiCredentialAuth,
   type ApiPermission,
 } from "@/lib/server/db/api-credentials.service";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
+import { validateSessionCsrf } from "@/lib/server/csrf";
 
 export type GuardOk = {
   user: AuthUser;
@@ -24,9 +26,24 @@ export type GuardOk = {
 };
 export type GuardFail = { error: NextResponse };
 
+function csrfGuard(req?: Request | null): GuardFail | null {
+  if (!req) return null;
+  const msg = validateSessionCsrf(req);
+  if (!msg) return null;
+  return {
+    error: NextResponse.json(
+      { error: msg, code: "csrf_rejected" },
+      { status: 403 }
+    ),
+  };
+}
+
 export async function requireAuth(
   req?: Request
 ): Promise<GuardOk | GuardFail> {
+  const csrf = csrfGuard(req);
+  if (csrf) return csrf;
+
   const user = await getSessionUser(req ?? null);
   if (!user) {
     return {
@@ -53,16 +70,22 @@ export async function requireSellerAuth(
   // 1) sessão (painel / playground)
   const sessionToken = extractTokenFromRequest(req);
   if (sessionToken && !sessionToken.startsWith("sk_")) {
+    // CSRF só para autenticação por sessão (não API key)
+    const csrf = csrfGuard(req);
+    if (csrf) return csrf;
     const user = await getUserBySessionToken(sessionToken);
     if (user) {
       return { user, authVia: "session" };
     }
   }
-  // cookie sem bearer
+  // cookie / sessão do painel (playground de Pagamentos)
   const cookieUser = await getSessionUser(req);
   if (cookieUser) {
-    // se também mandou sk_, preferir API key para lastUsedAt
-    const apiAuth = await authenticateApiKey(req);
+    const csrf = csrfGuard(req);
+    if (csrf) return csrf;
+    // se mandou sk_ válida, usa API key; se sk_ inválida, CAI NA SESSÃO
+    // (antes o playground com credentials:omit + sk_ errada dava “expirada” falso)
+    const { auth: apiAuth } = await authenticateApiKeyDetailed(req);
     if (apiAuth) {
       const u = await loadUser(apiAuth.userId);
       if (u) {
@@ -80,12 +103,14 @@ export async function requireSellerAuth(
         return { user: u, apiAuth, authVia: "api_key" };
       }
     }
+    // Sessão válida sempre autentica o playground mesmo com sk_ errada/vazia
     return { user: cookieUser, authVia: "session" };
   }
 
-  // 2) API key (cassino / checkout / backend do seller)
-  const apiAuth = await authenticateApiKey(req);
-  if (apiAuth) {
+  // 2) API key pura (cassino / checkout externo — sem cookie)
+  const detailed = await authenticateApiKeyDetailed(req);
+  if (detailed.auth) {
+    const apiAuth = detailed.auth;
     if (opts?.permission && !hasPermission(apiAuth, opts.permission)) {
       return {
         error: NextResponse.json(
@@ -113,6 +138,30 @@ export async function requireSellerAuth(
       };
     }
     return { user: u, apiAuth, authVia: "api_key" };
+  }
+
+  // Bearer sk_ presente mas falhou — mensagem específica (não genérica “expirada”)
+  const authHdr =
+    req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  const bearer = authHdr.toLowerCase().startsWith("bearer ")
+    ? authHdr.slice(7).trim()
+    : "";
+  if (bearer.startsWith("sk_") || detailed.failure) {
+    const failure =
+      detailed.failure ||
+      (bearer.includes("…") || bearer.includes("•") || bearer.length < 20
+        ? "masked"
+        : "invalid");
+    return {
+      error: NextResponse.json(
+        {
+          error: messageForApiKeyFailure(failure),
+          code: `api_key_${failure}`,
+          hint: "A secret completa só aparece ao criar ou rotacionar em Integrações → API.",
+        },
+        { status: 401 }
+      ),
+    };
   }
 
   return {
@@ -178,6 +227,30 @@ export async function requireAdmin(
       ),
     };
   }
+
+  // Policy: admin sem 2FA não acessa painel admin (exceto setup em /auth/2fa)
+  try {
+    const { adminMustSetup2fa } = await import(
+      "@/lib/server/admin-2fa-policy"
+    );
+    if (await adminMustSetup2fa(r.user.id, r.user.roles)) {
+      return {
+        error: NextResponse.json(
+          {
+            error:
+              "Administradores devem ativar a verificação em duas etapas (2FA).",
+            code: "must_setup_2fa",
+            hint: "Vá em Configurações → Segurança e ative o autenticador.",
+            setupPath: "/configuracoes/seguranca",
+          },
+          { status: 403 }
+        ),
+      };
+    }
+  } catch {
+    /* policy best-effort */
+  }
+
   return r;
 }
 

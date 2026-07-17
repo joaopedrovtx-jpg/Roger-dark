@@ -286,7 +286,8 @@ async function persistChargeToMysql(
 export async function createWithdrawalViaPodPay(
   sellerId: string,
   sellerName: string,
-  input: CreateWithdrawalInput
+  input: CreateWithdrawalInput,
+  opts?: { skipLocalDebit?: boolean }
 ): Promise<Withdrawal> {
   if (!isPodPayEnabled()) {
     throw new PodPayError("PodPay não configurada", {
@@ -322,8 +323,8 @@ export async function createWithdrawalViaPodPay(
     feeFixed: fromCents(remote.fee ?? 0),
   };
 
-  // Debita localmente se ainda processando
-  if (w.status === "processando") {
+  // Debita localmente se ainda processando (e se o caller não debitou no DB)
+  if (w.status === "processando" && !opts?.skipLocalDebit) {
     adjustBalance(sellerId, { available: -w.amount });
   }
 
@@ -522,18 +523,6 @@ async function applyPaidStatusToMysql(opts: {
   });
   if (!charge) return;
 
-  const wasWaiting = charge.status === "waiting_payment";
-  await prisma.paymentCharge.update({
-    where: { id: charge.id },
-    data: {
-      status: statusCharge,
-      paidAt:
-        statusCharge === "paid"
-          ? charge.paidAt || new Date()
-          : charge.paidAt,
-    },
-  });
-
   const tx = charge.transactionId
     ? await prisma.transaction.findUnique({
         where: { id: charge.transactionId },
@@ -542,31 +531,49 @@ async function applyPaidStatusToMysql(opts: {
         where: { providerId: opts.providerId },
       });
 
-  if (tx && tx.status !== statusTx) {
-    await prisma.transaction.update({
-      where: { id: tx.id },
-      data: {
-        status: statusTx,
-        paidAt: statusTx === "aprovada" ? new Date() : tx.paidAt,
-        refundedAt: statusTx === "reembolsada" ? new Date() : tx.refundedAt,
-      },
+  // Crédito atômico + idempotente (fonte da verdade: DB)
+  if (statusCharge === "paid") {
+    const { creditPaidSaleIdempotent } = await import("@/lib/server/balance");
+    const amount = Number(charge.amount);
+    const fee = tx
+      ? Number(tx.feeAmount)
+      : Math.round((amount * 0.03 + 0.15) * 100) / 100;
+    await creditPaidSaleIdempotent({
+      transactionId: tx?.id,
+      providerId: opts.providerId,
+      provider: "podpay",
+      sellerId: charge.sellerId,
+      amount,
+      feeAmount: fee,
     });
+    return;
   }
 
-  // Credita saldo só na primeira transição waiting → paid
-  if (wasWaiting && statusCharge === "paid") {
-    const amount = Number(charge.amount);
-    const fee = tx ? Number(tx.feeAmount) : Math.round((amount * 0.03 + 0.15) * 100) / 100;
-    const net = Math.max(0, Math.round((amount - fee) * 100) / 100);
-    await prisma.user.update({
-      where: { id: charge.sellerId },
+  if (tx && tx.status === "pendente" && statusTx !== "pendente") {
+    await prisma.transaction.updateMany({
+      where: { id: tx.id, status: "pendente" },
       data: {
-        balancePending: { decrement: amount },
-        balanceAvailable: { increment: net },
-        volumeTotal: { increment: amount },
+        status: statusTx,
+        refundedAt: statusTx === "reembolsada" ? new Date() : undefined,
       },
     });
+    if (statusTx === "recusada" || statusTx === "reembolsada") {
+      await prisma.user.update({
+        where: { id: charge.sellerId },
+        data: { balancePending: { decrement: Number(charge.amount) } },
+      });
+    }
   }
+
+  await prisma.paymentCharge.updateMany({
+    where: {
+      id: charge.id,
+      status: "waiting_payment",
+    },
+    data: {
+      status: statusCharge,
+    },
+  });
 }
 
 /**

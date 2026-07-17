@@ -101,13 +101,36 @@ function clearSessionSecret(id: string) {
   window.sessionStorage.setItem(SESSION_SECRETS, JSON.stringify(map));
 }
 
-function maskSecretDisplay(c: ApiCredential): string {
-  if (c.secretKey) return c.secretKey;
-  if (c.secretKeyHint) {
-    const env = c.publicKey.startsWith("pk_test_") ? "test" : "live";
-    return `sk_${env}_${c.secretKeyHint}`;
+/**
+ * Exibe a secret para o usuário.
+ * IMPORTANTE: nunca reconstruir sk_live_ + hint — isso gerava uma chave
+ * “pequenininha” (ex.: sk_live_…a1b2) que o user copiava e falhava na API.
+ */
+function maskSecretDisplay(c: ApiCredential): {
+  value: string;
+  canCopy: boolean;
+  isFull: boolean;
+} {
+  if (c.secretKey && c.secretKey.startsWith("sk_") && c.secretKey.length >= 40) {
+    return { value: c.secretKey, canCopy: true, isFull: true };
   }
-  return "sk_•••••••• (reveja só ao criar/rotacionar)";
+  if (c.secretKeyHint) {
+    return {
+      value: `sk_••••••••${c.secretKeyHint.replace(/^•+…?/, "…")}`,
+      canCopy: false,
+      isFull: false,
+    };
+  }
+  return {
+    value: "sk_•••••••• (só aparece completa ao criar ou rotacionar)",
+    canCopy: false,
+    isFull: false,
+  };
+}
+
+function isCredentialExpired(expiresAt: string | null): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt).getTime() < Date.now();
 }
 
 function formatDate(iso: string): string {
@@ -250,9 +273,15 @@ function CopyButton({ value }: { value: string }) {
 function SecretRow({
   label,
   value,
+  canCopy = true,
+  highlight = false,
+  helper,
 }: {
   label: string;
   value: string;
+  canCopy?: boolean;
+  highlight?: boolean;
+  helper?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -270,9 +299,10 @@ function SecretRow({
         style={{
           padding: "12px 14px",
           borderRadius: radiusSoft,
-          /* cor original do input de chave */
-          background: "var(--bg-card)",
-          border: "1px solid var(--border-card)",
+          background: highlight ? "rgba(74, 222, 128, 0.08)" : "var(--bg-card)",
+          border: highlight
+            ? "1px solid rgba(74, 222, 128, 0.45)"
+            : "1px solid var(--border-card)",
         }}
       >
         <code
@@ -286,8 +316,33 @@ function SecretRow({
         >
           {value}
         </code>
-        <CopyButton value={value} />
+        {canCopy ? (
+          <CopyButton value={value} />
+        ) : (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--text-3)",
+              whiteSpace: "nowrap",
+              fontWeight: 600,
+            }}
+          >
+            sem cópia
+          </span>
+        )}
       </div>
+      {helper ? (
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: highlight ? "#4ade80" : "var(--text-3)",
+            lineHeight: 1.4,
+          }}
+        >
+          {helper}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -930,29 +985,46 @@ export function ApiIntegracaoView() {
                         <SecretRow
                           label="Chave Pública (pk_…)"
                           value={c.publicKey}
+                          canCopy
                         />
-                        <SecretRow
-                          label={
-                            c.secretKey
-                              ? "Chave Privada (sk_…) — copie agora"
-                              : "Chave Privada (mascarada)"
-                          }
-                          value={maskSecretDisplay(c)}
-                        />
-                        {!c.secretKey ? (
-                          <p
-                            style={{
-                              margin: 0,
-                              fontSize: 12,
-                              color: "var(--text-3)",
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            Por segurança a secret completa só é mostrada ao
-                            criar ou ao clicar em rotacionar (ícone de
-                            recarregar).
-                          </p>
-                        ) : null}
+                        {(() => {
+                          const sec = maskSecretDisplay(c);
+                          const expired = isCredentialExpired(c.expiresAt);
+                          return (
+                            <>
+                              <SecretRow
+                                label={
+                                  sec.isFull
+                                    ? "Chave Privada (sk_…) — copie agora"
+                                    : "Chave Privada (mascarada)"
+                                }
+                                value={sec.value}
+                                canCopy={sec.canCopy}
+                                highlight={sec.isFull}
+                                helper={
+                                  sec.isFull
+                                    ? "Esta é a secret completa. Guarde em local seguro — ao recarregar a página ela some daqui."
+                                    : "A secret completa não fica salva no painel. Use Rotacionar (ícone de recarregar) se perdeu a chave."
+                                }
+                              />
+                              {expired ? (
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    fontSize: 13,
+                                    color: "#f87171",
+                                    lineHeight: 1.45,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Chave de API expirada. Realize o reset
+                                  (rotacionar) da sua chave para gerar uma
+                                  nova.
+                                </p>
+                              ) : null}
+                            </>
+                          );
+                        })()}
 
                         <div>
                           <span
@@ -965,25 +1037,34 @@ export function ApiIntegracaoView() {
                             Data de Expiração
                           </span>
                           <div style={{ marginTop: 8 }}>
-                            <span
-                              className="inline-flex items-center font-semibold"
-                              style={{
-                                height: 30,
-                                padding: "0 12px",
-                                /* quatro cantinhos arredondados (não pill) */
-                                borderRadius: 10,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                background: c.expiresAt
-                                  ? "#eab308"
-                                  : "#ef4444",
-                                color: c.expiresAt ? "#0a0f0c" : "#ffffff",
-                              }}
-                            >
-                              {c.expiresAt
-                                ? formatDate(c.expiresAt)
-                                : "Nunca expira"}
-                            </span>
+                            {(() => {
+                              const expired = isCredentialExpired(c.expiresAt);
+                              const never = !c.expiresAt;
+                              return (
+                                <span
+                                  className="inline-flex items-center font-semibold"
+                                  style={{
+                                    height: 30,
+                                    padding: "0 12px",
+                                    borderRadius: 10,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    background: expired
+                                      ? "#ef4444"
+                                      : never
+                                        ? "#22c55e"
+                                        : "#eab308",
+                                    color: never || expired ? "#ffffff" : "#0a0f0c",
+                                  }}
+                                >
+                                  {expired
+                                    ? `Expirada em ${formatDate(c.expiresAt!)}`
+                                    : never
+                                      ? "Nunca expira"
+                                      : `Expira em ${formatDate(c.expiresAt!)}`}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
 

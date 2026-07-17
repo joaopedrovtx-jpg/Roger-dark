@@ -4,10 +4,8 @@ import {
   listWithdrawals,
 } from "@/lib/services/finance.service";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
-import {
-  createSellerWithdrawalDb,
-  getSellerFinance,
-} from "@/lib/server/db/seller.service";
+import { getSellerFinance } from "@/lib/server/db/seller.service";
+import { securityHeaders } from "@/lib/server/security";
 
 /** GET /api/v1/withdrawals — lista saques do seller logado */
 export async function GET(req: Request) {
@@ -23,31 +21,43 @@ export async function GET(req: Request) {
     if (fin) {
       let items = fin.withdrawals;
       if (status) items = items.filter((w) => w.status === status);
-      return NextResponse.json({
-        source: "mysql",
-        items,
-        total: items.length,
-      });
+      return NextResponse.json(
+        {
+          source: "mysql",
+          items,
+          total: items.length,
+        },
+        { headers: securityHeaders() }
+      );
     }
 
     if (process.env.ALLOW_MOCK_DATA !== "1") {
       return NextResponse.json(
         { error: "MySQL indisponível. Suba o banco e rode npm run db:seed." },
-        { status: 503 }
+        { status: 503, headers: securityHeaders() }
       );
     }
     const items = listWithdrawals({
       sellerId,
       status: status ?? undefined,
     });
-    return NextResponse.json({ source: "mock", items, total: items.length });
+    return NextResponse.json(
+      { source: "mock", items, total: items.length },
+      { headers: securityHeaders() }
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json(
+      { error: msg },
+      { status: 500, headers: securityHeaders() }
+    );
   }
 }
 
-/** POST /api/v1/withdrawals — solicita saque */
+/**
+ * POST /api/v1/withdrawals — solicita saque
+ * Fluxo unificado: débito atômico DB → adquirente (Velana/PodPay) → row MySQL.
+ */
 export async function POST(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
@@ -60,37 +70,24 @@ export async function POST(req: Request) {
     if (!body.amount || !body.pixKey) {
       return NextResponse.json(
         { error: "amount e pixKey são obrigatórios" },
-        { status: 400 }
+        { status: 400, headers: securityHeaders() }
       );
     }
 
-    const sellerId = gate.user.id;
-    const name = gate.user.name;
-
-    const fromDb = await createSellerWithdrawalDb(
-      sellerId,
-      name,
-      body.amount,
-      body.pixKey
-    );
-    if (fromDb) {
-      return NextResponse.json({ source: "mysql", ...fromDb }, { status: 201 });
-    }
-
-    if (process.env.ALLOW_MOCK_DATA !== "1") {
-      return NextResponse.json(
-        { error: "MySQL indisponível. Impossível solicitar saque real." },
-        { status: 503 }
-      );
-    }
-
-    const w = await createWithdrawal(sellerId, name, {
+    const w = await createWithdrawal(gate.user.id, gate.user.name, {
       amount: body.amount,
       pixKey: body.pixKey,
     });
-    return NextResponse.json({ source: "mock", ...w }, { status: 201 });
+
+    return NextResponse.json(
+      { source: "unified", ...w },
+      { status: 201, headers: securityHeaders() }
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    return NextResponse.json(
+      { error: msg },
+      { status: 400, headers: securityHeaders() }
+    );
   }
 }

@@ -5,7 +5,33 @@ import {
   dbSaveAcquirerCredentials,
   dbSwapAcquirerPriority,
   dbUpdateAcquirerStatus,
+  getAcquirerSecrets,
 } from "@/lib/server/db/admin.service";
+
+/**
+ * GET /api/v1/admin/acquirers/:id?reveal=1
+ * Revela chaves completas sob demanda (admin). Listagem nunca devolve secret.
+ */
+export async function GET(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const gate = await requireAdmin(req);
+  if (isGuardFail(gate)) return gate.error;
+  const { id } = await ctx.params;
+  const url = new URL(req.url);
+  if (url.searchParams.get("reveal") !== "1") {
+    return NextResponse.json(
+      { error: "Use ?reveal=1 para obter chaves (admin)." },
+      { status: 400 }
+    );
+  }
+  const secrets = await getAcquirerSecrets(id);
+  if (!secrets) {
+    return NextResponse.json({ error: "Adquirente não encontrada" }, { status: 404 });
+  }
+  return NextResponse.json({ source: "database", ...secrets });
+}
 
 /**
  * PATCH /api/v1/admin/acquirers/:id
@@ -18,8 +44,9 @@ export async function PATCH(
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
 
+  const { id } = await ctx.params;
+
   try {
-    const { id } = await ctx.params;
     const body = (await req.json()) as {
       status?: "ativo" | "manutencao" | "inativo";
       priorityDir?: -1 | 1;
@@ -27,6 +54,7 @@ export async function PATCH(
       privateKey?: string;
       env?: string;
       clearCredentials?: boolean;
+      setPrimary?: boolean;
     };
 
     if (body.clearCredentials) {
@@ -54,11 +82,16 @@ export async function PATCH(
       });
     }
 
-    if (body.publicKey !== undefined || body.privateKey !== undefined) {
+    if (
+      body.publicKey !== undefined ||
+      body.privateKey !== undefined ||
+      body.setPrimary !== undefined
+    ) {
       const r = await dbSaveAcquirerCredentials(id, {
-        publicKey: body.publicKey ?? "",
-        privateKey: body.privateKey ?? "",
+        publicKey: body.publicKey,
+        privateKey: body.privateKey,
         env: body.env,
+        setPrimary: body.setPrimary,
       });
       if (!r) {
         return NextResponse.json(
@@ -75,12 +108,16 @@ export async function PATCH(
         source: "database",
         saved: true,
         hasPrivateKey: r.hasPrivateKey,
+        hasPublicKey: r.hasPublicKey,
+        env: r.env,
+        isPrimary: r.isPrimary,
       });
     }
 
     return NextResponse.json({ error: "Body inválido" }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
+    console.error("[admin/acquirers PATCH]", id, msg);
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

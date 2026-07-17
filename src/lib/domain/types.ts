@@ -44,6 +44,13 @@ export interface AuthUser {
   status: UserStatus;
   avatarUrl?: string | null;
   displayName?: string;
+  /** 2FA TOTP ativo no servidor */
+  twoFactorEnabled?: boolean;
+  /**
+   * Admin sem 2FA quando a policy exige (prod / REQUIRE_ADMIN_2FA).
+   * UI deve redirecionar para Configurações → Segurança.
+   */
+  mustSetup2fa?: boolean;
 }
 
 export interface Session {

@@ -19,7 +19,8 @@
     "db:reset": "docker compose down -v && docker compose up -d mysql && echo 'Aguarde ~20s e rode: npm run db:seed'",
     "dev:real": "next dev",
     "setup:real": "docker compose up -d mysql && echo 'Aguardando MySQL...' && sleep 25 && npx prisma generate && node scripts/seed-real.mjs",
-    "setup": "prisma generate && prisma db push && node scripts/seed-real.mjs"
+    "setup": "prisma generate && prisma db push && node scripts/seed-real.mjs",
+    "smoke:security": "node scripts/smoke-security.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

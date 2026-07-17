@@ -15,11 +15,7 @@ import type {
   RegisterInput,
   Session,
 } from "@/lib/domain/types";
-import {
-  authedFetch,
-  clearClientToken,
-  saveClientToken,
-} from "@/lib/client/session";
+import { authedFetch, clearClientToken } from "@/lib/client/session";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -73,23 +69,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (input: LoginInput) => {
-    const session = await authJson<Session>("/login", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    saveClientToken(session.token);
-    setUser(session.user);
-    return session;
+    // Sessão só via cookie httpOnly — sem token no JS
+    clearClientToken();
+    const data = await authJson<{ user: AuthUser; expiresAt?: string }>(
+      "/login",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+    setUser(data.user);
+    return {
+      user: data.user,
+      token: "",
+      expiresAt: data.expiresAt || new Date().toISOString(),
+    } satisfies Session;
   }, []);
 
   const register = useCallback(async (input: RegisterInput) => {
-    const session = await authJson<Session>("/register", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    saveClientToken(session.token);
-    setUser(session.user);
-    return session;
+    clearClientToken();
+    const data = await authJson<Session | { user: AuthUser; expiresAt?: string }>(
+      "/register",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+    const user = "user" in data && data.user ? data.user : (data as Session).user;
+    setUser(user);
+    return {
+      user,
+      token: "",
+      expiresAt:
+        ("expiresAt" in data && data.expiresAt) ||
+        new Date().toISOString(),
+    } satisfies Session;
   }, []);
 
   const logout = useCallback(async () => {

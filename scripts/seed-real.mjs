@@ -127,7 +127,34 @@ async function main() {
     volumeTotal: 0,
   });
 
-  // PodPay acquirer se não existir
+  // Velana = rota principal (custo R$ 0,80/TX; seller 2,99% + R$ 1,00)
+  const velana = await prisma.acquirer.findUnique({ where: { id: "velana" } });
+  if (!velana) {
+    await prisma.acquirer.create({
+      data: {
+        id: "velana",
+        name: "Velana",
+        code: "VELANA",
+        status: "ativo",
+        priority: 1,
+        isPrimary: true,
+        enabled: true,
+        env: "live",
+        feePercent: 0,
+        feeFixed: 0.8,
+        settlement: "D+0",
+      },
+    });
+    console.log("✓ adquirente Velana (principal · custo R$ 0,80/TX)");
+  } else {
+    await prisma.acquirer.update({
+      where: { id: "velana" },
+      data: { isPrimary: true, priority: 1, enabled: true, status: "ativo" },
+    });
+    console.log("✓ Velana marcada como principal");
+  }
+
+  // PodPay = fallback
   const acq = await prisma.acquirer.findUnique({ where: { id: "podpay" } });
   if (!acq) {
     await prisma.acquirer.create({
@@ -136,8 +163,8 @@ async function main() {
         name: "PodPay",
         code: "PODPAY",
         status: "ativo",
-        priority: 1,
-        isPrimary: true,
+        priority: 2,
+        isPrimary: false,
         enabled: true,
         env: "sandbox",
         feePercent: 1.49,
@@ -145,7 +172,12 @@ async function main() {
         settlement: "D+0",
       },
     });
-    console.log("✓ adquirente PodPay");
+    console.log("✓ adquirente PodPay (fallback)");
+  } else {
+    await prisma.acquirer.update({
+      where: { id: "podpay" },
+      data: { isPrimary: false, priority: 2 },
+    });
   }
 
   await prisma.branding.upsert({

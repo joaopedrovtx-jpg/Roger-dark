@@ -33,11 +33,16 @@ export async function GET(req: Request) {
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
     const paid = items.filter((t) => t.status === "aprovada");
+    const sumBy = (status: string) =>
+      items
+        .filter((t) => t.status === status)
+        .reduce((a, t) => a + t.amount, 0);
     const metrics = {
-      pendentes: items.filter((t) => t.status === "pendente").length,
-      pagos: paid.length,
-      recusados: items.filter((t) => t.status === "recusada").length,
-      reembolsos: items.filter((t) => t.status === "reembolsada").length,
+      /** Totais em R$ (não quantidade) */
+      pendentes: sumBy("pendente"),
+      pagos: sumBy("aprovada"),
+      recusados: sumBy("recusada"),
+      reembolsos: sumBy("reembolsada"),
       ticketMedio:
         paid.length > 0
           ? paid.reduce((a, t) => a + t.amount, 0) / paid.length

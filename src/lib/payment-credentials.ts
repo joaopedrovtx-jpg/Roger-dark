@@ -9,6 +9,11 @@ import {
   savePodPayConfigClient,
   type PodPayEnv,
 } from "@/lib/acquirers/podpay";
+import {
+  clearVelanaConfigClient,
+  saveVelanaConfigClient,
+  type VelanaEnv,
+} from "@/lib/acquirers/velana";
 import { adquirentesMock } from "@/lib/mock/admin";
 
 const STORAGE_KEY = "darkpay.admin.payment-credentials.v1";
@@ -16,9 +21,9 @@ const STORAGE_KEY = "darkpay.admin.payment-credentials.v1";
 export type AcquirerEnv = "sandbox" | "live";
 
 export interface AcquirerCredential {
-  /** id estável (podpay, acq_01, …) */
+  /** id estável (podpay, velana, acq_01, …) */
   id: string;
-  /** Código curto ex.: PODPAY, SAFRA */
+  /** Código curto ex.: PODPAY, VELANA, SAFRA */
   code: string;
   name: string;
   /** Chave pública (pk_… / public key) */
@@ -36,7 +41,7 @@ export interface PaymentCredentialsStore {
   items: Record<string, AcquirerCredential>;
 }
 
-/** Catálogo base: PodPay + adquirentes mock do admin */
+/** Catálogo base: PodPay + Velana + adquirentes mock do admin */
 export function defaultAcquirerCatalog(): Omit<
   AcquirerCredential,
   "publicKey" | "privateKey" | "updatedAt"
@@ -52,15 +57,28 @@ export function defaultAcquirerCatalog(): Omit<
     enabled: true,
   };
 
-  const others = adquirentesMock.map((a) => ({
-    id: a.id,
-    code: a.code,
-    name: a.name,
-    env: "live" as AcquirerEnv,
-    enabled: a.status === "ativo",
-  }));
+  const velana: Omit<
+    AcquirerCredential,
+    "publicKey" | "privateKey" | "updatedAt"
+  > = {
+    id: "velana",
+    code: "VELANA",
+    name: "Velana",
+    env: "live",
+    enabled: true,
+  };
 
-  return [podpay, ...others];
+  const others = adquirentesMock
+    .filter((a) => a.id !== "velana" && a.code !== "VELANA")
+    .map((a) => ({
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      env: "live" as AcquirerEnv,
+      enabled: a.status === "ativo",
+    }));
+
+  return [podpay, velana, ...others];
 }
 
 function emptyStore(): PaymentCredentialsStore {
@@ -147,13 +165,15 @@ export function listAcquirerCredentials(): AcquirerCredential[] {
   return Object.values(store.items).sort((a, b) => {
     if (a.id === "podpay") return -1;
     if (b.id === "podpay") return 1;
+    if (a.id === "velana") return -1;
+    if (b.id === "velana") return 1;
     return a.name.localeCompare(b.name, "pt-BR");
   });
 }
 
 /**
  * Salva/atualiza uma adquirente.
- * Se for PodPay, espelha a chave privada no config PodPay usado pelo gateway.
+ * Se for PodPay/Velana, espelha a chave no config do client do gateway.
  */
 export function upsertAcquirerCredential(
   input: Partial<AcquirerCredential> & { id: string }
@@ -182,6 +202,7 @@ export function upsertAcquirerCredential(
   store.items[next.id] = next;
   savePaymentCredentials(store);
   syncPodPayIfNeeded(next);
+  syncVelanaIfNeeded(next);
   return next;
 }
 
@@ -197,6 +218,7 @@ export function clearAcquirerCredential(id: string): void {
   };
   savePaymentCredentials(store);
   if (id === "podpay") clearPodPayConfigClient();
+  if (id === "velana") clearVelanaConfigClient();
 }
 
 function syncPodPayIfNeeded(cred: AcquirerCredential): void {
@@ -212,6 +234,27 @@ function syncPodPayIfNeeded(cred: AcquirerCredential): void {
   savePodPayConfigClient({
     apiKey: cred.privateKey.trim(),
     env,
+    postbackBaseUrl:
+      typeof window !== "undefined" ? window.location.origin : undefined,
+  });
+}
+
+function syncVelanaIfNeeded(cred: AcquirerCredential): void {
+  if (cred.id !== "velana" && cred.code !== "VELANA") return;
+  if (!cred.privateKey.trim()) {
+    clearVelanaConfigClient();
+    return;
+  }
+  const env: VelanaEnv =
+    cred.privateKey.toLowerCase().includes("test") ||
+    cred.privateKey.toLowerCase().includes("sandbox") ||
+    cred.env === "sandbox"
+      ? "sandbox"
+      : "live";
+  saveVelanaConfigClient({
+    secretKey: cred.privateKey.trim(),
+    env,
+    publicKey: cred.publicKey.trim() || undefined,
     postbackBaseUrl:
       typeof window !== "undefined" ? window.location.origin : undefined,
   });

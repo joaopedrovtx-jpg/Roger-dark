@@ -222,6 +222,9 @@ model Transaction {
   @@index([status])
   @@index([date])
   @@index([providerId])
+  @@index([sellerId, date])
+  @@index([sellerId, status])
+  @@index([provider, providerId])
   @@map("transactions")
 }
 
@@ -250,6 +253,8 @@ model Withdrawal {
   @@index([sellerId])
   @@index([status])
   @@index([date])
+  @@index([sellerId, status])
+  @@index([providerId])
   @@map("withdrawals")
 }
 
@@ -276,6 +281,9 @@ model PaymentCharge {
   seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   @@index([sellerId])
   @@index([status])
+  @@index([providerId])
+  @@index([transactionId])
+  @@index([sellerId, status])
   @@map("payment_charges")
 }
 

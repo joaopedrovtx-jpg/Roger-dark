@@ -657,14 +657,16 @@ INSERT INTO `acquirers` (
   `conversionRate`, `env`, `enabled`, `isPrimary`
 ) VALUES
 ('podpay', 'PodPay', 'PODPAY', 'ativo', 1.4900, 0.15, 'D+0', 1, 94.2000, 'sandbox', 1, 1),
-('acq_01', 'SafraPay', 'SAFRA', 'ativo', 1.4900, 0.15, 'D+0', 2, 94.2000, 'live', 1, 0),
-('acq_02', 'Pagar.me', 'PAGARME', 'ativo', 1.7900, 0.20, 'D+1', 3, 91.5000, 'live', 1, 0),
-('acq_03', 'Mercado Pago', 'MPAGO', 'ativo', 1.9900, 0.00, 'D+0', 4, 88.7000, 'live', 1, 0),
-('acq_04', 'Cielo', 'CIELO', 'manutencao', 1.6500, 0.25, 'D+1', 5, 82.1000, 'live', 1, 0),
-('acq_05', 'Rede', 'REDE', 'inativo', 1.8900, 0.30, 'D+2', 6, 0, 'live', 0, 0);
+('velana', 'Velana', 'VELANA', 'ativo', 0.0000, 0.80, 'D+0', 2, 0, 'live', 1, 0),
+('acq_01', 'SafraPay', 'SAFRA', 'ativo', 1.4900, 0.15, 'D+0', 3, 94.2000, 'live', 1, 0),
+('acq_02', 'Pagar.me', 'PAGARME', 'ativo', 1.7900, 0.20, 'D+1', 4, 91.5000, 'live', 1, 0),
+('acq_03', 'Mercado Pago', 'MPAGO', 'ativo', 1.9900, 0.00, 'D+0', 5, 88.7000, 'live', 1, 0),
+('acq_04', 'Cielo', 'CIELO', 'manutencao', 1.6500, 0.25, 'D+1', 6, 82.1000, 'live', 1, 0),
+('acq_05', 'Rede', 'REDE', 'inativo', 1.8900, 0.30, 'D+2', 7, 0, 'live', 0, 0);
 
 INSERT INTO `user_acquirers` (`userId`, `acquirerId`, `enabled`) VALUES
 ('usr_01', 'podpay', 1),
+('usr_01', 'velana', 1),
 ('usr_01', 'acq_01', 1),
 ('usr_01', 'acq_02', 1);
 

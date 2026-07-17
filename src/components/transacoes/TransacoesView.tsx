@@ -131,13 +131,13 @@ function buildMetricCards(m: TransacoesMetrics): Array<{
   {
     key: "pagos",
     label: "Pago",
-    value: String(m.pagos),
+    value: formatBRL(m.pagos),
     icon: <IconCheckFilled size={ICON} />,
   },
   {
     key: "pendentes",
     label: "Pendentes",
-    value: String(m.pendentes),
+    value: formatBRL(m.pendentes),
     icon: <IconClockFilled size={ICON} />,
   },
   {
@@ -149,13 +149,13 @@ function buildMetricCards(m: TransacoesMetrics): Array<{
   {
     key: "recusados",
     label: "Recusados",
-    value: String(m.recusados),
+    value: formatBRL(m.recusados),
     icon: <IconXFilled size={ICON} />,
   },
   {
     key: "reembolsos",
     label: "Reembolso",
-    value: String(m.reembolsos),
+    value: formatBRL(m.reembolsos),
     icon: <IconOutflowFilled size={ICON} />,
   },
   {

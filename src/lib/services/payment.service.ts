@@ -1,6 +1,6 @@
 /**
  * Serviço de pagamentos PIX — núcleo da API de cobrança.
- * Preferência: PodPay (credencial MySQL admin / env) → senão mock (só ALLOW_MOCK_DATA=1).
+ * Preferência: adquirente primária com credenciais (PodPay | Velana) → mock (só ALLOW_MOCK_DATA=1).
  */
 
 import type { Transaction } from "@/lib/domain/types";
@@ -17,6 +17,12 @@ import {
   isPodPayEnabledServer,
   resolvePodPayConfigServer,
 } from "@/lib/acquirers/podpay/config";
+import { createChargeViaVelana } from "@/lib/acquirers/velana/gateway";
+import {
+  isVelanaEnabledServer,
+  resolveVelanaConfigServer,
+} from "@/lib/acquirers/velana/config";
+import { resolveActiveAcquirer } from "@/lib/acquirers/resolve";
 
 export interface CreateChargeInput {
   sellerId: string;
@@ -32,11 +38,16 @@ export interface CreateChargeInput {
 }
 
 function id() {
-  return `pay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  // crypto forte (não Math.random)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomBytes } = require("crypto") as typeof import("crypto");
+  return `pay_${randomBytes(12).toString("base64url")}`;
 }
 
 function txId() {
-  return `TX-${Date.now().toString().slice(-8)}`;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomBytes } = require("crypto") as typeof import("crypto");
+  return `TX-${randomBytes(6).toString("hex")}`;
 }
 
 async function mockPixPayload(chargeId: string, amount: number) {
@@ -67,9 +78,48 @@ export async function createPixCharge(
     throw new Error("Valor mínimo: R$ 1,00");
   }
 
-  // Somente cobrança REAL na adquirente (sem mock em produção/MVP real)
-  const config = await resolvePodPayConfigServer();
-  if (config?.apiKey) {
+  // Seller pendente/bloqueado não movimenta dinheiro
+  try {
+    const { prisma, isDatabaseConfigured } = await import(
+      "@/lib/server/prisma"
+    );
+    const { assertSellerCanTransact } = await import("@/lib/server/security");
+    if (isDatabaseConfigured()) {
+      const u = await prisma.user.findUnique({
+        where: { id: input.sellerId },
+        select: { status: true },
+      });
+      if (u) assertSellerCanTransact(u.status);
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("pendente")) throw e;
+    if (e instanceof Error && e.message.includes("bloqueada")) throw e;
+  }
+
+  // Roteamento: adquirente primária com chave (Velana | PodPay)
+  // A plataforma intermedia: seller → DarkPay → adquirente
+  const active = await resolveActiveAcquirer();
+
+  async function viaVelana() {
+    const config = await resolveVelanaConfigServer();
+    if (!config?.secretKey) return null;
+    const charge = await createChargeViaVelana({
+      sellerId: input.sellerId,
+      amount: input.amount,
+      description: input.description,
+      customerName: input.customerName,
+      customerDocument: input.customerDocument,
+      customerEmail: input.customerEmail,
+      customerPhone: input.customerPhone,
+      externalRef: input.metadata?.orderId || input.metadata?.externalRef,
+      config,
+    });
+    return { ...charge, provider: "velana" as const };
+  }
+
+  async function viaPodPay() {
+    const config = await resolvePodPayConfigServer();
+    if (!config?.apiKey) return null;
     const charge = await createChargeViaPodPay({
       sellerId: input.sellerId,
       amount: input.amount,
@@ -80,17 +130,37 @@ export async function createPixCharge(
       customerPhone: input.customerPhone,
       config,
     });
-    return { ...charge, provider: "podpay" };
+    return { ...charge, provider: "podpay" as const };
   }
 
-  // Mock só se explicitamente liberado (dev isolado — nunca para venda real)
-  if (process.env.ALLOW_MOCK_DATA === "1") {
+  // 1) Primária
+  if (active?.provider === "velana") {
+    const r = await viaVelana();
+    if (r) return r;
+  } else if (active?.provider === "podpay") {
+    const r = await viaPodPay();
+    if (r) return r;
+  }
+
+  // 2) Fallback na outra adquirente configurada
+  if (active?.provider !== "velana") {
+    const r = await viaVelana();
+    if (r) return r;
+  }
+  if (active?.provider !== "podpay") {
+    const r = await viaPodPay();
+    if (r) return r;
+  }
+
+  const { isMockAllowed } = await import("@/lib/server/security");
+  if (isMockAllowed()) {
     console.warn("[payments] ALLOW_MOCK_DATA=1 — cobrança MOCK, não real");
     return { ...(await createPixChargeMock(input)), provider: "mock" };
   }
 
   throw new Error(
-    "Adquirente não configurada. Em Admin → Adquirentes → Credenciais, salve a chave privada sk_live_… (produção) da PodPay."
+    "Adquirente não configurada. Em Admin → Adquirentes → Credenciais salve: " +
+      "Velana (pk_ + sk_ da app.velana.com.br) e/ou PodPay (sk_live_/sk_test_)."
   );
 }
 
@@ -293,5 +363,5 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-// re-export helper
-export { isPodPayEnabledServer };
+// re-export helpers
+export { isPodPayEnabledServer, isVelanaEnabledServer };

@@ -4,6 +4,7 @@ import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import {
   generateBackupCodes,
   generateTotpSecret,
+  hashBackupCodes,
   totpKeyUri,
   verifyTotp,
 } from "@/lib/server/totp";
@@ -37,7 +38,6 @@ export async function GET(req: Request) {
     });
   }
 
-  // gera secret temporário se vazio
   let secret = row.secret;
   if (!secret) {
     secret = generateTotpSecret();
@@ -89,21 +89,39 @@ export async function POST(req: Request) {
 
   if (body.action === "enable") {
     const codes = generateBackupCodes();
+    const hashed = await hashBackupCodes(codes);
     await prisma.user2FA.update({
       where: { userId: gate.user.id },
       data: {
         enabled: true,
         enabledAt: new Date(),
-        backupCodes: codes,
+        backupCodes: hashed,
       },
     });
+    // Devolve plaintext UMA vez — depois só hashes no DB
     return NextResponse.json({
       enabled: true,
       backupCodes: codes,
+      warning: "Guarde os backup codes. Eles não serão mostrados de novo.",
     });
   }
 
   if (body.action === "disable") {
+    // Policy: admin não pode desligar 2FA se for obrigatório
+    const { isAdmin2faRequired, rolesIncludeAdmin } = await import(
+      "@/lib/server/admin-2fa-policy"
+    );
+    if (isAdmin2faRequired() && rolesIncludeAdmin(gate.user.roles)) {
+      return NextResponse.json(
+        {
+          error:
+            "Administradores não podem desativar o 2FA enquanto a policy REQUIRE_ADMIN_2FA estiver ativa.",
+          code: "admin_2fa_required",
+        },
+        { status: 403 }
+      );
+    }
+
     await prisma.user2FA.update({
       where: { userId: gate.user.id },
       data: {

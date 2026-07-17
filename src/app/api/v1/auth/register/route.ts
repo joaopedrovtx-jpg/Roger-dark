@@ -33,7 +33,11 @@ export async function POST(req: Request) {
       }
     );
 
-    const res = NextResponse.json(session, { status: 201 });
+    // Cookie only — sem token no body
+    const res = NextResponse.json(
+      { user: session.user, expiresAt: session.expiresAt },
+      { status: 201 }
+    );
     const cookie = sessionCookieOptions(session.token, req);
     res.cookies.set(cookie.name, cookie.value, {
       httpOnly: cookie.httpOnly,

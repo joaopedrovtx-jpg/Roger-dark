@@ -56,8 +56,13 @@ function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
 }
 
+/**
+ * Parte aleatória em hex (comprimento fixo).
+ * Antes usávamos base64url + strip de `-_`, o que encurtava a chave de forma
+ * imprevisível e gerava secrets “pequenas” / confusas na UI.
+ */
 function randomKeyPart(bytes = 24): string {
-  return randomBytes(bytes).toString("base64url").replace(/[^a-zA-Z0-9]/g, "").slice(0, bytes * 2);
+  return randomBytes(bytes).toString("hex");
 }
 
 /** Hash determinístico para lookup O(1) da secret (chaves de alta entropia) */
@@ -65,10 +70,138 @@ export function hashApiSecret(secret: string): string {
   return createHash("sha256").update(secret.trim()).digest("hex");
 }
 
+/** Hint visual — NUNCA deve ser montado de volta como sk_ completa na UI */
 export function secretHint(secret: string): string {
   const s = secret.trim();
-  if (s.length <= 8) return "••••";
-  return `…${s.slice(-4)}`;
+  if (s.length <= 12) return "••••••••";
+  return `••••…${s.slice(-4)}`;
+}
+
+/**
+ * Valida se a string parece uma secret DarkPay real (não máscara).
+ * Máscaras tipo sk_live_…xxxx ou sk_••••…abcd são rejeitadas.
+ * Aceita chaves antigas (base64url encurtado) e novas (hex longo).
+ */
+export function isValidApiSecretFormat(secret: string): boolean {
+  const s = secret.trim();
+  if (!s.startsWith("sk_live_") && !s.startsWith("sk_test_")) return false;
+  // máscara da UI — nunca é a secret real
+  if (s.includes("…") || s.includes("•") || s.includes("...")) return false;
+  // sk_live_ (8) + pelo menos 12 chars de entropia
+  if (s.length < 20) return false;
+  return /^sk_(live|test)_[a-zA-Z0-9]+$/.test(s);
+}
+
+export type ApiKeyAuthFailure =
+  | "missing"
+  | "masked"
+  | "invalid"
+  | "inactive"
+  | "expired"
+  | "public_mismatch"
+  | "blocked";
+
+/** Resultado detalhado para mensagens corretas (não tudo “expirada”). */
+export async function authenticateApiKeyDetailed(req: Request): Promise<{
+  auth: ApiCredentialAuth | null;
+  failure: ApiKeyAuthFailure | null;
+}> {
+  if (!isDatabaseConfigured()) return { auth: null, failure: "missing" };
+
+  let secret: string | null = null;
+  let publicKeyHeader: string | null = null;
+
+  const authHdr =
+    req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  if (authHdr.toLowerCase().startsWith("bearer ")) {
+    const t = authHdr.slice(7).trim();
+    if (t.startsWith("sk_")) secret = t;
+  } else if (authHdr.toLowerCase().startsWith("basic ")) {
+    try {
+      const decoded = Buffer.from(authHdr.slice(6).trim(), "base64").toString(
+        "utf8"
+      );
+      const idx = decoded.indexOf(":");
+      if (idx >= 0) {
+        publicKeyHeader = decoded.slice(0, idx).trim();
+        secret = decoded.slice(idx + 1).trim();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!secret) {
+    const xApi =
+      req.headers.get("x-api-key") ||
+      req.headers.get("x-secret-key") ||
+      req.headers.get("x-darkpay-secret");
+    if (xApi?.trim().startsWith("sk_")) secret = xApi.trim();
+  }
+
+  if (!publicKeyHeader) {
+    publicKeyHeader =
+      req.headers.get("x-public-key") ||
+      req.headers.get("x-darkpay-public") ||
+      null;
+  }
+
+  if (!secret) return { auth: null, failure: "missing" };
+
+  if (
+    secret.includes("…") ||
+    secret.includes("•") ||
+    secret.includes("...") ||
+    secret.length < 20
+  ) {
+    return { auth: null, failure: "masked" };
+  }
+
+  if (!isValidApiSecretFormat(secret)) {
+    return { auth: null, failure: "invalid" };
+  }
+
+  try {
+    const hash = hashApiSecret(secret);
+    const row = await prisma.apiCredential.findFirst({
+      where: { secretKeyHash: hash },
+      include: { user: true },
+    });
+    if (!row) return { auth: null, failure: "invalid" };
+    if (!row.active) return { auth: null, failure: "inactive" };
+    if (row.user.status === "bloqueado") {
+      return { auth: null, failure: "blocked" };
+    }
+
+    // Secret correta manda — public key opcional (não derruba auth se divergir)
+    // (antes: mismatch de pk_ após rotacionar gerava “expirada” falso)
+
+    const meta = parsePermissions(row.permissions);
+    if (isExpired(meta.expiresAt)) {
+      return { auth: null, failure: "expired" };
+    }
+
+    void prisma.apiCredential
+      .update({
+        where: { id: row.id },
+        data: { lastUsedAt: new Date() },
+      })
+      .catch(() => null);
+
+    return {
+      auth: {
+        credentialId: row.id,
+        userId: row.userId,
+        permissions: meta.scopes,
+        requireManualSaqueApproval: meta.requireManualSaqueApproval,
+        env: meta.env,
+        publicKey: row.publicKey,
+      },
+      failure: null,
+    };
+  } catch {
+    return { auth: null, failure: "invalid" };
+  }
 }
 
 function parsePermissions(raw: unknown): ApiCredentialMeta {
@@ -138,8 +271,9 @@ function toPublic(
 
 function generateKeyPair(env: ApiKeyEnv) {
   const prefix = env === "test" ? "test" : "live";
+  // public: 18 bytes hex = 36 chars · secret: 32 bytes hex = 64 chars (estável)
   const publicKey = `pk_${prefix}_${randomKeyPart(18)}`;
-  const secretKey = `sk_${prefix}_${randomKeyPart(28)}`;
+  const secretKey = `sk_${prefix}_${randomKeyPart(32)}`;
   return { publicKey, secretKey };
 }
 
@@ -289,82 +423,28 @@ function isExpired(expiresAt: string | null): boolean {
 export async function authenticateApiKey(
   req: Request
 ): Promise<ApiCredentialAuth | null> {
-  if (!isDatabaseConfigured()) return null;
+  const { auth } = await authenticateApiKeyDetailed(req);
+  return auth;
+}
 
-  let secret: string | null = null;
-  let publicKeyHeader: string | null = null;
-
-  const auth =
-    req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    const t = auth.slice(7).trim();
-    if (t.startsWith("sk_")) secret = t;
-  } else if (auth.toLowerCase().startsWith("basic ")) {
-    try {
-      const decoded = Buffer.from(auth.slice(6).trim(), "base64").toString(
-        "utf8"
-      );
-      const idx = decoded.indexOf(":");
-      if (idx >= 0) {
-        publicKeyHeader = decoded.slice(0, idx).trim();
-        secret = decoded.slice(idx + 1).trim();
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (!secret) {
-    const xApi =
-      req.headers.get("x-api-key") ||
-      req.headers.get("x-secret-key") ||
-      req.headers.get("x-darkpay-secret");
-    if (xApi?.trim().startsWith("sk_")) secret = xApi.trim();
-  }
-
-  if (!publicKeyHeader) {
-    publicKeyHeader =
-      req.headers.get("x-public-key") ||
-      req.headers.get("x-darkpay-public") ||
-      null;
-  }
-
-  if (!secret?.startsWith("sk_")) return null;
-
-  try {
-    const hash = hashApiSecret(secret);
-    const row = await prisma.apiCredential.findFirst({
-      where: { secretKeyHash: hash, active: true },
-      include: { user: true },
-    });
-    if (!row) return null;
-    if (row.user.status === "bloqueado") return null;
-
-    if (publicKeyHeader && publicKeyHeader !== row.publicKey) {
-      return null;
-    }
-
-    const meta = parsePermissions(row.permissions);
-    if (isExpired(meta.expiresAt)) return null;
-
-    // lastUsedAt em background (não bloqueia)
-    void prisma.apiCredential
-      .update({
-        where: { id: row.id },
-        data: { lastUsedAt: new Date() },
-      })
-      .catch(() => null);
-
-    return {
-      credentialId: row.id,
-      userId: row.userId,
-      permissions: meta.scopes,
-      requireManualSaqueApproval: meta.requireManualSaqueApproval,
-      env: meta.env,
-      publicKey: row.publicKey,
-    };
-  } catch {
-    return null;
+export function messageForApiKeyFailure(
+  failure: ApiKeyAuthFailure | null
+): string {
+  switch (failure) {
+    case "masked":
+      return "Chave de API incompleta (máscara). Em Integrações → API, rotacione e copie a secret completa — não use sk_••••…xxxx.";
+    case "expired":
+      return "Chave de API expirada. Realize o reset (rotacionar) da sua chave em Integrações → API.";
+    case "inactive":
+      return "Credencial de API desativada. Ative ou crie outra em Integrações → API.";
+    case "blocked":
+      return "Conta bloqueada.";
+    case "invalid":
+      return "Chave de API inválida. Confira se copiou a secret completa ou rotacione em Integrações → API.";
+    case "public_mismatch":
+      return "Chave pública não confere com a secret. Use o par pk_/sk_ gerado juntos.";
+    default:
+      return "Não autenticado. Use Authorization: Bearer sk_live_… ou faça login no painel.";
   }
 }
 

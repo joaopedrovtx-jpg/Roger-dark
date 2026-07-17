@@ -1,6 +1,9 @@
 /**
  * Adapter HTTP — chama o BFF Next.js (/api/v1/*).
  * Ative com NEXT_PUBLIC_DARKPAY_DATA_MODE=http
+ *
+ * Autenticação: cookie httpOnly (credentials: "include").
+ * Não usa token em sessionStorage.
  */
 
 import type { DarkPayApi } from "../client";
@@ -10,22 +13,10 @@ const base =
     process.env.NEXT_PUBLIC_DARKPAY_API_BASE) ||
   "/api/v1";
 
-async function request<T>(
-  path: string,
-  init?: RequestInit
-): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
-  }
-  // Cookie + Bearer (sessionStorage) — mesmo padrão do authedFetch
-  if (typeof window !== "undefined" && !headers.has("Authorization")) {
-    try {
-      const token = window.sessionStorage.getItem("darkpay.session.token");
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-    } catch {
-      /* private mode */
-    }
   }
 
   const res = await fetch(`${base}${path}`, {
@@ -40,7 +31,11 @@ async function request<T>(
         error?: string | { message?: string };
       };
       if (typeof body.error === "string") message = body.error;
-      else if (body.error && typeof body.error === "object" && body.error.message) {
+      else if (
+        body.error &&
+        typeof body.error === "object" &&
+        body.error.message
+      ) {
         message = body.error.message;
       }
     } catch {

@@ -3,13 +3,7 @@
 import { useEffect, useId, useState, type CSSProperties } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
-import {
-  generateTwoFactorSetup,
-  loadSecurityPrefs,
-  saveSecurityPrefs,
-  validateTotpCodeMock,
-  type SecurityPrefs,
-} from "@/lib/security";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const btnPrimary: CSSProperties = {
   height: 42,
@@ -109,15 +103,12 @@ function Switch({
   );
 }
 
-type SetupPhase = "idle" | "setup" | "disable";
+type SetupPhase = "idle" | "setup" | "codes" | "disable";
 
 export function SegurancaView() {
-  const [prefs, setPrefs] = useState<SecurityPrefs>(() => ({
-    twoFactorEnabled: false,
-    totpSecret: "",
-    backupCodes: [],
-    enabledAt: null,
-  }));
+  const { user, refresh } = useAuth();
+  const [enabled, setEnabled] = useState(false);
+  const [enabledAt, setEnabledAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [phase, setPhase] = useState<SetupPhase>("idle");
   const [setupSecret, setSetupSecret] = useState("");
@@ -128,75 +119,69 @@ export function SegurancaView() {
     null
   );
   const [copied, setCopied] = useState<"secret" | "codes" | null>(null);
+  const [busy, setBusy] = useState(false);
   const formId = useId();
-
-  useEffect(() => {
-    setPrefs(loadSecurityPrefs());
-    setHydrated(true);
-  }, []);
 
   function flash(text: string, isError = false) {
     setToast({ text, error: isError });
     window.setTimeout(() => setToast(null), 2800);
   }
 
-  function persist(next: SecurityPrefs) {
-    setPrefs(next);
-    saveSecurityPrefs(next);
-  }
-
   useEffect(() => {
-    // tenta status real no MySQL
+    // Fonte da verdade: API MySQL (sem localStorage mock)
     void (async () => {
       try {
         const res = await fetch("/api/v1/auth/2fa", { credentials: "include" });
-        if (!res.ok) return;
-        const json = (await res.json()) as {
-          enabled?: boolean;
-          secret?: string;
-          otpauthUrl?: string;
-        };
-        if (json.enabled) {
-          setPrefs((p) => ({
-            ...p,
-            twoFactorEnabled: true,
-            enabledAt: new Date().toISOString(),
-          }));
+        if (res.ok) {
+          const json = (await res.json()) as {
+            enabled?: boolean;
+            enabledAt?: string | null;
+          };
+          setEnabled(!!json.enabled);
+          setEnabledAt(json.enabledAt ?? null);
+        } else if (user?.twoFactorEnabled) {
+          setEnabled(true);
         }
       } catch {
-        /* local prefs */
+        if (user?.twoFactorEnabled) setEnabled(true);
+      } finally {
+        setHydrated(true);
       }
     })();
-  }, []);
+  }, [user?.twoFactorEnabled]);
 
   async function startEnable() {
     setCode("");
     setError(null);
+    setBusy(true);
     try {
       const res = await fetch("/api/v1/auth/2fa", { credentials: "include" });
-      if (res.ok) {
-        const json = (await res.json()) as {
-          secret?: string;
-          enabled?: boolean;
-        };
-        if (json.enabled) {
-          flash("2FA já está ativo");
-          return;
-        }
-        if (json.secret) {
-          setSetupSecret(json.secret);
-          setSetupBackup([]);
-          setPhase("setup");
-          return;
-        }
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        flash(err.error || "Não foi possível iniciar o 2FA. Faça login de novo.", true);
+        return;
       }
+      const json = (await res.json()) as {
+        secret?: string;
+        enabled?: boolean;
+      };
+      if (json.enabled) {
+        setEnabled(true);
+        flash("2FA já está ativo");
+        return;
+      }
+      if (!json.secret) {
+        flash("Servidor não devolveu secret TOTP. Verifique o MySQL.", true);
+        return;
+      }
+      setSetupSecret(json.secret);
+      setSetupBackup([]);
+      setPhase("setup");
     } catch {
-      /* fallback local */
+      flash("Falha de rede ao iniciar 2FA.", true);
+    } finally {
+      setBusy(false);
     }
-    const gen = generateTwoFactorSetup();
-    setSetupSecret(gen.secret);
-    setSetupBackup(gen.backupCodes);
-    setPhase("setup");
   }
 
   function startDisable() {
@@ -219,6 +204,7 @@ export function SegurancaView() {
       setError("Informe o código de 6 dígitos do app.");
       return;
     }
+    setBusy(true);
     try {
       const res = await fetch("/api/v1/auth/2fa", {
         method: "POST",
@@ -226,44 +212,29 @@ export function SegurancaView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "enable", token: digits }),
       });
-      if (res.ok) {
-        const json = (await res.json()) as { backupCodes?: string[] };
-        const codes = json.backupCodes ?? setupBackup;
-        persist({
-          twoFactorEnabled: true,
-          totpSecret: setupSecret,
-          backupCodes: codes,
-          enabledAt: new Date().toISOString(),
-        });
-        setSetupBackup(codes);
-        setPhase("idle");
-        setCode("");
-        setError(null);
-        flash("Verificação em duas etapas ativada");
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        backupCodes?: string[];
+      };
+      if (!res.ok) {
+        setError(json.error || "Código inválido. Tente novamente.");
         return;
       }
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      // se DB indisponível, aceita mock
-      if (!validateTotpCodeMock(code)) {
-        setError(err.error || "Código inválido. Tente novamente.");
-        return;
-      }
+      const codes = json.backupCodes ?? [];
+      setSetupBackup(codes);
+      setEnabled(true);
+      setEnabledAt(new Date().toISOString());
+      setCode("");
+      setError(null);
+      setSetupSecret("");
+      flash("Verificação em duas etapas ativada");
+      void refresh();
+      setPhase(codes.length ? "codes" : "idle");
     } catch {
-      if (!validateTotpCodeMock(code)) {
-        setError("Código inválido. Tente novamente.");
-        return;
-      }
+      setError("Falha de rede. Tente novamente.");
+    } finally {
+      setBusy(false);
     }
-    persist({
-      twoFactorEnabled: true,
-      totpSecret: setupSecret,
-      backupCodes: setupBackup,
-      enabledAt: new Date().toISOString(),
-    });
-    setPhase("idle");
-    setCode("");
-    setError(null);
-    flash("Verificação em duas etapas ativada");
   }
 
   async function confirmDisable() {
@@ -272,6 +243,7 @@ export function SegurancaView() {
       setError("Informe o código de 6 dígitos do app.");
       return;
     }
+    setBusy(true);
     try {
       const res = await fetch("/api/v1/auth/2fa", {
         method: "POST",
@@ -279,40 +251,25 @@ export function SegurancaView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "disable", token: digits }),
       });
-      if (res.ok) {
-        persist({
-          twoFactorEnabled: false,
-          totpSecret: "",
-          backupCodes: [],
-          enabledAt: null,
-        });
-        setPhase("idle");
-        setCode("");
-        setError(null);
-        setSetupSecret("");
-        setSetupBackup([]);
-        flash("Verificação em duas etapas desativada");
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(json.error || "Não foi possível desativar o 2FA.");
         return;
       }
+      setEnabled(false);
+      setEnabledAt(null);
+      setPhase("idle");
+      setCode("");
+      setError(null);
+      setSetupSecret("");
+      setSetupBackup([]);
+      flash("Verificação em duas etapas desativada");
+      void refresh();
     } catch {
-      /* fallback */
+      setError("Falha de rede. Tente novamente.");
+    } finally {
+      setBusy(false);
     }
-    if (!validateTotpCodeMock(code)) {
-      setError("Código inválido. Tente novamente.");
-      return;
-    }
-    persist({
-      twoFactorEnabled: false,
-      totpSecret: "",
-      backupCodes: [],
-      enabledAt: null,
-    });
-    setPhase("idle");
-    setCode("");
-    setError(null);
-    setSetupSecret("");
-    setSetupBackup([]);
-    flash("Verificação em duas etapas desativada");
   }
 
   async function copyText(text: string, kind: "secret" | "codes") {
@@ -324,8 +281,6 @@ export function SegurancaView() {
       flash("Não foi possível copiar", true);
     }
   }
-
-  const enabled = prefs.twoFactorEnabled;
 
   return (
     <div className="flex flex-col" style={{ gap: 16, maxWidth: 560 }}>
@@ -357,6 +312,25 @@ export function SegurancaView() {
           </span>
         ) : null}
       </div>
+
+      {user?.mustSetup2fa ||
+      (user?.roles?.includes("admin") && !enabled && !user?.twoFactorEnabled) ? (
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: 12,
+            background: "rgba(251, 191, 36, 0.1)",
+            border: "1px solid rgba(251, 191, 36, 0.35)",
+            fontSize: 13,
+            color: "var(--text-1)",
+            lineHeight: 1.45,
+          }}
+        >
+          <strong>Conta admin:</strong> a verificação em duas etapas é
+          obrigatória em produção. Ative o autenticador abaixo para liberar o
+          painel administrativo.
+        </div>
+      ) : null}
 
       {/* Card principal 2FA */}
       <div
@@ -431,120 +405,148 @@ export function SegurancaView() {
                 Google Authenticator, Authy ou Microsoft Authenticator.
               </Step>
               <Step n="2" title="Adicione esta conta no app">
-                Use a chave abaixo (mock — não é um TOTP real).
+                Digite a chave TOTP real gerada pelo servidor (otplib).
+              </Step>
+              <Step n="3" title="Confirme com o código de 6 dígitos">
+                O app gera um código novo a cada ~30 segundos.
               </Step>
             </ol>
 
-            {/* QR mock */}
-            <div
-              className="flex flex-col items-center"
-              style={{
-                padding: 16,
-                borderRadius: "var(--radius-card)",
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-card)",
-                gap: 12,
-              }}
-            >
+            {/* Chave secreta real */}
+            {setupSecret ? (
               <div
-                aria-hidden
                 style={{
-                  width: 160,
-                  height: 160,
+                  padding: "12px 14px",
                   borderRadius: "var(--radius-md)",
-                  background: `
-                    repeating-linear-gradient(
-                      0deg,
-                      #0c0e12 0 4px,
-                      #fff 4px 8px
-                    ),
-                    repeating-linear-gradient(
-                      90deg,
-                      #0c0e12 0 4px,
-                      #fff 4px 8px
-                    )
-                  `,
-                  backgroundBlendMode: "difference",
-                  border: "8px solid #ffffff",
-                  boxSizing: "border-box",
-                }}
-              />
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12,
-                  color: "var(--text-3)",
-                  textAlign: "center",
+                  background: "var(--bg-elevated)",
+                  border: "1px solid var(--border-card)",
                 }}
               >
-                QR de demonstração · use a chave manual
-              </p>
-            </div>
+                <div
+                  className="flex items-center justify-between gap-2"
+                  style={{ marginBottom: 8 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--text-3)",
+                    }}
+                  >
+                    Chave TOTP (manual)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyText(setupSecret.replace(/\s/g, ""), "secret")
+                    }
+                    className="inline-flex items-center gap-1.5 font-semibold"
+                    style={{
+                      height: 30,
+                      padding: "0 10px",
+                      borderRadius: "var(--radius-md)",
+                      border: "none",
+                      background: "#ffffff",
+                      color: "#0a0f0c",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {copied === "secret" ? (
+                      <Check size={13} strokeWidth={2.5} />
+                    ) : (
+                      <Copy size={13} strokeWidth={2} />
+                    )}
+                    {copied === "secret" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+                <code
+                  className="tabular block"
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 650,
+                    color: "var(--text-1)",
+                    letterSpacing: "0.06em",
+                    wordBreak: "break-all",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  {setupSecret}
+                </code>
+              </div>
+            ) : null}
 
-            {/* Chave secreta */}
-            <div
+            <label className="flex flex-col" style={{ gap: 6 }} htmlFor={formId}>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--text-2)",
+                }}
+              >
+                Código do app (6 dígitos)
+              </span>
+              <input
+                id={formId}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder="000000"
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setError(null);
+                }}
+                style={fieldInput}
+              />
+            </label>
+
+            {error ? (
+              <p
+                role="alert"
+                style={{ margin: 0, fontSize: 13, color: "#ef4444" }}
+              >
+                {error}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelFlow}
+                style={btnGhost}
+                disabled={busy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmEnable}
+                style={{ ...btnPrimary, opacity: busy ? 0.7 : 1 }}
+                disabled={busy}
+              >
+                {busy ? "Validando…" : "Ativar 2FA"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Backup codes — só uma vez após ativar */}
+        {phase === "codes" ? (
+          <div className="flex flex-col" style={{ gap: 14 }}>
+            <p
               style={{
-                padding: "12px 14px",
-                borderRadius: "var(--radius-md)",
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-card)",
+                margin: 0,
+                fontSize: 13.5,
+                color: "var(--text-2)",
+                lineHeight: 1.45,
               }}
             >
-              <div
-                className="flex items-center justify-between gap-2"
-                style={{ marginBottom: 8 }}
-              >
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--text-3)",
-                  }}
-                >
-                  Chave manual
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    copyText(setupSecret.replace(/\s/g, ""), "secret")
-                  }
-                  className="inline-flex items-center gap-1.5 font-semibold"
-                  style={{
-                    height: 30,
-                    padding: "0 10px",
-                    borderRadius: "var(--radius-md)",
-                    border: "none",
-                    background: "#ffffff",
-                    color: "#0a0f0c",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  {copied === "secret" ? (
-                    <Check size={13} strokeWidth={2.5} />
-                  ) : (
-                    <Copy size={13} strokeWidth={2} />
-                  )}
-                  {copied === "secret" ? "Copiado" : "Copiar"}
-                </button>
-              </div>
-              <code
-                className="tabular block"
-                style={{
-                  fontSize: 14,
-                  fontWeight: 650,
-                  color: "var(--text-1)",
-                  letterSpacing: "0.06em",
-                  wordBreak: "break-all",
-                  fontFamily:
-                    "ui-monospace, SFMono-Regular, Menlo, monospace",
-                }}
-              >
-                {setupSecret}
-              </code>
-            </div>
-
-            {/* Backup codes */}
+              Guarde estes códigos em local seguro. Eles <strong>não</strong>{" "}
+              serão mostrados de novo. Cada um só funciona uma vez.
+            </p>
             <div
               style={{
                 padding: "12px 14px",
@@ -586,7 +588,7 @@ export function SegurancaView() {
                   ) : (
                     <Copy size={13} strokeWidth={2} />
                   )}
-                  {copied === "codes" ? "Copiado" : "Copiar"}
+                  {copied === "codes" ? "Copiado" : "Copiar todos"}
                 </button>
               </div>
               <div
@@ -605,60 +607,17 @@ export function SegurancaView() {
                   <span key={c}>{c}</span>
                 ))}
               </div>
-              <p
-                style={{
-                  margin: "10px 0 0",
-                  fontSize: 12,
-                  color: "var(--text-3)",
-                  lineHeight: 1.4,
-                }}
-              >
-                Guarde em local seguro. Cada código só pode ser usado uma vez
-                (mock).
-              </p>
             </div>
-
-            <label className="flex flex-col" style={{ gap: 6 }} htmlFor={formId}>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--text-2)",
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setSetupBackup([]);
+                  setPhase("idle");
                 }}
+                style={btnPrimary}
               >
-                Código do app (6 dígitos)
-              </span>
-              <input
-                id={formId}
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                placeholder="000000"
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                  setError(null);
-                }}
-                style={fieldInput}
-              />
-            </label>
-
-            {error ? (
-              <p
-                role="alert"
-                style={{ margin: 0, fontSize: 13, color: "#ef4444" }}
-              >
-                {error}
-              </p>
-            ) : null}
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <button type="button" onClick={cancelFlow} style={btnGhost}>
-                Cancelar
-              </button>
-              <button type="button" onClick={confirmEnable} style={btnPrimary}>
-                Ativar 2FA
+                Já guardei os códigos
               </button>
             </div>
           </div>

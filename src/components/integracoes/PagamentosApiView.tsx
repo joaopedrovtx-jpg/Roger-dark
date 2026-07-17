@@ -37,10 +37,20 @@ type AccountCred = {
   permissions: string[];
   active?: boolean;
   env?: "live" | "test";
+  expiresAt?: string | null;
 };
 
 const SESSION_SECRETS = "darkpay.api.session_secrets.v1";
 const PLAYGROUND_SECRET = "darkpay.api.playground_secret.v1";
+
+/** Secret real da conta (não máscara tipo sk_live_…xxxx) */
+function isFullApiSecret(secret: string): boolean {
+  const s = secret.trim();
+  if (!s.startsWith("sk_live_") && !s.startsWith("sk_test_")) return false;
+  if (s.includes("…") || s.includes("•") || s.includes("...")) return false;
+  // chaves antigas podiam ser um pouco mais curtas
+  return s.length >= 20 && /^sk_(live|test)_[a-zA-Z0-9]+$/.test(s);
+}
 
 function loadSessionSecrets(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -133,14 +143,22 @@ export function PagamentosApiView() {
   );
 
   const activeSecret = secretKey.trim();
-  const hasApiKey =
-    activeSecret.startsWith("sk_live_") || activeSecret.startsWith("sk_test_");
+  const hasApiKey = isFullApiSecret(activeSecret);
+  const secretLooksMasked =
+    activeSecret.length > 0 &&
+    !hasApiKey &&
+    (activeSecret.includes("…") ||
+      activeSecret.includes("•") ||
+      (activeSecret.startsWith("sk_") && activeSecret.length < 40));
 
-  /** Chamadas com a sk_ da conta do seller (mesmo fluxo do cassino/checkout) */
+  /**
+   * Playground: sempre mantém cookie de sessão como fallback.
+   * Se a sk_ estiver errada/máscara, o servidor autentica pela sessão logada
+   * (evita o falso “Chave de API expirada” no painel).
+   */
   const apiFetch = useCallback(
     async (path: string, init?: RequestInit): Promise<Response> => {
       if (!hasApiKey) {
-        // fallback sessão do painel (ainda vincula à conta logada)
         return authedFetch(path, init);
       }
       const headers = new Headers(init?.headers);
@@ -148,17 +166,15 @@ export function PagamentosApiView() {
         headers.set("Content-Type", "application/json");
       }
       headers.set("Authorization", `Bearer ${activeSecret}`);
-      if (selected?.publicKey) {
-        headers.set("X-Public-Key", selected.publicKey);
-      }
+      // Não envia X-Public-Key: a secret sozinha autentica
+      // (pk_ divergente após rotacionar quebrava a auth).
       return fetch(path, {
         ...init,
         headers,
-        // sem cookie de sessão: força auth por API key da conta
-        credentials: "omit",
+        credentials: "include",
       });
     },
-    [hasApiKey, activeSecret, selected?.publicKey]
+    [hasApiKey, activeSecret]
   );
 
   const loadCredentials = useCallback(async () => {
@@ -178,18 +194,21 @@ export function PagamentosApiView() {
       setCreds(withSecrets);
 
       const preferred =
-        withSecrets.find((c) => c.secretKey?.startsWith("sk_")) ||
+        withSecrets.find((c) => c.secretKey && isFullApiSecret(c.secretKey)) ||
         withSecrets[0];
       if (preferred) {
         setSelectedCredId(preferred.id);
         const fromSession = preferred.secretKey || "";
         const saved = loadPlaygroundSecret();
-        // prefills: secret recém-criada na sessão, ou a que o user colou no playground
-        if (fromSession.startsWith("sk_")) {
+        // só preenche se for secret completa (não máscara curta)
+        if (isFullApiSecret(fromSession)) {
           setSecretKey(fromSession);
           savePlaygroundSecret(fromSession);
-        } else if (saved.startsWith("sk_")) {
+        } else if (isFullApiSecret(saved)) {
           setSecretKey(saved);
+        } else if (saved && !isFullApiSecret(saved)) {
+          // limpa lixo / máscara salva por engano
+          savePlaygroundSecret("");
         }
       }
     } catch {
@@ -340,10 +359,10 @@ export function PagamentosApiView() {
     };
   }, [result?.id, result?.status, syncPayment]);
 
-  // ao trocar credencial, se tiver secret na sessão, preenche
+  // ao trocar credencial, se tiver secret completa na sessão, preenche
   useEffect(() => {
     if (!selected) return;
-    if (selected.secretKey?.startsWith("sk_")) {
+    if (selected.secretKey && isFullApiSecret(selected.secretKey)) {
       setSecretKey(selected.secretKey);
       savePlaygroundSecret(selected.secretKey);
     }
@@ -356,8 +375,11 @@ export function PagamentosApiView() {
     setQrImage(null);
     setCopied(false);
     try {
-      // Preferência: sk_ da conta (API real). Fallback: sessão do painel (mesma conta, PIX real).
-      if (hasApiKey) {
+      // Máscara no campo: limpa e usa só a sessão do painel
+      if (secretLooksMasked) {
+        setSecretKey("");
+        savePlaygroundSecret("");
+      } else if (hasApiKey) {
         savePlaygroundSecret(activeSecret);
         if (
           selected &&
@@ -375,21 +397,26 @@ export function PagamentosApiView() {
         throw new Error("Valor mínimo: R$ 1,00");
       }
 
-      const res = await apiFetch("/api/v1/payments", {
-        method: "POST",
-        body: JSON.stringify({
-          amount: n,
-          description,
-          customerName,
-          customerDocument: customerDocument.replace(/\D/g, ""),
-          customerEmail,
-          customerPhone: customerPhone.replace(/\D/g, ""),
-          metadata: {
-            source: "playground",
-            credentialPublicKey: selected?.publicKey || "",
-          },
-        }),
+      const body = JSON.stringify({
+        amount: n,
+        description,
+        customerName,
+        customerDocument: customerDocument.replace(/\D/g, ""),
+        customerEmail,
+        customerPhone: customerPhone.replace(/\D/g, ""),
+        metadata: {
+          source: "playground",
+          credentialPublicKey: selected?.publicKey || "",
+        },
       });
+
+      // Com sk_ completa tenta API key (+ cookie fallback).
+      // Sem sk_ ou com máscara: só sessão do painel (logado).
+      const res =
+        hasApiKey && !secretLooksMasked
+          ? await apiFetch("/api/v1/payments", { method: "POST", body })
+          : await authedFetch("/api/v1/payments", { method: "POST", body });
+
       const json = (await res.json()) as CreateResult & {
         error?: string | { code?: string; message?: string };
         hint?: string;
@@ -400,11 +427,11 @@ export function PagamentosApiView() {
           typeof errObj === "object" && errObj
             ? errObj.message || errObj.code || "Erro"
             : errObj || "Falha ao criar cobrança";
-        const msg = json.hint ? `${errMsg}. ${json.hint}` : errMsg;
+        const msg = json.hint ? `${errMsg}. ${json.hint}` : String(errMsg);
         if (res.status === 401) {
           throw new Error(
-            msg +
-              " — confira se a sk_ é da sua conta (Integrações → API). Se perdeu a secret, rotacione as chaves."
+            msg ||
+              "Não autenticado. Faça login de novo ou cole a secret completa de Integrações → API."
           );
         }
         throw new Error(msg);
@@ -457,9 +484,8 @@ export function PagamentosApiView() {
         >
           Cobranças{" "}
           <strong style={{ color: "var(--text-1)" }}>PIX reais</strong> (sem
-          simulação) com a{" "}
-          <code style={{ fontSize: 12 }}>sk_</code> da sua conta — mesmo fluxo
-          do cassino/checkout.
+          simulação) com a <code style={{ fontSize: 12 }}>sk_</code> da sua
+          conta — mesmo fluxo do cassino/checkout.
           {accountLabel ? (
             <>
               {" "}
@@ -500,7 +526,8 @@ export function PagamentosApiView() {
               }}
             >
               Use a <code>pk_</code> / <code>sk_</code> gerada em Integrações →
-              API. A cobrança fica no seu sellerId.
+              API. A secret completa só aparece ao criar/rotacionar — copie na
+              hora (a máscara curta não funciona na API).
             </p>
           </div>
           <Link
@@ -615,10 +642,21 @@ export function PagamentosApiView() {
                   {showSecret ? "Ocultar" : "Mostrar"}
                 </button>
               </div>
-              <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>
-                {hasApiKey
-                  ? "✓ Pagamentos serão criados com esta chave da sua conta (authVia: api_key)."
-                  : "Sem sk_ válida o PIX não usa a API da conta — cole a secret de Integrações → API."}
+              <span
+                style={{
+                  fontSize: 11.5,
+                  color: secretLooksMasked
+                    ? "#f87171"
+                    : hasApiKey
+                      ? "#4ade80"
+                      : "var(--text-3)",
+                }}
+              >
+                {secretLooksMasked
+                  ? "Isso é máscara, não a secret. Limpamos e usamos sua sessão logada. Para testar com sk_, rotacione em Integrações → API e cole a chave completa."
+                  : hasApiKey
+                    ? "✓ Secret completa — auth por API key (com fallback da sessão)."
+                    : "Opcional: cole a sk_ completa. Sem ela, o teste usa sua sessão logada no painel."}
               </span>
             </label>
           </>
@@ -742,7 +780,13 @@ export function PagamentosApiView() {
               }}
             >
               {hasApiKey ? "Via sk_ da conta" : "Via sessão"}
-              {result.provider === "podpay" ? " · PIX real" : ""}
+              {result.provider === "velana"
+                ? " · Velana"
+                : result.provider === "podpay"
+                  ? " · PodPay"
+                  : result.provider
+                    ? ` · ${result.provider}`
+                    : ""}
             </span>
           </div>
           <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>

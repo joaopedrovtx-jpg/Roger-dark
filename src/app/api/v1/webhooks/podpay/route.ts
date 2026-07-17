@@ -3,10 +3,11 @@ import type { PodPayWebhookPayload } from "@/lib/acquirers/podpay/types";
 import { applyPodPayWebhook } from "@/lib/acquirers/podpay/gateway";
 import { verifyPodPaySignature } from "@/lib/server/hmac";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
+import { creditPaidSaleIdempotent } from "@/lib/server/balance";
 
 /**
  * POST /api/v1/webhooks/podpay
- * Público (sem cookie). Valida HMAC se PODPAY_WEBHOOK_SECRET estiver setado.
+ * Público. Em produção, HMAC é OBRIGATÓRIO (PODPAY_WEBHOOK_SECRET).
  */
 export async function POST(req: Request) {
   try {
@@ -37,27 +38,35 @@ export async function POST(req: Request) {
       );
     }
 
+    // Memória síncrona leve; MySQL em fila (não trava a adquirente)
     const result = applyPodPayWebhook(payload);
 
-    // Espelha no MySQL quando possível (venda paga / saque)
     if (isDatabaseConfigured()) {
-      try {
+      const { enqueueWebhookJob } = await import(
+        "@/lib/server/webhook-queue"
+      );
+      enqueueWebhookJob("podpay", async () => {
         await applyWebhookToMysql(payload);
-      } catch (e) {
-        console.error("[podpay webhook] mysql mirror", e);
-      }
+      });
     }
 
-    console.info("[podpay webhook]", result.message, payload.eventId);
+    const { log } = await import("@/lib/server/logger");
+    log.info("podpay_webhook", {
+      message: result.message,
+      event: String(payload.event || ""),
+      queued: true,
+    });
 
     return NextResponse.json({
       success: true,
       message: result.message,
       signature: check.reason ?? "ok",
+      queued: true,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro no webhook";
-    console.error("[podpay webhook error]", msg);
+    const { log } = await import("@/lib/server/logger");
+    log.error("podpay_webhook_error", { error: msg });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -80,28 +89,26 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
     const tx = await prisma.transaction.findFirst({
       where: { providerId: remoteId },
     });
-    if (tx) {
-      await prisma.transaction.update({
-        where: { id: tx.id },
+
+    if (status === "aprovada" && tx) {
+      // Crédito idempotente: só aplica se TX ainda pendente
+      await creditPaidSaleIdempotent({
+        transactionId: tx.id,
+        providerId: remoteId,
+        provider: "podpay",
+        sellerId: tx.sellerId,
+        amount: Number(tx.amount),
+        feeAmount: Number(tx.feeAmount),
+      });
+    } else if (tx) {
+      await prisma.transaction.updateMany({
+        where: { id: tx.id, status: "pendente" },
         data: {
           status,
-          paidAt: status === "aprovada" ? new Date() : tx.paidAt,
-          refundedAt: status === "reembolsada" ? new Date() : tx.refundedAt,
+          refundedAt: status === "reembolsada" ? new Date() : undefined,
         },
       });
-      if (status === "aprovada" && tx.status !== "aprovada") {
-        const amount = Number(tx.amount);
-        const fee = Number(tx.feeAmount);
-        const net = Math.max(0, amount - fee);
-        await prisma.user.update({
-          where: { id: tx.sellerId },
-          data: {
-            balanceAvailable: { increment: net },
-            balancePending: { decrement: amount },
-            volumeTotal: { increment: amount },
-          },
-        });
-      } else if (
+      if (
         (status === "recusada" || status === "reembolsada") &&
         tx.status === "pendente"
       ) {
@@ -112,23 +119,18 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
           },
         });
       }
-    }
-
-    // payment_charges
-    await prisma.paymentCharge.updateMany({
-      where: { providerId: remoteId },
-      data: {
-        status:
-          status === "aprovada"
-            ? "paid"
-            : status === "reembolsada"
+      await prisma.paymentCharge.updateMany({
+        where: { providerId: remoteId },
+        data: {
+          status:
+            status === "reembolsada"
               ? "refunded"
               : status === "recusada"
                 ? "cancelled"
                 : "waiting_payment",
-        paidAt: status === "aprovada" ? new Date() : undefined,
-      },
-    });
+        },
+      });
+    }
   }
 
   if (event.startsWith("withdrawal.") && remoteId) {

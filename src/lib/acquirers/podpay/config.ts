@@ -111,9 +111,11 @@ function configFromPrivateKey(
 
 /**
  * Server: prioridade
- * 1) Credencial PodPay salva no DB (Admin → Adquirentes → Credenciais)
- * 2) Qualquer adquirente com privateKey sk_…
- * 3) PODPAY_API_KEY no .env
+ * 1) Credencial PodPay salva no DB (id/code PODPAY) — NUNCA usa chave da Velana
+ * 2) PODPAY_API_KEY no .env
+ *
+ * Nota: isPrimary sozinha NÃO define PodPay — Velana também pode ser primária
+ * com chave sk_… e não deve ser enviada à API PodPay.
  */
 export async function resolvePodPayConfigServer(): Promise<PodPayConfig | null> {
   try {
@@ -121,33 +123,16 @@ export async function resolvePodPayConfigServer(): Promise<PodPayConfig | null> 
       "@/lib/server/prisma"
     );
     if (isDatabaseConfigured()) {
-      // 1) PodPay explícita / primária
+      // 1) Somente adquirente PodPay explícita
       const preferred = await prisma.acquirer.findFirst({
         where: {
-          OR: [
-            { code: "PODPAY" },
-            { id: "podpay" },
-            { isPrimary: true },
-          ],
+          OR: [{ code: "PODPAY" }, { id: "podpay" }],
         },
         orderBy: [{ isPrimary: "desc" }, { priority: "asc" }],
       });
       const preferredKey = preferred?.privateKey?.trim();
       if (preferredKey?.startsWith("sk_")) {
         return configFromPrivateKey(preferredKey, preferred?.env);
-      }
-
-      // 2) Qualquer adquirente com chave sk_ salva
-      const withKey = await prisma.acquirer.findMany({
-        where: { privateKey: { not: null } },
-        orderBy: [{ isPrimary: "desc" }, { priority: "asc" }],
-        take: 20,
-      });
-      for (const acq of withKey) {
-        const key = acq.privateKey?.trim();
-        if (key?.startsWith("sk_")) {
-          return configFromPrivateKey(key, acq.env);
-        }
       }
     }
   } catch {

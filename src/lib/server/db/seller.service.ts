@@ -68,35 +68,53 @@ export async function getSellerDashboard(
     to.setHours(0, 0, 0, 0);
   }
 
-  const txs = await prisma.transaction.findMany({
-    where: {
-      sellerId,
-      kind: "venda",
-      date: { gte: from, lte: to },
-    },
-  });
+  const saleWhere = {
+    sellerId,
+    kind: "venda" as const,
+    date: { gte: from, lte: to },
+  };
 
-  const paid = txs.filter((t) => t.status === "aprovada");
-  const volume = paid.reduce((a, t) => a + n(t.amount), 0);
-  const sellerProfit = paid.reduce((a, t) => a + n(t.netAmount), 0);
-  const outflows = await prisma.withdrawal.findMany({
-    where: {
-      sellerId,
-      status: "pago",
-      date: { gte: from, lte: to },
-    },
-  });
-  const totalOut = outflows.reduce((a, w) => a + n(w.amount), 0);
+  // Agregações SQL — não carrega todas as TXs do período
+  const [paidAgg, totalCount, decidedCount, totalOutAgg, paidForSeries] =
+    await Promise.all([
+      prisma.transaction.aggregate({
+        where: { ...saleWhere, status: "aprovada" },
+        _sum: { amount: true, netAmount: true },
+        _count: true,
+      }),
+      prisma.transaction.count({ where: saleWhere }),
+      prisma.transaction.count({
+        where: {
+          ...saleWhere,
+          status: { in: ["aprovada", "recusada", "reembolsada"] },
+        },
+      }),
+      prisma.withdrawal.aggregate({
+        where: {
+          sellerId,
+          status: "pago",
+          date: { gte: from, lte: to },
+        },
+        _sum: { amount: true },
+      }),
+      // série diária: só amount+date das pagas (limitado)
+      prisma.transaction.findMany({
+        where: { ...saleWhere, status: "aprovada" },
+        select: { date: true, amount: true },
+        orderBy: { date: "asc" },
+        take: 2000,
+      }),
+    ]);
 
-  const decided = txs.filter((t) =>
-    ["aprovada", "recusada", "reembolsada"].includes(t.status)
-  );
+  const volume = n(paidAgg._sum.amount);
+  const sellerProfit = n(paidAgg._sum.netAmount);
+  const paidCount = paidAgg._count;
+  const totalOut = n(totalOutAgg._sum.amount);
   const conversionRate =
-    decided.length > 0 ? (paid.length / decided.length) * 100 : 0;
+    decidedCount > 0 ? (paidCount / decidedCount) * 100 : 0;
 
-  // série diária
   const byDay = new Map<string, number>();
-  for (const t of paid) {
+  for (const t of paidForSeries) {
     const key = t.date.toISOString().slice(0, 10);
     byDay.set(key, (byDay.get(key) ?? 0) + n(t.amount));
   }
@@ -121,8 +139,8 @@ export async function getSellerDashboard(
     },
     metrics: {
       netProfit: sellerProfit || n(user.platformProfit),
-      transactionCount: txs.length,
-      averageTicket: paid.length ? volume / paid.length : 0,
+      transactionCount: totalCount,
+      averageTicket: paidCount ? volume / paidCount : 0,
       totalOut,
     },
     conversionRate: Math.round(conversionRate * 10) / 10,
@@ -195,34 +213,48 @@ export async function listSellerTransactions(
   };
   if (opts?.status) where.status = opts.status;
 
-  const [total, items] = await Promise.all([
-    prisma.transaction.count({ where }),
-    prisma.transaction.findMany({
-      where,
-      orderBy: { date: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
+  const baseWhere = { sellerId, kind: "venda" as const };
 
-  const all = await prisma.transaction.findMany({
-    where: { sellerId, kind: "venda" },
-    select: { status: true, amount: true },
-  });
-  const paid = all.filter((t) => t.status === "aprovada");
+  const [total, items, pendentes, pagos, recusados, reembolsos, totalAll] =
+    await Promise.all([
+      prisma.transaction.count({ where }),
+      prisma.transaction.findMany({
+        where,
+        orderBy: { date: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.transaction.aggregate({
+        where: { ...baseWhere, status: "pendente" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { ...baseWhere, status: "aprovada" },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      prisma.transaction.aggregate({
+        where: { ...baseWhere, status: "recusada" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { ...baseWhere, status: "reembolsada" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.count({ where: baseWhere }),
+    ]);
+
+  const paidCount = pagos._count;
+  const paidSum = n(pagos._sum.amount);
   const metrics = {
-    pendentes: all.filter((t) => t.status === "pendente").length,
-    pagos: paid.length,
-    recusados: all.filter((t) => t.status === "recusada").length,
-    reembolsos: all.filter((t) => t.status === "reembolsada").length,
-    ticketMedio:
-      paid.length > 0
-        ? paid.reduce((a, t) => a + n(t.amount), 0) / paid.length
-        : 0,
+    /** Totais em R$ (não quantidade) */
+    pendentes: n(pendentes._sum.amount),
+    pagos: paidSum,
+    recusados: n(recusados._sum.amount),
+    reembolsos: n(reembolsos._sum.amount),
+    ticketMedio: paidCount > 0 ? paidSum / paidCount : 0,
     taxaConversao:
-      all.length > 0
-        ? Math.round((paid.length / all.length) * 1000) / 10
-        : 0,
+      totalAll > 0 ? Math.round((paidCount / totalAll) * 1000) / 10 : 0,
   };
 
   return {
@@ -243,7 +275,9 @@ export async function listSellerTransactions(
 }
 
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomBytes } = require("crypto") as typeof import("crypto");
+  return `${prefix}_${randomBytes(12).toString("base64url")}`;
 }
 
 /** Solicita saque no MySQL (debita disponível) */
@@ -259,8 +293,14 @@ export async function createSellerWithdrawalDb(
 
   const user = await prisma.user.findUnique({ where: { id: sellerId } });
   if (!user) throw new Error("Seller não encontrado");
-  const available = n(user.balanceAvailable);
-  if (amount > available) throw new Error("Saldo insuficiente");
+  if (user.status === "bloqueado") {
+    throw new Error("Conta bloqueada. Fale com o suporte.");
+  }
+  if (user.status === "pendente") {
+    throw new Error(
+      "Conta pendente de aprovação. Complete o cadastro e aguarde a análise."
+    );
+  }
 
   // Taxas do seller (admin configura); default 3% se zerado no cadastro
   const feePercent = n(user.saquePercent) > 0 ? n(user.saquePercent) : 3;
@@ -274,9 +314,20 @@ export async function createSellerWithdrawalDb(
   const id = `SQ-${Date.now().toString().slice(-8)}`;
 
   const created = await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: sellerId },
+    // Debito atômico: só se ainda houver saldo suficiente
+    const debited = await tx.user.updateMany({
+      where: {
+        id: sellerId,
+        balanceAvailable: { gte: amount },
+      },
       data: { balanceAvailable: { decrement: amount } },
+    });
+    if (debited.count === 0) {
+      throw new Error("Saldo insuficiente");
+    }
+    const after = await tx.user.findUnique({
+      where: { id: sellerId },
+      select: { balanceAvailable: true },
     });
     const w = await tx.withdrawal.create({
       data: {
@@ -300,7 +351,7 @@ export async function createSellerWithdrawalDb(
         type: "withdrawal",
         amount: -amount,
         bucket: "available",
-        balanceAfter: available - amount,
+        balanceAfter: n(after?.balanceAvailable),
         referenceType: "withdrawal",
         referenceId: id,
         description: "Solicitação de saque",

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   isPodPayEnabledFromRequest,
   resolvePodPayConfigFromRequest,
@@ -6,6 +7,8 @@ import {
 
 /** GET /api/v1/acquirers/podpay/status */
 export async function GET(req: Request) {
+  const __gate = await requireAdmin(req);
+  if (isGuardFail(__gate)) return __gate.error;
   const config = resolvePodPayConfigFromRequest(req);
   return NextResponse.json({
     configured: isPodPayEnabledFromRequest(req),

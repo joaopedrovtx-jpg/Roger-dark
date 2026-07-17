@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { podpayClient } from "@/lib/acquirers/podpay/client";
 import { mapPodPayBalance } from "@/lib/acquirers/podpay/mappers";
+import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   isPodPayEnabledFromRequest,
   resolvePodPayConfigFromRequest,
@@ -8,6 +9,8 @@ import {
 
 /** GET /api/v1/acquirers/podpay/balance — saldo remoto PodPay */
 export async function GET(req: Request) {
+  const __gate = await requireAdmin(req);
+  if (isGuardFail(__gate)) return __gate.error;
   try {
     if (!isPodPayEnabledFromRequest(req)) {
       return NextResponse.json(

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 import { syncChargeFromPodPay } from "@/lib/acquirers/podpay/gateway";
+import { syncChargeFromVelana } from "@/lib/acquirers/velana/gateway";
+import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
 /**
  * POST /api/v1/payments/:id/sync
@@ -16,7 +18,24 @@ export async function POST(
 
   try {
     const { id } = await ctx.params;
-    const charge = await syncChargeFromPodPay(id, gate.user.id);
+
+    let provider: string | null = null;
+    if (isDatabaseConfigured()) {
+      const row = await prisma.paymentCharge.findFirst({
+        where: {
+          OR: [{ id }, { providerId: id }, { transactionId: id }],
+          sellerId: gate.user.id,
+        },
+      });
+      provider = row?.provider ?? null;
+    }
+
+    const charge =
+      provider === "velana" || id.startsWith("vl_") || id.startsWith("TX-VL-")
+        ? await syncChargeFromVelana(id, gate.user.id)
+        : provider === "podpay" || id.startsWith("pp_") || id.startsWith("TX-PP-")
+          ? await syncChargeFromPodPay(id, gate.user.id)
+          : await syncChargeAuto(id, gate.user.id);
 
     if (charge.sellerId !== gate.user.id && !gate.user.roles.includes("admin")) {
       return NextResponse.json(
@@ -32,6 +51,7 @@ export async function POST(
       paidAt: charge.paidAt,
       transactionId: charge.transactionId,
       sellerId: charge.sellerId,
+      provider: provider || undefined,
       pix: {
         qrCode: charge.pixQrCode,
         copyPaste: charge.pixCopyPaste,
@@ -49,6 +69,15 @@ export async function POST(
       { error: { code: "sync_failed", message: msg } },
       { status: 400 }
     );
+  }
+}
+
+/** Tenta Velana e depois PodPay quando o provider local é desconhecido */
+async function syncChargeAuto(id: string, sellerId: string) {
+  try {
+    return await syncChargeFromVelana(id, sellerId);
+  } catch {
+    return syncChargeFromPodPay(id, sellerId);
   }
 }
 

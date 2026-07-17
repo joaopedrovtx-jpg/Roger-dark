@@ -5,12 +5,15 @@ import {
   resolvePodPayConfigFromRequest,
 } from "@/lib/acquirers/podpay/config";
 import type { PodPayCheckoutPayRequest } from "@/lib/acquirers/podpay/types";
+import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 
 /** POST /api/v1/acquirers/podpay/checkout/sessions/:token/pay */
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ token: string }> }
 ) {
+  const __gate = await requireAdmin(req);
+  if (isGuardFail(__gate)) return __gate.error;
   try {
     if (!isPodPayEnabledFromRequest(req)) {
       return NextResponse.json(

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { listChargesAsync } from "@/lib/services/payment.service";
+import {
+  createPixCharge,
+  listChargesAsync,
+} from "@/lib/services/payment.service";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
@@ -10,7 +13,8 @@ import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
  *  - Sessão do painel (playground), ou
  *  - Authorization: Bearer sk_live_… | sk_test_… (Integrações → API)
  *
- * A adquirente (PodPay) fica só no servidor DarkPay — o integrador não precisa da chave PodPay.
+ * A adquirente (PodPay | Velana) fica só no servidor DarkPay —
+ * o integrador não precisa da chave da adquirente.
  *
  * POST /api/v1/payments — cria cobrança PIX
  * GET  /api/v1/payments — lista cobranças do seller
@@ -62,54 +66,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Postback: URL pública se houver; senão tenta Origin do request (túnel/ngrok)
-    const origin =
-      req.headers.get("origin") ||
-      req.headers.get("x-forwarded-host") ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      process.env.PODPAY_POSTBACK_BASE_URL ||
-      "";
-    let postbackBase = process.env.PODPAY_POSTBACK_BASE_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      "";
-    if (!postbackBase && origin) {
-      postbackBase = origin.startsWith("http")
-        ? origin
-        : `https://${origin}`;
-    }
-    // localhost não recebe webhook da adquirente — sync manual no painel
-    if (
-      postbackBase.includes("localhost") ||
-      postbackBase.includes("127.0.0.1")
-    ) {
-      postbackBase = process.env.PODPAY_POSTBACK_BASE_URL || "";
-    }
-
-    const { createChargeViaPodPay } = await import(
-      "@/lib/acquirers/podpay/gateway"
-    );
-    const { resolvePodPayConfigServer } = await import(
-      "@/lib/acquirers/podpay/config"
-    );
-    const config = await resolvePodPayConfigServer();
-    if (!config?.apiKey) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "acquirer_not_configured",
-            message:
-              "Adquirente não configurada. Admin deve salvar sk_live_… em Adquirentes → Credenciais.",
-          },
-        },
-        { status: 503 }
-      );
-    }
-    if (config.env !== "live" && !config.apiKey.includes("live")) {
-      // ainda permite sk_test se admin configurou, mas avisa
-      console.warn("[payments] usando ambiente sandbox/test da adquirente");
-    }
-
-    const charge = await createChargeViaPodPay({
+    const charge = await createPixCharge({
       sellerId,
       amount: body.amount,
       description: body.description,
@@ -117,11 +74,10 @@ export async function POST(req: Request) {
       customerDocument,
       customerEmail: customerEmail || gate.user.email,
       customerPhone,
-      postbackUrl: postbackBase
-        ? `${postbackBase.replace(/\/$/, "")}/api/v1/webhooks/podpay`
-        : undefined,
-      config,
+      metadata: body.metadata,
     });
+
+    const provider = charge.provider || "unknown";
 
     return NextResponse.json(
       {
@@ -130,9 +86,8 @@ export async function POST(req: Request) {
         amount: charge.amount,
         currency: charge.currency,
         method: charge.method,
-        provider: "podpay",
-        real: true,
-        env: config.env,
+        provider,
+        real: provider !== "mock",
         description: charge.description,
         customerName: charge.customerName,
         pix: {
@@ -144,16 +99,25 @@ export async function POST(req: Request) {
         transactionId: charge.transactionId,
         sellerId: charge.sellerId,
         message:
-          "Cobrança PIX real criada. Pague no app do banco; depois clique em Verificar pagamento (ou aguarde o webhook).",
+          provider === "mock"
+            ? "Cobrança MOCK (ALLOW_MOCK_DATA=1)."
+            : "Cobrança PIX real criada. Pague no app do banco; depois clique em Verificar pagamento (ou aguarde o webhook).",
         syncUrl: `/api/v1/payments/${encodeURIComponent(charge.id)}/sync`,
       },
       { status: 201 }
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro ao criar cobrança";
+    const isConfig =
+      /não configurada|not configured|Adquirente/i.test(msg);
     return NextResponse.json(
-      { error: { code: "charge_failed", message: msg } },
-      { status: 400 }
+      {
+        error: {
+          code: isConfig ? "acquirer_not_configured" : "charge_failed",
+          message: msg,
+        },
+      },
+      { status: isConfig ? 503 : 400 }
     );
   }
 }

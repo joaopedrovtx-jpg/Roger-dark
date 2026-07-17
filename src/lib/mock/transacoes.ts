@@ -15,10 +15,13 @@ export interface VendaTransaction {
 }
 
 export interface TransacoesMetrics {
+  /** Total em R$ de vendas pendentes */
   pendentes: number;
-  /** Quantidade de vendas pagas (status aprovada) */
+  /** Total em R$ de vendas pagas (status aprovada) */
   pagos: number;
+  /** Total em R$ de vendas recusadas */
   recusados: number;
+  /** Total em R$ de reembolsos */
   reembolsos: number;
   /** Ticket médio das vendas pagas (R$) */
   ticketMedio: number;
@@ -27,10 +30,10 @@ export interface TransacoesMetrics {
 }
 
 export const transacoesMetricsMock: TransacoesMetrics = {
-  pendentes: 12,
-  pagos: 148,
-  recusados: 9,
-  reembolsos: 4,
+  pendentes: 3580.0,
+  pagos: 58920.5,
+  recusados: 2140.0,
+  reembolsos: 980.0,
   ticketMedio: 397.54,
   taxaConversao: 85.5,
 };
