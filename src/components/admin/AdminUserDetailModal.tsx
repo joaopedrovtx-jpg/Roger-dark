@@ -632,11 +632,13 @@ export function AdminUserDetailModal({
     setViewingDoc(null);
     setDocStatusMap(null);
     setFees({ ...DEFAULT_SELLER_FEES, ...user.fees });
-    // Preferida personalizada, ou única liberada, ou null (= plataforma)
+    // personalizado = preferred salva; plataforma = null (UI mostra principal ligada)
     const preferred =
-      user.preferredAdquirenteId ||
-      (user.routingMode === "personalizado" && user.adquirenteIds?.[0]) ||
-      null;
+      user.routingMode === "personalizado"
+        ? user.preferredAdquirenteId ||
+          user.adquirenteIds?.[0] ||
+          null
+        : null;
     setActiveSellerAcqId(preferred);
     setSaqueAutomatico(!!user.saqueAutomatico);
     setRoutingDirty(false);
@@ -763,13 +765,50 @@ export function AdminUserDetailModal({
     onStatusChange?.(user.id, "pendente");
   }
 
+  const acqList: SellerAcqRow[] = platformAcqs.length
+    ? platformAcqs
+    : adquirentesMock.map((a) => ({
+        id: a.id,
+        name: a.name,
+        code: a.code,
+        priority: a.priority,
+        status: a.status,
+      }));
+
+  const platformPrimaryId =
+    acqList.find((a) => a.priority === 1)?.id ?? acqList[0]?.id ?? null;
+
   /**
-   * Ativa/desativa adquirente só neste seller.
-   * Liga = modo personalizado com esta como Ativa.
-   * Desliga a ativa = volta a usar a principal da plataforma (após Salvar).
+   * Qual switch aparece ligado:
+   * - personalizado: a preferred
+   * - plataforma (null): a principal da plataforma (switch ON)
+   */
+  const effectiveActiveId = activeSellerAcqId ?? platformPrimaryId;
+
+  /**
+   * Ativa uma adquirente para ESTE seller (exclusivo).
+   * - Ligar outra → personalizado (só ela ativa)
+   * - Ligar de volta a principal → volta plataforma (null)
+   * - Desligar a personalizada → volta principal plataforma ON
+   * - Desligar a principal (modo plataforma) → não deixa zerado; mantém principal
    */
   function toggleSellerAcq(id: string) {
-    setActiveSellerAcqId((prev) => (prev === id ? null : id));
+    setActiveSellerAcqId((prev) => {
+      const current = prev ?? platformPrimaryId;
+      if (current === id) {
+        // Desligou a que estava ativa → se era personalizada, volta à plataforma
+        if (prev != null && prev !== platformPrimaryId) {
+          return null;
+        }
+        // Já era principal da plataforma: mantém ligada
+        return null;
+      }
+      // Ligou outra: se for a principal, grava null (= plataforma); senão personalizado
+      if (id === platformPrimaryId) {
+        return null;
+      }
+      return id;
+    });
     setRoutingDirty(true);
     setRoutingMsg(null);
   }
@@ -788,18 +827,25 @@ export function AdminUserDetailModal({
     setSavingRouting(true);
     setRoutingMsg(null);
     try {
-      const personalizado = !!activeSellerAcqId;
+      // null = usa principal global; id ≠ principal = personalizado só deste seller
+      const personalizado =
+        !!activeSellerAcqId && activeSellerAcqId !== platformPrimaryId;
+      const preferredId = personalizado ? activeSellerAcqId : null;
+
       await onSaveRouting?.(user.id, {
         saqueAutomatico,
         routingMode: personalizado ? "personalizado" : "plataforma",
-        preferredAdquirenteId: activeSellerAcqId,
-        adquirenteIds: activeSellerAcqId ? [activeSellerAcqId] : [],
+        preferredAdquirenteId: preferredId,
+        adquirenteIds: preferredId ? [preferredId] : [],
       });
       setRoutingDirty(false);
+      const name =
+        acqList.find((a) => a.id === (preferredId || platformPrimaryId))
+          ?.name || "adquirente";
       setRoutingMsg(
         personalizado
-          ? "Rota personalizada salva — PIX deste seller usa a adquirente Ativa."
-          : "Salvo — este seller usa a principal da plataforma."
+          ? `Salvo. Todas as cobranças deste seller vão pela ${name} (personalizado).`
+          : `Salvo. Este seller usa a principal da plataforma (${name}).`
       );
     } catch (e) {
       setRoutingMsg(
@@ -1397,85 +1443,79 @@ export function AdminUserDetailModal({
                   lineHeight: 1.45,
                 }}
               >
-                Por padrão o seller usa a <strong>principal da plataforma</strong>
-                . Ative uma adquirente aqui para forçar rota{" "}
-                <strong>personalizada</strong> só nesta conta (ex.: a principal
-                global está instável). Depois clique em <strong>Salvar</strong>.
+                A <strong>principal da plataforma</strong> fica com o botão{" "}
+                <strong>ligado</strong> por padrão. Se essa rota estiver em
+                alerta para este cliente, ative outra (ex.: PodPay) — só para
+                ele — e clique em <strong>Salvar</strong>. A partir daí todo
+                PIX/saque deste seller vai pela adquirente <strong>Ativa</strong>
+                , não pela principal global.
               </p>
-              {(platformAcqs.length ? platformAcqs : adquirentesMock).map(
-                (acq) => {
-                  const on = activeSellerAcqId === acq.id;
-                  const isPlatformPrimary = acq.priority === 1;
-                  return (
-                    <div
-                      key={acq.id}
-                      className="flex items-center gap-3 w-full"
-                      style={{
-                        ...fieldShell,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        minHeight: 52,
-                      }}
+              {acqList.map((acq) => {
+                const on = effectiveActiveId === acq.id;
+                const isPlatformPrimary = acq.id === platformPrimaryId;
+                const isPersonalized =
+                  !!activeSellerAcqId && activeSellerAcqId !== platformPrimaryId;
+                const badgeLabel = on
+                  ? isPersonalized
+                    ? "Ativo"
+                    : isPlatformPrimary
+                      ? "Principal (plataforma)"
+                      : "Ativo"
+                  : null;
+                return (
+                  <div
+                    key={acq.id}
+                    className="flex items-center gap-3 w-full"
+                    style={{
+                      ...fieldShell,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      minHeight: 52,
+                    }}
+                  >
+                    <ToggleSwitch
+                      on={on}
+                      onToggle={() => toggleSellerAcq(acq.id)}
+                      ariaLabel={
+                        on
+                          ? `Desativar ${acq.name} neste seller`
+                          : `Ativar ${acq.name} neste seller`
+                      }
+                    />
+                    <span
+                      className="font-medium truncate min-w-0 flex-1"
+                      style={{ fontSize: 14, color: "var(--text-1)" }}
                     >
-                      <ToggleSwitch
-                        on={on}
-                        onToggle={() => toggleSellerAcq(acq.id)}
-                        ariaLabel={
-                          on
-                            ? `Desativar ${acq.name} neste seller`
-                            : `Ativar ${acq.name} neste seller`
-                        }
-                      />
+                      {acq.name}
                       <span
-                        className="font-medium truncate min-w-0 flex-1"
-                        style={{ fontSize: 14, color: "var(--text-1)" }}
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: "var(--text-3)",
+                        }}
                       >
-                        {acq.name}
-                        <span
-                          style={{
-                            marginLeft: 8,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: "var(--text-3)",
-                          }}
-                        >
-                          {acq.code}
-                        </span>
+                        {acq.code}
                       </span>
-                      {on ? (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: "#0a0f0c",
-                            background: "#ffffff",
-                            borderRadius: 8,
-                            padding: "2px 7px",
-                            flexShrink: 0,
-                          }}
-                        >
-                          Ativo
-                        </span>
-                      ) : isPlatformPrimary && !activeSellerAcqId ? (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: "var(--text-2)",
-                            background: "var(--bg-elevated)",
-                            border: "1px solid var(--border-muted)",
-                            borderRadius: 8,
-                            padding: "2px 7px",
-                            flexShrink: 0,
-                          }}
-                        >
-                          Principal (plataforma)
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                }
-              )}
+                    </span>
+                    {badgeLabel ? (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#0a0f0c",
+                          background: "#ffffff",
+                          borderRadius: 8,
+                          padding: "2px 7px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {badgeLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
               {routingMsg ? (
                 <p
                   style={{
@@ -1496,7 +1536,7 @@ export function AdminUserDetailModal({
                     color: "#eab308",
                   }}
                 >
-                  Alterações não salvas — clique em Salvar.
+                  Alterações não salvas — clique em Salvar para aplicar na API.
                 </p>
               ) : null}
             </div>
