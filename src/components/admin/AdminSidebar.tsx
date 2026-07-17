@@ -20,8 +20,11 @@ const NAV: NavItem[] = [
     href: "/admin",
     iconSrc: "/icons/casa.png",
   },
-  // Atalho no menu lateral: dash do seller (conta admin)
-  // (também no menu do avatar como "Minha Dash")
+  {
+    label: "Minha Dash",
+    href: "/dash",
+    iconSrc: "/icons/usuario-perfil.png",
+  },
   {
     label: "Usuários",
     href: "/admin/usuarios",
@@ -92,6 +95,7 @@ function NavImgIcon({
 
 function isActive(href: string, pathname: string): boolean {
   if (href === "/admin") return pathname === "/admin";
+  if (href === "/dash") return pathname === "/dash" || pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
