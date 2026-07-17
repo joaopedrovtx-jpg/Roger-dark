@@ -172,15 +172,23 @@ export async function createWithdrawal(
     let w: Withdrawal | null = null;
     let provider: string | undefined;
 
-    if (
-      active?.provider === "velana" ||
-      (!active && (await isVelanaEnabledServer()))
-    ) {
+    // Mesma regra da API de PIX: #1 do painel manda (sem cair na outra)
+    if (active?.provider === "podpay") {
+      w = await createWithdrawalViaPodPay(sellerId, sellerName, input, {
+        skipLocalDebit: debitedOnDb,
+      });
+      provider = "podpay";
+    } else if (active?.provider === "velana") {
       w = await createWithdrawalViaVelana(sellerId, sellerName, input, {
         skipLocalDebit: debitedOnDb,
       });
       provider = "velana";
-    } else if (active?.provider === "podpay" || isPodPayEnabled()) {
+    } else if (await isVelanaEnabledServer()) {
+      w = await createWithdrawalViaVelana(sellerId, sellerName, input, {
+        skipLocalDebit: debitedOnDb,
+      });
+      provider = "velana";
+    } else if (isPodPayEnabled()) {
       w = await createWithdrawalViaPodPay(sellerId, sellerName, input, {
         skipLocalDebit: debitedOnDb,
       });

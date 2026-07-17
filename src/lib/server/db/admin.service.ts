@@ -464,6 +464,12 @@ export async function listAdminAcquirers() {
   } catch {
     /* ignore race / unique */
   }
+  // Corrige estados antigos: #1 da fila = isPrimary (API de PIX)
+  try {
+    await syncAcquirerPrimaryFlags();
+  } catch {
+    /* ignore */
+  }
   const items = await prisma.acquirer.findMany({
     orderBy: { priority: "asc" },
   });
@@ -795,7 +801,31 @@ export async function dbUpdateAcquirerStatus(
   return { id: a.id, status: a.status };
 }
 
-/** Prioridade na rota ↑↓ */
+/**
+ * Garante que isPrimary bate com a ordem da fila:
+ * priority menor = #1 = principal = isPrimary true (só um).
+ * A API de PIX usa isso + priority para rotear.
+ */
+export async function syncAcquirerPrimaryFlags() {
+  if (!(await dbAvailable())) return;
+  const all = await prisma.acquirer.findMany({
+    orderBy: [{ priority: "asc" }, { id: "asc" }],
+  });
+  if (!all.length) return;
+  const primaryId = all[0].id;
+  await prisma.$transaction([
+    prisma.acquirer.updateMany({
+      where: { id: { not: primaryId } },
+      data: { isPrimary: false },
+    }),
+    prisma.acquirer.update({
+      where: { id: primaryId },
+      data: { isPrimary: true },
+    }),
+  ]);
+}
+
+/** Prioridade na rota ↑↓ — também promove isPrimary no #1 */
 export async function dbSwapAcquirerPriority(id: string, dir: -1 | 1) {
   if (!(await dbAvailable())) return null;
   const all = await prisma.acquirer.findMany({ orderBy: { priority: "asc" } });
@@ -814,8 +844,42 @@ export async function dbSwapAcquirerPriority(id: string, dir: -1 | 1) {
       data: { priority: a.priority },
     }),
   ]);
+  // #1 da fila vira principal de verdade (API de cobrança)
+  await syncAcquirerPrimaryFlags();
   await audit("acquirer.priority", "acquirer", id, { dir });
   return { ok: true };
+}
+
+/**
+ * Define explicitamente uma adquirente como principal (#1 + isPrimary).
+ * As demais sobem na fila (priority +1 se necessário).
+ */
+export async function dbSetAcquirerPrimary(id: string) {
+  if (!(await dbAvailable())) return null;
+  const target = await findAcquirerByRef(id);
+  if (!target) throw new Error(`Adquirente "${id}" não encontrada`);
+
+  const all = await prisma.acquirer.findMany({
+    orderBy: [{ priority: "asc" }, { id: "asc" }],
+  });
+  // Reordena: target vira priority 1, demais 2,3,4…
+  let p = 2;
+  for (const row of all) {
+    if (row.id === target.id) {
+      await prisma.acquirer.update({
+        where: { id: row.id },
+        data: { priority: 1, isPrimary: true, enabled: true, status: "ativo" },
+      });
+    } else {
+      await prisma.acquirer.update({
+        where: { id: row.id },
+        data: { priority: p, isPrimary: false },
+      });
+      p += 1;
+    }
+  }
+  await audit("acquirer.set_primary", "acquirer", target.id, {});
+  return { ok: true, id: target.id, priority: 1, isPrimary: true };
 }
 
 /** Localiza adquirente por id ou code (ex.: podpay / PODPAY) */
@@ -990,10 +1054,18 @@ export async function dbSaveAcquirerCredentials(
         : existing.env || "live";
 
   if (data.setPrimary) {
+    // Promove a #1 da rota (priority + isPrimary) — mesma regra do gerenciamento
     await prisma.acquirer.updateMany({
       where: { id: { not: existing.id } },
       data: { isPrimary: false },
     });
+    // Quem era #1 sobe para priority 2 se esta não era #1
+    if (existing.priority !== 1) {
+      await prisma.acquirer.updateMany({
+        where: { priority: 1, id: { not: existing.id } },
+        data: { priority: existing.priority > 1 ? existing.priority : 2 },
+      });
+    }
   }
 
   const a = await prisma.acquirer.update({
@@ -1004,13 +1076,19 @@ export async function dbSaveAcquirerCredentials(
       env,
       enabled: true,
       status: "ativo",
-      ...(data.setPrimary ? { isPrimary: true } : {}),
+      ...(data.setPrimary
+        ? { isPrimary: true, priority: 1 }
+        : {}),
     },
   });
+  if (data.setPrimary) {
+    await syncAcquirerPrimaryFlags();
+  }
   await audit("acquirer.credentials", "acquirer", a.id, {
     hasPrivateKey: !!a.privateKey,
     setPrimary: !!data.setPrimary,
   });
+  const refreshed = await prisma.acquirer.findUnique({ where: { id: a.id } });
   return {
     id: a.id,
     publicKey: a.publicKey ?? "",
@@ -1018,7 +1096,8 @@ export async function dbSaveAcquirerCredentials(
     hasPrivateKey: !!a.privateKey,
     hasPublicKey: !!a.publicKey,
     env: a.env,
-    isPrimary: a.isPrimary,
+    isPrimary: refreshed?.isPrimary ?? a.isPrimary,
+    priority: refreshed?.priority ?? a.priority,
   };
 }
 

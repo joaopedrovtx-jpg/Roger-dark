@@ -96,8 +96,8 @@ export async function createPixCharge(
     if (e instanceof Error && e.message.includes("bloqueada")) throw e;
   }
 
-  // Roteamento: adquirente primária com chave (Velana | PodPay)
-  // A plataforma intermedia: seller → DarkPay → adquirente
+  // Roteamento: #1 do painel (priority / isPrimary) → API usa a MESMA adquirente
+  // A plataforma intermedia: seller → DarkPay → adquirente principal
   const active = await resolveActiveAcquirer();
 
   async function viaVelana() {
@@ -133,24 +133,29 @@ export async function createPixCharge(
     return { ...charge, provider: "podpay" as const };
   }
 
-  // 1) Primária
+  // 1) SOMENTE a principal — não “pular” para Velana se PodPay é #1
+  if (active?.provider === "podpay") {
+    const r = await viaPodPay();
+    if (r) return r;
+    throw new Error(
+      "Adquirente principal é PodPay, mas a chave sk_ não está configurada ou a API falhou. " +
+        "Salve a secret em Admin → Adquirentes → Credenciais (PodPay)."
+    );
+  }
   if (active?.provider === "velana") {
     const r = await viaVelana();
     if (r) return r;
-  } else if (active?.provider === "podpay") {
-    const r = await viaPodPay();
-    if (r) return r;
+    throw new Error(
+      "Adquirente principal é Velana, mas a secret key não está configurada ou a API falhou. " +
+        "Salve pk_/sk_ em Admin → Adquirentes → Credenciais (Velana)."
+    );
   }
 
-  // 2) Fallback na outra adquirente configurada
-  if (active?.provider !== "velana") {
-    const r = await viaVelana();
-    if (r) return r;
-  }
-  if (active?.provider !== "podpay") {
-    const r = await viaPodPay();
-    if (r) return r;
-  }
+  // 2) Sem principal no DB: tenta quem tiver chave (sem preferir Velana à força)
+  const pod = await viaPodPay();
+  if (pod) return pod;
+  const vel = await viaVelana();
+  if (vel) return vel;
 
   const { isMockAllowed } = await import("@/lib/server/security");
   if (isMockAllowed()) {
@@ -159,8 +164,8 @@ export async function createPixCharge(
   }
 
   throw new Error(
-    "Adquirente não configurada. Em Admin → Adquirentes → Credenciais salve: " +
-      "Velana (pk_ + sk_ da app.velana.com.br) e/ou PodPay (sk_live_/sk_test_)."
+    "Adquirente não configurada. Em Admin → Adquirentes defina a principal (#1) e salve " +
+      "credenciais: Velana (pk_ + sk_) e/ou PodPay (sk_live_/sk_test_)."
   );
 }
 

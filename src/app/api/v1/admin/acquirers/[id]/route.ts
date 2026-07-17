@@ -3,6 +3,7 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   dbClearAcquirerCredentials,
   dbSaveAcquirerCredentials,
+  dbSetAcquirerPrimary,
   dbSwapAcquirerPriority,
   dbUpdateAcquirerStatus,
   getAcquirerSecrets,
@@ -55,6 +56,8 @@ export async function PATCH(
       env?: string;
       clearCredentials?: boolean;
       setPrimary?: boolean;
+      /** Só promove a #1 da rota (sem alterar chaves) */
+      makePrimary?: boolean;
     };
 
     if (body.clearCredentials) {
@@ -72,6 +75,24 @@ export async function PATCH(
         status: body.status,
         source: r ? "mysql" : "mock",
       });
+    }
+
+    // Definir como principal da API (priority 1 + isPrimary)
+    if (body.makePrimary === true || body.setPrimary === true) {
+      // setPrimary sozinho (sem chaves) = só promover na fila
+      if (
+        body.publicKey === undefined &&
+        body.privateKey === undefined &&
+        body.makePrimary === true
+      ) {
+        const r = await dbSetAcquirerPrimary(id);
+        return NextResponse.json({
+          ok: true,
+          source: r ? "database" : "mock",
+          isPrimary: true,
+          priority: 1,
+        });
+      }
     }
 
     if (body.priorityDir === 1 || body.priorityDir === -1) {

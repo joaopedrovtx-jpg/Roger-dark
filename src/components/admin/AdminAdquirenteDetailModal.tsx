@@ -336,9 +336,8 @@ export function AdminAdquirenteDetailModal({
                   lineHeight: 1.4,
                 }}
               >
-                #1 tenta primeiro. Se falhar ou estiver em alerta, repassa para a
-                próxima da fila. No perfil do seller dá para forçar uma
-                personalizada (nicho white/black).
+                #1 é a adquirente principal da API (PIX e saques). Subir com as
+                setas promove na fila e passa a gerar cobranças nela.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">

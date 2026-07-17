@@ -297,7 +297,7 @@ export function AdminPagamentoConfigView() {
             publicKey,
             privateKey,
             env,
-            setPrimary: isVelana ? true : undefined,
+            // NÃO forçar principal ao salvar chave — isso é o painel Gerenciamento (#1)
           }),
         }
       );
