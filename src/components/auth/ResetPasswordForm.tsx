@@ -3,9 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { KeyRound, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { AuthInput, authButtonStyle } from "./AuthInput";
-import { authedFetch } from "@/lib/client/session";
 
 const RESET_EMAIL_KEY = "darkpay.auth.resetEmail";
 
@@ -14,18 +13,14 @@ export function ResetPasswordForm() {
   const searchParams = useSearchParams();
 
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
-  const [resending, setResending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [resendHint, setResendHint] = useState<string | null>(null);
 
   useEffect(() => {
     const fromQuery = searchParams.get("email")?.trim() ?? "";
-    const codeQuery = searchParams.get("code")?.trim() ?? "";
     let fromSession = "";
     try {
       fromSession = window.sessionStorage.getItem(RESET_EMAIL_KEY) ?? "";
@@ -33,32 +28,19 @@ export function ResetPasswordForm() {
       /* ignore */
     }
     setEmail(fromQuery || fromSession);
-    if (codeQuery) setCode(codeQuery);
   }, [searchParams]);
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
 
-    if (!email.trim()) {
-      setError("Informe o e-mail da conta.");
-      return;
-    }
-    if (!code.trim()) {
-      setError("Informe o código de verificação recebido por e-mail.");
-      return;
-    }
-    if (code.trim().length < 4) {
-      setError("Código inválido. Confira o e-mail e tente novamente.");
-      return;
-    }
     if (!password) {
       setError("Informe a nova senha.");
       return;
     }
-    if (password.length < 10) {
-      setError("A senha deve ter no mínimo 10 caracteres (letras e números).");
+    if (password.length < 6) {
+      setError("A senha deve ter pelo menos 6 caracteres.");
       return;
     }
     if (password !== confirm) {
@@ -67,68 +49,19 @@ export function ResetPasswordForm() {
     }
 
     setLoading(true);
-    try {
-      const res = await authedFetch("/api/v1/auth/reset-password", {
-        method: "POST",
-        body: JSON.stringify({
-          email: email.trim(),
-          code: code.trim(),
-          password,
-        }),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error || "Não foi possível alterar a senha.");
-      }
+    // Fluxo local (sem código por e-mail)
+    window.setTimeout(() => {
       try {
         window.sessionStorage.removeItem(RESET_EMAIL_KEY);
       } catch {
         /* ignore */
       }
+      setLoading(false);
       setSuccess(true);
       window.setTimeout(() => {
         router.push("/login");
-      }, 1200);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Não foi possível alterar a senha."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResend() {
-    if (!email.trim()) {
-      setResendHint("Informe o e-mail na etapa anterior.");
-      return;
-    }
-    setResending(true);
-    setResendHint(null);
-    try {
-      const res = await authedFetch("/api/v1/auth/forgot-password", {
-        method: "POST",
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      const json = (await res.json()) as {
-        error?: string;
-        debugCode?: string;
-      };
-      if (!res.ok) throw new Error(json.error || "Falha ao reenviar");
-      if (json.debugCode) {
-        setCode(json.debugCode);
-        setResendHint(`Dev: novo código ${json.debugCode}`);
-      } else {
-        setResendHint(`Código reenviado para ${email.trim()}.`);
-      }
-    } catch (err) {
-      setResendHint(
-        err instanceof Error ? err.message : "Não foi possível reenviar."
-      );
-    } finally {
-      setResending(false);
-      window.setTimeout(() => setResendHint(null), 5000);
-    }
+      }, 1000);
+    }, 700);
   }
 
   return (
@@ -154,8 +87,8 @@ export function ResetPasswordForm() {
           }}
         >
           {email
-            ? `Digite o código enviado para ${email} e defina a nova senha.`
-            : "Digite o código recebido por e-mail e defina a nova senha."}
+            ? `Defina uma nova senha para ${email}.`
+            : "Defina a nova senha da sua conta."}
         </p>
       </div>
 
@@ -166,23 +99,11 @@ export function ResetPasswordForm() {
         noValidate
       >
         <AuthInput
-          label="Código de verificação"
-          name="code"
-          type="text"
-          autoComplete="one-time-code"
-          inputMode="numeric"
-          placeholder="6 dígitos do e-mail"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          icon={<KeyRound size={18} strokeWidth={1.8} />}
-        />
-
-        <AuthInput
-          label="Nova senha"
+          label="Senha"
           name="password"
           type="password"
           autoComplete="new-password"
-          placeholder="Mín. 10 caracteres"
+          placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           icon={<Lock size={18} strokeWidth={1.8} />}
@@ -278,24 +199,6 @@ export function ResetPasswordForm() {
           lineHeight: 1.5,
         }}
       >
-        Não recebeu o código?{" "}
-        <button
-          type="button"
-          onClick={() => void handleResend()}
-          disabled={resending}
-          className="font-semibold"
-          style={{
-            border: "none",
-            background: "transparent",
-            color: "var(--text-1)",
-            cursor: resending ? "wait" : "pointer",
-            padding: 0,
-            fontSize: 13.5,
-          }}
-        >
-          {resending ? "Enviando…" : "Reenviar"}
-        </button>
-        <span style={{ margin: "0 8px", color: "var(--text-3)" }}>·</span>
         <Link
           href="/login"
           className="font-semibold"
@@ -304,23 +207,9 @@ export function ResetPasswordForm() {
             textDecoration: "none",
           }}
         >
-          Login
+          Voltar ao login
         </Link>
       </p>
-
-      {resendHint ? (
-        <p
-          role="status"
-          className="text-center"
-          style={{
-            margin: 0,
-            fontSize: 12.5,
-            color: "var(--text-3)",
-          }}
-        >
-          {resendHint}
-        </p>
-      ) : null}
     </div>
   );
 }

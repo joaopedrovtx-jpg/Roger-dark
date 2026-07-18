@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
 import { AuthInput, authButtonStyle } from "./AuthInput";
-import { authedFetch } from "@/lib/client/session";
 
 const RESET_EMAIL_KEY = "darkpay.auth.resetEmail";
 
@@ -17,16 +16,11 @@ export function ForgotPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
-  /** Código só em dev (sem RESEND_API_KEY) — e-mail real não está configurado */
-  const [devCode, setDevCode] = useState<string | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    setHint(null);
-    setDevCode(null);
 
     const trimmed = email.trim();
     if (!trimmed) {
@@ -39,64 +33,21 @@ export function ForgotPasswordForm() {
     }
 
     setLoading(true);
-    try {
-      const res = await authedFetch("/api/v1/auth/forgot-password", {
-        method: "POST",
-        body: JSON.stringify({ email: trimmed }),
-      });
-      const json = (await res.json()) as {
-        error?: string;
-        message?: string;
-        debugCode?: string;
-        emailMode?: string;
-      };
-      if (!res.ok) {
-        throw new Error(json.error || "Não foi possível enviar o e-mail.");
-      }
-
+    // Fluxo local (sem e-mail): só segue para a tela de nova senha
+    window.setTimeout(() => {
       try {
         window.sessionStorage.setItem(RESET_EMAIL_KEY, trimmed);
       } catch {
         /* ignore */
       }
-
+      setLoading(false);
       setSuccess(true);
-
-      // Sem RESEND_API_KEY o e-mail NÃO sai da caixa — só log no servidor
-      if (json.emailMode === "log" || json.debugCode) {
-        setDevCode(json.debugCode || null);
-        setHint(
-          "E-mail real ainda não está configurado (falta RESEND_API_KEY no .env). " +
-            "Use o código abaixo para testar a redefinição."
-        );
-      } else if (json.emailMode === "resend") {
-        setHint(
-          "Código enviado por e-mail. Confira a caixa de entrada e o spam."
-        );
-      } else {
-        setHint(
-          "Se o e-mail estiver cadastrado, enviamos o código. Confira também o spam."
-        );
-      }
-
-      // Com e-mail real, redireciona; em dev com código na tela, espera o usuário copiar
-      const delay = json.debugCode ? 4500 : 1400;
       window.setTimeout(() => {
         router.push(
-          `/redefinir-senha?email=${encodeURIComponent(trimmed)}${
-            json.debugCode
-              ? `&code=${encodeURIComponent(json.debugCode)}`
-              : ""
-          }`
+          `/redefinir-senha?email=${encodeURIComponent(trimmed)}`
         );
-      }, delay);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Não foi possível enviar o e-mail."
-      );
-    } finally {
-      setLoading(false);
-    }
+      }, 900);
+    }, 650);
   }
 
   return (
@@ -135,8 +86,7 @@ export function ForgotPasswordForm() {
             lineHeight: 1.45,
           }}
         >
-          Informe o e-mail da conta. Enviaremos um código para redefinir a
-          senha.
+          Informe seu e-mail abaixo para continuar a redefinição.
         </p>
       </div>
 
@@ -204,57 +154,8 @@ export function ForgotPasswordForm() {
                 color: "var(--text-1)",
               }}
             >
-              Pronto! Se o e-mail existir, o código foi enviado.
+              Sucesso! Continue para criar a nova senha.
             </span>
-          </div>
-        ) : null}
-
-        {hint ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12.5,
-              color: "var(--text-3)",
-              textAlign: "center",
-              lineHeight: 1.4,
-            }}
-          >
-            {hint}
-          </p>
-        ) : null}
-
-        {devCode ? (
-          <div
-            style={{
-              padding: "14px 16px",
-              borderRadius: 12,
-              border: "1px solid rgba(251, 191, 36, 0.45)",
-              background: "rgba(251, 191, 36, 0.1)",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "var(--text-2)",
-                marginBottom: 8,
-              }}
-            >
-              Código de teste (e-mail não enviado)
-            </div>
-            <div
-              className="tabular"
-              style={{
-                fontSize: 28,
-                fontWeight: 700,
-                letterSpacing: "0.25em",
-                color: "var(--text-1)",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            >
-              {devCode}
-            </div>
           </div>
         ) : null}
 
@@ -269,10 +170,10 @@ export function ForgotPasswordForm() {
           }}
         >
           {loading
-            ? "Enviando…"
+            ? "Continuando…"
             : success
               ? "Redirecionando…"
-              : "Enviar código"}
+              : "Recuperar senha"}
         </button>
       </form>
 
