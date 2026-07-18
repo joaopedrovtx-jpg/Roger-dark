@@ -18,12 +18,15 @@ export function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  /** Código só em dev (sem RESEND_API_KEY) — e-mail real não está configurado */
+  const [devCode, setDevCode] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
     setHint(null);
+    setDevCode(null);
 
     const trimmed = email.trim();
     if (!trimmed) {
@@ -58,18 +61,26 @@ export function ForgotPasswordForm() {
       }
 
       setSuccess(true);
-      if (json.debugCode) {
+
+      // Sem RESEND_API_KEY o e-mail NÃO sai da caixa — só log no servidor
+      if (json.emailMode === "log" || json.debugCode) {
+        setDevCode(json.debugCode || null);
         setHint(
-          `Dev: e-mail no console do servidor. Código: ${json.debugCode}`
+          "E-mail real ainda não está configurado (falta RESEND_API_KEY no .env). " +
+            "Use o código abaixo para testar a redefinição."
         );
       } else if (json.emailMode === "resend") {
-        setHint("Enviamos o código para o seu e-mail. Confira a caixa de entrada e o spam.");
+        setHint(
+          "Código enviado por e-mail. Confira a caixa de entrada e o spam."
+        );
       } else {
         setHint(
-          "Se o e-mail estiver cadastrado, o código foi enviado (ou logado no servidor em dev)."
+          "Se o e-mail estiver cadastrado, enviamos o código. Confira também o spam."
         );
       }
 
+      // Com e-mail real, redireciona; em dev com código na tela, espera o usuário copiar
+      const delay = json.debugCode ? 4500 : 1400;
       window.setTimeout(() => {
         router.push(
           `/redefinir-senha?email=${encodeURIComponent(trimmed)}${
@@ -78,7 +89,7 @@ export function ForgotPasswordForm() {
               : ""
           }`
         );
-      }, 1200);
+      }, delay);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Não foi possível enviar o e-mail."
@@ -210,6 +221,41 @@ export function ForgotPasswordForm() {
           >
             {hint}
           </p>
+        ) : null}
+
+        {devCode ? (
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: 12,
+              border: "1px solid rgba(251, 191, 36, 0.45)",
+              background: "rgba(251, 191, 36, 0.1)",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--text-2)",
+                marginBottom: 8,
+              }}
+            >
+              Código de teste (e-mail não enviado)
+            </div>
+            <div
+              className="tabular"
+              style={{
+                fontSize: 28,
+                fontWeight: 700,
+                letterSpacing: "0.25em",
+                color: "var(--text-1)",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              {devCode}
+            </div>
+          </div>
         ) : null}
 
         <button
