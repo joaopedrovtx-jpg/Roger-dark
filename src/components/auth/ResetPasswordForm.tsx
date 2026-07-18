@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { KeyRound, Lock } from "lucide-react";
 import { AuthInput, authButtonStyle } from "./AuthInput";
+import { authedFetch } from "@/lib/client/session";
 
 const RESET_EMAIL_KEY = "darkpay.auth.resetEmail";
 
@@ -17,12 +18,14 @@ export function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [resendHint, setResendHint] = useState<string | null>(null);
 
   useEffect(() => {
     const fromQuery = searchParams.get("email")?.trim() ?? "";
+    const codeQuery = searchParams.get("code")?.trim() ?? "";
     let fromSession = "";
     try {
       fromSession = window.sessionStorage.getItem(RESET_EMAIL_KEY) ?? "";
@@ -30,13 +33,18 @@ export function ResetPasswordForm() {
       /* ignore */
     }
     setEmail(fromQuery || fromSession);
+    if (codeQuery) setCode(codeQuery);
   }, [searchParams]);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
 
+    if (!email.trim()) {
+      setError("Informe o e-mail da conta.");
+      return;
+    }
     if (!code.trim()) {
       setError("Informe o código de verificação recebido por e-mail.");
       return;
@@ -49,8 +57,8 @@ export function ResetPasswordForm() {
       setError("Informe a nova senha.");
       return;
     }
-    if (password.length < 6) {
-      setError("A senha deve ter pelo menos 6 caracteres.");
+    if (password.length < 10) {
+      setError("A senha deve ter no mínimo 10 caracteres (letras e números).");
       return;
     }
     if (password !== confirm) {
@@ -59,19 +67,68 @@ export function ResetPasswordForm() {
     }
 
     setLoading(true);
-    // Mock: altera senha e volta ao login
-    window.setTimeout(() => {
+    try {
+      const res = await authedFetch("/api/v1/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({
+          email: email.trim(),
+          code: code.trim(),
+          password,
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error || "Não foi possível alterar a senha.");
+      }
       try {
         window.sessionStorage.removeItem(RESET_EMAIL_KEY);
       } catch {
         /* ignore */
       }
-      setLoading(false);
       setSuccess(true);
       window.setTimeout(() => {
         router.push("/login");
-      }, 1000);
-    }, 700);
+      }, 1200);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Não foi possível alterar a senha."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    if (!email.trim()) {
+      setResendHint("Informe o e-mail na etapa anterior.");
+      return;
+    }
+    setResending(true);
+    setResendHint(null);
+    try {
+      const res = await authedFetch("/api/v1/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        debugCode?: string;
+      };
+      if (!res.ok) throw new Error(json.error || "Falha ao reenviar");
+      if (json.debugCode) {
+        setCode(json.debugCode);
+        setResendHint(`Dev: novo código ${json.debugCode}`);
+      } else {
+        setResendHint(`Código reenviado para ${email.trim()}.`);
+      }
+    } catch (err) {
+      setResendHint(
+        err instanceof Error ? err.message : "Não foi possível reenviar."
+      );
+    } finally {
+      setResending(false);
+      window.setTimeout(() => setResendHint(null), 5000);
+    }
   }
 
   return (
@@ -114,18 +171,18 @@ export function ResetPasswordForm() {
           type="text"
           autoComplete="one-time-code"
           inputMode="numeric"
-          placeholder="Digite o código recebido"
+          placeholder="6 dígitos do e-mail"
           value={code}
-          onChange={(e) => setCode(e.target.value)}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           icon={<KeyRound size={18} strokeWidth={1.8} />}
         />
 
         <AuthInput
-          label="Senha"
+          label="Nova senha"
           name="password"
           type="password"
           autoComplete="new-password"
-          placeholder="••••••••"
+          placeholder="Mín. 10 caracteres"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           icon={<Lock size={18} strokeWidth={1.8} />}
@@ -212,7 +269,6 @@ export function ResetPasswordForm() {
         </button>
       </form>
 
-      {/* Mesma linha: não recebeu o código · reenviar · login */}
       <p
         className="text-center"
         style={{
@@ -225,25 +281,19 @@ export function ResetPasswordForm() {
         Não recebeu o código?{" "}
         <button
           type="button"
-          onClick={() => {
-            setResendHint(
-              email
-                ? `Código reenviado para ${email} (mock).`
-                : "Código reenviado (mock)."
-            );
-            window.setTimeout(() => setResendHint(null), 3500);
-          }}
+          onClick={() => void handleResend()}
+          disabled={resending}
           className="font-semibold"
           style={{
             border: "none",
             background: "transparent",
             color: "var(--text-1)",
-            cursor: "pointer",
+            cursor: resending ? "wait" : "pointer",
             padding: 0,
             fontSize: 13.5,
           }}
         >
-          Reenviar
+          {resending ? "Enviando…" : "Reenviar"}
         </button>
         <span style={{ margin: "0 8px", color: "var(--text-3)" }}>·</span>
         <Link
