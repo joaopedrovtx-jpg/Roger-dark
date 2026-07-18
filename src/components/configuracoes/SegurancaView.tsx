@@ -112,6 +112,8 @@ export function SegurancaView() {
   const [hydrated, setHydrated] = useState(false);
   const [phase, setPhase] = useState<SetupPhase>("idle");
   const [setupSecret, setSetupSecret] = useState("");
+  const [setupOtpauthUrl, setSetupOtpauthUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [setupBackup, setSetupBackup] = useState<string[]>([]);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -150,10 +152,37 @@ export function SegurancaView() {
     })();
   }, [user?.twoFactorEnabled]);
 
+  // Gera QR real do otpauth:// (Google Authenticator / Authy)
+  useEffect(() => {
+    if (!setupOtpauthUrl || phase !== "setup") {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const QRCode = (await import("qrcode")).default;
+        const dataUrl = await QRCode.toDataURL(setupOtpauthUrl, {
+          width: 200,
+          margin: 2,
+          errorCorrectionLevel: "M",
+          color: { dark: "#0a0f0c", light: "#ffffff" },
+        });
+        if (!cancelled) setQrDataUrl(dataUrl);
+      } catch {
+        if (!cancelled) setQrDataUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setupOtpauthUrl, phase]);
+
   async function startEnable() {
     setCode("");
     setError(null);
     setBusy(true);
+    setQrDataUrl(null);
     try {
       const res = await fetch("/api/v1/auth/2fa", { credentials: "include" });
       if (!res.ok) {
@@ -163,6 +192,7 @@ export function SegurancaView() {
       }
       const json = (await res.json()) as {
         secret?: string;
+        otpauthUrl?: string;
         enabled?: boolean;
       };
       if (json.enabled) {
@@ -175,6 +205,10 @@ export function SegurancaView() {
         return;
       }
       setSetupSecret(json.secret);
+      setSetupOtpauthUrl(
+        json.otpauthUrl ||
+          `otpauth://totp/DarkPay:${encodeURIComponent(user?.email || "user")}?secret=${encodeURIComponent(json.secret.replace(/\s/g, ""))}&issuer=DarkPay`
+      );
       setSetupBackup([]);
       setPhase("setup");
     } catch {
@@ -195,6 +229,8 @@ export function SegurancaView() {
     setCode("");
     setError(null);
     setSetupSecret("");
+    setSetupOtpauthUrl("");
+    setQrDataUrl(null);
     setSetupBackup([]);
   }
 
@@ -227,6 +263,8 @@ export function SegurancaView() {
       setCode("");
       setError(null);
       setSetupSecret("");
+      setSetupOtpauthUrl("");
+      setQrDataUrl(null);
       flash("Verificação em duas etapas ativada");
       void refresh();
       setPhase(codes.length ? "codes" : "idle");
@@ -404,15 +442,72 @@ export function SegurancaView() {
               <Step n="1" title="Instale um app autenticador">
                 Google Authenticator, Authy ou Microsoft Authenticator.
               </Step>
-              <Step n="2" title="Adicione esta conta no app">
-                Digite a chave TOTP real gerada pelo servidor (otplib).
+              <Step n="2" title="Escaneie o QR code">
+                Abra o app e aponte a câmera para o QR abaixo (ou use a chave
+                manual).
               </Step>
               <Step n="3" title="Confirme com o código de 6 dígitos">
                 O app gera um código novo a cada ~30 segundos.
               </Step>
             </ol>
 
-            {/* Chave secreta real */}
+            {/* QR code real (otpauth TOTP) */}
+            <div
+              className="flex flex-col items-center"
+              style={{
+                padding: 16,
+                borderRadius: "var(--radius-card)",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-card)",
+                gap: 12,
+              }}
+            >
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={qrDataUrl}
+                  alt="QR code para Google Authenticator"
+                  width={200}
+                  height={200}
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 12,
+                    background: "#fff",
+                    display: "block",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 12,
+                    background: "var(--bg-app)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 13,
+                    color: "var(--text-3)",
+                  }}
+                >
+                  Gerando QR…
+                </div>
+              )}
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  color: "var(--text-3)",
+                  textAlign: "center",
+                  lineHeight: 1.4,
+                }}
+              >
+                Escaneie com o Google Authenticator (ou similar)
+              </p>
+            </div>
+
+            {/* Chave secreta (fallback manual) */}
             {setupSecret ? (
               <div
                 style={{
@@ -433,7 +528,7 @@ export function SegurancaView() {
                       color: "var(--text-3)",
                     }}
                   >
-                    Chave TOTP (manual)
+                    Chave manual (se não puder escanear)
                   </span>
                   <button
                     type="button"
