@@ -4,10 +4,9 @@ import type { PlatformBranding } from "@/lib/domain/types";
 import {
   dbSaveBranding,
   getBrandingFromDb,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-branding.service";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 
-/** GET /api/v1/branding — público (login usa logo) */
 export async function GET() {
   try {
     const fromDb = await getBrandingFromDb();
@@ -21,7 +20,6 @@ export async function GET() {
   }
 }
 
-/** PUT /api/v1/branding — só admin */
 export async function PUT(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
@@ -49,7 +47,6 @@ export async function PUT(req: Request) {
       banners,
     });
 
-    // sempre atualiza memory/local também
     getStore().branding = body;
 
     if (fromDb) {

@@ -1,15 +1,26 @@
-/**
- * Utilitários de segurança (produção / hardening).
- */
-
 import { randomBytes } from "crypto";
 
-/** Ambiente de produção real (não desenvolvimento local). */
+const WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = 10;
+
+const attempts = new Map<string, number[]>();
+
+function prune(key: string) {
+  const now = Date.now();
+  const timestamps = attempts.get(key);
+  if (!timestamps) return;
+  const fresh = timestamps.filter((t) => now - t < WINDOW_MS);
+  if (fresh.length === 0) {
+    attempts.delete(key);
+  } else {
+    attempts.set(key, fresh);
+  }
+}
+
 export function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-/** Aviso em boot se secrets fracos (não bloqueia — só log). */
 export function warnWeakSecrets(): void {
   if (!isProduction()) return;
   const sec =
@@ -28,18 +39,15 @@ export function warnWeakSecrets(): void {
   }
 }
 
-/** Mock / simulação proibidos em produção. */
 export function isMockAllowed(): boolean {
   if (isProduction()) return false;
   return process.env.ALLOW_MOCK_DATA === "1";
 }
 
-/** Token de sessão criptograficamente forte (não usa Date/Math.random). */
 export function generateSecureToken(prefix = "tok"): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
 }
 
-/** Headers de segurança HTTP (CSP leve + anti-clickjacking). */
 export function securityHeaders(): Record<string, string> {
   return {
     "X-Content-Type-Options": "nosniff",
@@ -56,40 +64,31 @@ export function securityHeaders(): Record<string, string> {
   };
 }
 
-/** Rate limit simples em memória (por IP/chave). */
-const loginAttempts = new Map<
-  string,
-  { count: number; resetAt: number }
->();
-
-const LOGIN_WINDOW_MS = 15 * 60_000;
-const LOGIN_MAX = 10;
-
-export function checkLoginRateLimit(key: string): {
+export async function checkLoginRateLimit(key: string): Promise<{
   ok: boolean;
   retryAfterSec?: number;
-} {
-  const now = Date.now();
-  const row = loginAttempts.get(key);
-  if (!row || row.resetAt < now) {
-    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
-    return { ok: true };
-  }
-  if (row.count >= LOGIN_MAX) {
+}> {
+  prune(key);
+  const timestamps = attempts.get(key) ?? [];
+
+  if (timestamps.length >= MAX_ATTEMPTS) {
+    const oldest = timestamps[0] ?? Date.now();
+    const retryAfterMs = WINDOW_MS - (Date.now() - oldest);
     return {
       ok: false,
-      retryAfterSec: Math.ceil((row.resetAt - now) / 1000),
+      retryAfterSec: Math.max(1, Math.ceil(retryAfterMs / 1000)),
     };
   }
-  row.count += 1;
+
+  timestamps.push(Date.now());
+  attempts.set(key, timestamps);
   return { ok: true };
 }
 
-export function clearLoginRateLimit(key: string) {
-  loginAttempts.delete(key);
+export async function clearLoginRateLimit(key: string) {
+  attempts.delete(key);
 }
 
-/** Senha mínima (Sprint 1) */
 export const MIN_PASSWORD_LENGTH = 10;
 
 export function validatePasswordStrength(password: string): string | null {
@@ -102,7 +101,6 @@ export function validatePasswordStrength(password: string): string | null {
   return null;
 }
 
-/** Seller só movimenta dinheiro se ativo */
 export function assertSellerCanTransact(status: string): void {
   if (status === "bloqueado") {
     throw new Error("Conta bloqueada. Fale com o suporte.");

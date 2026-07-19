@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import {
   createWithdrawal,
   listWithdrawals,
-} from "@/lib/services/finance.service";
+} from "@/lib/services/withdrawal.service";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
-import { getSellerFinance } from "@/lib/server/db/seller.service";
+import { getSellerFinance } from "@/lib/server/db/seller-finance.service";
 import { securityHeaders } from "@/lib/server/security";
 
-/** GET /api/v1/withdrawals — lista saques do seller logado */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
@@ -22,11 +21,7 @@ export async function GET(req: Request) {
       let items = fin.withdrawals;
       if (status) items = items.filter((w) => w.status === status);
       return NextResponse.json(
-        {
-          source: "mysql",
-          items,
-          total: items.length,
-        },
+        { source: "mysql", items, total: items.length },
         { headers: securityHeaders() }
       );
     }
@@ -54,10 +49,6 @@ export async function GET(req: Request) {
   }
 }
 
-/**
- * POST /api/v1/withdrawals — solicita saque
- * Fluxo unificado: débito atômico DB → adquirente (Velana/PodPay) → row MySQL.
- */
 export async function POST(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;

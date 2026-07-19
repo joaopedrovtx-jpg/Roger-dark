@@ -3,10 +3,9 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   getAdminUsersPageMetrics,
   listAdminUsers,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-users.service";
 import { adminUsersMock } from "@/lib/mock/admin";
 
-/** GET /api/v1/admin/users — lista + cards da página Usuários */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
@@ -26,7 +25,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ source: "mysql", metrics, ...list });
     }
 
-    // mock
     let items = [...adminUsersMock];
     if (status && status !== "todos") {
       items = items.filter((u) => u.status === status);

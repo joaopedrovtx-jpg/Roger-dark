@@ -1,24 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   createPixCharge,
+} from "@/lib/services/payment-write.service";
+import {
   listChargesAsync,
-} from "@/lib/services/payment.service";
+} from "@/lib/services/payment-read.service";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
-/**
- * API pública de pagamento PIX do seller (gateway DarkPay).
- *
- * Auth:
- *  - Sessão do painel (playground), ou
- *  - Authorization: Bearer sk_live_… | sk_test_… (Integrações → API)
- *
- * A adquirente (PodPay | Velana) fica só no servidor DarkPay —
- * o integrador não precisa da chave da adquirente.
- *
- * POST /api/v1/payments — cria cobrança PIX
- * GET  /api/v1/payments — lista cobranças do seller
- */
 export async function POST(req: Request) {
   const gate = await requireSellerAuth(req, { permission: "transacoes" });
   if (isGuardFail(gate)) return gate.error;
@@ -46,8 +35,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Conta que paga a taxa / usa a rota = dono da sk_ ou sessão.
-    // Rota personalizada (Admin → seller → Adquirentes) só vale para ESTE sellerId.
     const sellerId = gate.user.id;
 
     let customerDocument = body.customerDocument;
@@ -63,9 +50,7 @@ export async function POST(req: Request) {
           if (!customerPhone && u.phone) customerPhone = u.phone;
           if (!customerEmail) customerEmail = u.email;
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
 
     const charge = await createPixCharge({

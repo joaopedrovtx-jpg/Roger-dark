@@ -13,17 +13,17 @@ import {
 } from "@/lib/server/security";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { create2faChallenge } from "@/lib/server/signed-token";
+import { loginSchema, formatZodError } from "@/lib/api/schemas";
+import { z } from "zod";
 
-/** POST /api/v1/auth/login */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      email?: string;
-      password?: string;
-    };
-    if (!body.email?.trim() || !body.password) {
+    let body: z.infer<typeof loginSchema>;
+    try {
+      body = loginSchema.parse(await req.json());
+    } catch (e) {
       return NextResponse.json(
-        { error: "E-mail e senha são obrigatórios." },
+        { error: formatZodError(e as any) },
         { status: 400, headers: securityHeaders() }
       );
     }
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       req.headers.get("x-real-ip") ||
       "unknown";
     const rateKey = `${ip}:${body.email.trim().toLowerCase()}`;
-    const rate = checkLoginRateLimit(rateKey);
+    const rate = await checkLoginRateLimit(rateKey);
     if (!rate.ok) {
       return NextResponse.json(
         {
@@ -52,7 +52,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Se 2FA ativo: valida senha e devolve challenge (sem cookie ainda)
     if (isDatabaseConfigured()) {
       await assertDatabase();
       const email = body.email.trim().toLowerCase();
@@ -81,7 +80,7 @@ export async function POST(req: Request) {
         where: { userId: user.id },
       });
       if (twoFa?.enabled) {
-        clearLoginRateLimit(rateKey);
+        await clearLoginRateLimit(rateKey);
         const challenge = create2faChallenge(user.id);
         return NextResponse.json(
           {
@@ -93,12 +92,11 @@ export async function POST(req: Request) {
         );
       }
 
-      // Sem 2FA: cria sessão
       const { session, token } = await createSessionForUser(user.id, {
         ip,
         userAgent: req.headers.get("user-agent") ?? undefined,
       });
-      clearLoginRateLimit(rateKey);
+      await clearLoginRateLimit(rateKey);
       const res = NextResponse.json(
         { user: session.user, expiresAt: session.expiresAt },
         { headers: securityHeaders() }
@@ -114,12 +112,11 @@ export async function POST(req: Request) {
       return res;
     }
 
-    // Fallback legado
     const session = await loginWithPassword(
       { email: body.email, password: body.password },
       { ip, userAgent: req.headers.get("user-agent") ?? undefined }
     );
-    clearLoginRateLimit(rateKey);
+    await clearLoginRateLimit(rateKey);
     const res = NextResponse.json(
       { user: session.user, expiresAt: session.expiresAt },
       { headers: securityHeaders() }

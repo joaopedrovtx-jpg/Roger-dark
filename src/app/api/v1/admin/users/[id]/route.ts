@@ -5,13 +5,8 @@ import {
   dbUpdateUserFees,
   dbUpdateUserRouting,
   dbUpdateUserStatus,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-users.service";
 
-/**
- * PATCH /api/v1/admin/users/:id
- * body:
- *  { status } | { fees } | { saqueAutomatico, routingMode, adquirenteIds } | { documentsStatus }
- */
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -39,7 +34,6 @@ export async function PATCH(
     if (body.status) {
       const r = await dbUpdateUserStatus(id, body.status);
       if (!r) {
-        // sem DB — ok mock (UI já atualiza local)
         return NextResponse.json({ id, status: body.status, source: "mock" });
       }
       return NextResponse.json({ ...r, source: "mysql" });
@@ -48,11 +42,7 @@ export async function PATCH(
     if (body.fees) {
       const r = await dbUpdateUserFees(id, body.fees);
       if (!r) {
-        return NextResponse.json({
-          id,
-          fees: body.fees,
-          source: "mock",
-        });
+        return NextResponse.json({ id, fees: body.fees, source: "mock" });
       }
       return NextResponse.json({ ...r, source: "mysql" });
     }

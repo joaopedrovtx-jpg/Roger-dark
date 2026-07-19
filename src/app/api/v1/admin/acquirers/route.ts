@@ -3,10 +3,9 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   getAdminAcquirersMetrics,
   listAdminAcquirers,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-acquirers.service";
 import { adquirentesMock } from "@/lib/mock/admin";
 
-/** GET /api/v1/admin/acquirers — Gerenciamento + base das Credenciais */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;

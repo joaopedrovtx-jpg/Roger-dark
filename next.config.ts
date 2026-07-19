@@ -14,7 +14,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Prisma must stay external — Turbopack cannot resolve the generated client otherwise
-  serverExternalPackages: ["@prisma/client", "prisma"],
+  serverExternalPackages: ["@prisma/client", "prisma", "pino"],
   async headers() {
     return [
       {

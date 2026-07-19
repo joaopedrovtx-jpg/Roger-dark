@@ -51,11 +51,7 @@ export async function POST(req: Request) {
     }
 
     const { log } = await import("@/lib/server/logger");
-    log.info("podpay_webhook", {
-      message: result.message,
-      event: String(payload.event || ""),
-      queued: true,
-    });
+    log.info({ message: result.message, event: String(payload.event || ""), queued: true }, "podpay_webhook");
 
     return NextResponse.json({
       success: true,
@@ -66,7 +62,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro no webhook";
     const { log } = await import("@/lib/server/logger");
-    log.error("podpay_webhook_error", { error: msg });
+    log.error({ error: msg }, "podpay_webhook_error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

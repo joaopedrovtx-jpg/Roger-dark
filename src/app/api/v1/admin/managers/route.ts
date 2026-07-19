@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
-import { listAdminManagers } from "@/lib/server/db/admin.service";
+import { listAdminManagers } from "@/lib/server/db/admin-managers.service";
 import { adminGerentesMock } from "@/lib/mock/admin";
 
-/** GET /api/v1/admin/managers */
 export async function GET() {
   const gate = await requireAdmin();
   if (isGuardFail(gate)) return gate.error;

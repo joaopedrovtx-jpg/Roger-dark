@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
-import { dbUpdateManagerStatus } from "@/lib/server/db/admin.service";
+import { dbUpdateManagerStatus } from "@/lib/server/db/admin-managers.service";
 
-/** PATCH /api/v1/admin/managers/:id { status: ativo | inativo } */
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }

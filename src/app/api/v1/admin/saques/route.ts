@@ -3,10 +3,9 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   getAdminSaquesMetrics,
   listAdminWithdrawals,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-withdrawals.service";
 import { adminSaquesMock, saqueFeeAmount } from "@/lib/mock/admin";
 
-/** GET /api/v1/admin/saques — cards + lista da página Saques */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;

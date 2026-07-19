@@ -66,11 +66,7 @@ export async function POST(req: Request) {
     }
 
     const { log } = await import("@/lib/server/logger");
-    log.info("velana_webhook", {
-      message: result.message,
-      type: String(payload.type || ""),
-      queued: true,
-    });
+    log.info({ message: result.message, type: String(payload.type || ""), queued: true }, "velana_webhook");
 
     return NextResponse.json({
       success: true,
@@ -80,7 +76,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro no webhook";
     const { log } = await import("@/lib/server/logger");
-    log.error("velana_webhook_error", { error: msg });
+    log.error({ error: msg }, "velana_webhook_error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

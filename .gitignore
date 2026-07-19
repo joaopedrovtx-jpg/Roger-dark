@@ -36,6 +36,9 @@ prisma/dev.db
 prisma/dev.db-journal
 *.db
 
+# other lockfiles
+bun.lock
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

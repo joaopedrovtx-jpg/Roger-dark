@@ -7,12 +7,8 @@ import {
   dbSwapAcquirerPriority,
   dbUpdateAcquirerStatus,
   getAcquirerSecrets,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-acquirers.service";
 
-/**
- * GET /api/v1/admin/acquirers/:id?reveal=1
- * Revela chaves completas sob demanda (admin). Listagem nunca devolve secret.
- */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -34,10 +30,6 @@ export async function GET(
   return NextResponse.json({ source: "database", ...secrets });
 }
 
-/**
- * PATCH /api/v1/admin/acquirers/:id
- * { status } | { priorityDir: -1|1 } | { publicKey, privateKey, env } | { clearCredentials: true }
- */
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -56,7 +48,6 @@ export async function PATCH(
       env?: string;
       clearCredentials?: boolean;
       setPrimary?: boolean;
-      /** Só promove a #1 da rota (sem alterar chaves) */
       makePrimary?: boolean;
     };
 
@@ -77,9 +68,7 @@ export async function PATCH(
       });
     }
 
-    // Definir como principal da API (priority 1 + isPrimary)
     if (body.makePrimary === true || body.setPrimary === true) {
-      // setPrimary sozinho (sem chaves) = só promover na fila
       if (
         body.publicKey === undefined &&
         body.privateKey === undefined &&

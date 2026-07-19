@@ -4,19 +4,13 @@ import {
   getAdminDashboardMetrics,
   getAdminLedger,
   getAdminVolumeHistory,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-metrics.service";
 import { mockAdapter } from "@/lib/api/adapters/mock";
 import {
   adminLedgerMock,
   adminVolumeHistoryMock,
 } from "@/lib/mock/admin";
 
-/**
- * GET /api/v1/admin/dashboard
- * Payload completo da Dashboard Admin:
- * metrics + volumeHistory + ledger
- * (MySQL se DATABASE_URL; senão mock)
- */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
@@ -36,7 +30,6 @@ export async function GET(req: Request) {
       });
     }
 
-    // Fallback mock (front/dev sem DB)
     const metrics = await mockAdapter.getAdminMetrics();
     return NextResponse.json({
       source: "mock",

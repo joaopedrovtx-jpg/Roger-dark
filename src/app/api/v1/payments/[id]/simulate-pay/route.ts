@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
-import { markChargePaid } from "@/lib/services/payment.service";
+import { markChargePaid } from "@/lib/services/payment-write.service";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
 import { securityHeaders } from "@/lib/server/security";
 
-/**
- * POST /api/v1/payments/:id/simulate-pay
- * SOMENTE com ALLOW_MOCK_DATA=1 (dev). Pagamentos reais usam webhook/sync.
- */
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -28,7 +24,6 @@ export async function POST(
   try {
     const { id } = await ctx.params;
     const charge = markChargePaid(id);
-    // Só o dono da cobrança (ou admin) simula
     if (
       charge.sellerId !== gate.user.id &&
       !gate.user.roles.includes("admin")

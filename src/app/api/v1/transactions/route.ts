@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/server/memory-store";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
-import { listSellerTransactions } from "@/lib/server/db/seller.service";
+import { listSellerTransactions } from "@/lib/server/db/seller-transactions.service";
 
-/** GET /api/v1/transactions */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
@@ -24,7 +23,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ source: "mysql", ...fromDb });
     }
 
-    // Sem banco: só o que foi criado nesta sessão via PodPay (sem seed de teste)
     let items = getStore().transactions.filter(
       (t) => t.sellerId === sellerId && t.kind === "venda"
     );
@@ -38,7 +36,6 @@ export async function GET(req: Request) {
         .filter((t) => t.status === status)
         .reduce((a, t) => a + t.amount, 0);
     const metrics = {
-      /** Totais em R$ (não quantidade) */
       pendentes: sumBy("pendente"),
       pagos: sumBy("aprovada"),
       recusados: sumBy("recusada"),

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getChargeAsync } from "@/lib/services/payment.service";
+import { getChargeAsync } from "@/lib/services/payment-read.service";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 
-/** GET /api/v1/payments/:id — consulta cobrança do seller autenticado (DB + memória) */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string }> }

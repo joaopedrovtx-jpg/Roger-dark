@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
-import { setWithdrawalStatusAsync } from "@/lib/services/finance.service";
+import { setWithdrawalStatusAsync } from "@/lib/services/withdrawal.service";
 import type { SaqueStatus } from "@/lib/domain/types";
 
-/** PATCH /api/v1/admin/withdrawals/:id { status: pago | recusado } */
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import { mockAdapter } from "@/lib/api/adapters/mock";
-import { getAdminDashboardMetrics } from "@/lib/server/db/admin.service";
+import { getAdminDashboardMetrics } from "@/lib/server/db/admin-metrics.service";
 
-/** GET /api/v1/admin/metrics — cards Dashboard Admin (MySQL ou mock) */
 export async function GET() {
   const gate = await requireAdmin();
   if (isGuardFail(gate)) return gate.error;

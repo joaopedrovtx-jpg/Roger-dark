@@ -3,12 +3,8 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import {
   getAdminSaquesMetrics,
   listAdminWithdrawals,
-} from "@/lib/server/db/admin.service";
+} from "@/lib/server/db/admin-withdrawals.service";
 
-/**
- * GET /api/v1/admin/withdrawals — fila real de saques (banco)
- * Mesma fonte de Admin → Saques (seller solicita em Financeiro).
- */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
@@ -48,11 +44,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(
-      {
-        error: "Banco indisponível",
-        items: [],
-        total: 0,
-      },
+      { error: "Banco indisponível", items: [], total: 0 },
       { status: 503 }
     );
   } catch (e) {

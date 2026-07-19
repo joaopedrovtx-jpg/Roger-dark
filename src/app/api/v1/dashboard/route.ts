@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { mockAdapter } from "@/lib/api/adapters/mock";
 import type { PeriodKey } from "@/lib/domain/types";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
-import { getSellerDashboard } from "@/lib/server/db/seller.service";
+import { getSellerDashboard } from "@/lib/server/db/seller-dashboard.service";
 
-/** GET /api/v1/dashboard?period=7d */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
@@ -19,7 +18,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ source: "mysql", ...fromDb });
     }
 
-    // Sem MySQL: erro explícito (modo real — sem dados inventados)
     if (process.env.ALLOW_MOCK_DATA !== "1") {
       return NextResponse.json(
         {
