@@ -11,6 +11,10 @@
   --kpi-gap: 12px;
   --section-gap: 16px;
   --card-padding: 16px;
+  --page-pad-x: 20px;
+  --page-pad-y: 14px;
+  --mobile-topbar-h: 56px;
+  --touch-min: 44px;
 
   /* Surfaces */
   --bg-app: #0c0e12;
@@ -211,6 +215,330 @@ body {
 @media (max-width: 900px) {
   .api-creds-layout {
     grid-template-columns: 1fr !important;
+  }
+}
+
+/* ========== RESPONSIVE: mobile / tablet / desktop ========== */
+
+/* Shell layout */
+.app-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100dvh;
+  min-height: 100vh;
+  background: var(--bg-app);
+}
+
+.app-shell__sidebar {
+  display: none;
+}
+
+.app-shell__main {
+  min-width: 0;
+  width: 100%;
+  padding: var(--page-pad-y) var(--page-pad-x) 28px;
+  box-sizing: border-box;
+}
+
+.app-mobile-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: var(--mobile-topbar-h);
+  padding: 0 12px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(12, 14, 18, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.app-mobile-topbar__brand {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.app-mobile-topbar__brand img {
+  height: 32px !important;
+  max-width: 140px !important;
+}
+
+.app-icon-btn {
+  width: var(--touch-min);
+  height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-icon-btn:active {
+  opacity: 0.85;
+}
+
+/* Drawer mobile/tablet */
+.app-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.app-drawer {
+  width: min(300px, 86vw);
+  max-width: 100%;
+  height: 100%;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-card);
+  box-shadow: 12px 0 40px rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: app-drawer-in 0.2s ease-out;
+}
+
+@keyframes app-drawer-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Grids utilitários responsivos */
+.grid-kpi-3 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+}
+
+.grid-kpi-4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+}
+
+.grid-integrations {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+}
+
+.grid-dash-main {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+}
+
+/* Métricas ao lado do gráfico */
+.metrics-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+  align-items: stretch;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.stack-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Evita zoom estranho em inputs iOS */
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Tablet */
+@media (min-width: 640px) {
+  :root {
+    --page-pad-x: 18px;
+  }
+
+  .grid-kpi-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .grid-kpi-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid-integrations {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .page-title {
+    font-size: 22px;
+  }
+}
+
+/* Tablet landscape / small desktop */
+@media (min-width: 900px) {
+  .grid-kpi-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .grid-integrations {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .grid-dash-main {
+    grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.85fr);
+    align-items: stretch;
+  }
+
+  .grid-dash-main .metrics-stack {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(72px, 1fr));
+    min-height: 320px;
+    height: 100%;
+  }
+}
+
+/* Desktop: sidebar fixa */
+@media (min-width: 1024px) {
+  :root {
+    --page-pad-x: 20px;
+    --page-pad-y: 14px;
+    --header-height: 0px;
+  }
+
+  .app-shell {
+    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-rows: 1fr;
+  }
+
+  .app-shell__sidebar {
+    display: block;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .app-shell__main {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 14px 20px 24px 12px;
+  }
+
+  .app-mobile-topbar {
+    display: none;
+  }
+
+  .app-drawer-backdrop {
+    display: none !important;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+}
+
+/* Sidebar full height no desktop */
+.app-sidebar-panel {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  min-height: 100vh;
+  background: var(--bg-sidebar);
+  padding: 14px 14px 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 1024px) {
+  .app-sidebar-panel {
+    width: var(--sidebar-width);
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* Docs layout mobile */
+@media (max-width: 899px) {
+  .docs-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .docs-sidebar {
+    display: none !important;
+  }
+  .docs-topbar {
+    grid-template-columns: 1fr auto !important;
+  }
+  .docs-topbar label {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+/* Charts: altura menor no mobile */
+@media (max-width: 639px) {
+  :root {
+    --chart-plot-height: 200px;
+    --chart-card-height: auto;
+    --kpi-icon-size: 40px;
+  }
+}
+
+/* Safe area (iPhone notch) */
+@supports (padding: max(0px)) {
+  .app-mobile-topbar {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--mobile-topbar-h) + env(safe-area-inset-top));
+  }
+  .app-shell__main {
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
   }
 }
 

@@ -1,10 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { AccountPendingBanner } from "@/components/layout/AccountPendingBanner";
-import { AccountAccessGate } from "@/components/layout/AccountAccessGate";
-import { ImpersonationBanner } from "@/components/layout/ImpersonationBanner";
 import { KpiGrid } from "./KpiGrid";
 import { MetricsStack } from "./MetricsStack";
 import { PromoBanner } from "./PromoBanner";
@@ -124,52 +120,26 @@ export function DashboardView() {
   }, [period.key]);
 
   return (
-    <AccountAccessGate>
-      <div
-        className="flex min-w-0 w-full flex-col"
-        style={{
-          padding: "14px 20px 24px 12px",
-          gap: "var(--main-gap)",
-        }}
-      >
-        <ImpersonationBanner />
-        <PageHeader name={data.user.name} avatarUrl={data.user.avatarUrl} />
+    <div className="flex min-w-0 w-full flex-col stack-gap">
+      <PromoBanner />
 
-        <AccountPendingBanner />
+      {/* Saldos 3 cards (disponível | pendente | retido) + Sacar */}
+      <KpiGrid data={data} />
 
-        <PromoBanner />
+      <div className="grid-dash-main">
+        <div className="min-w-0" style={{ minHeight: 280 }}>
+          <RevenueChart
+            data={data.revenueHistory}
+            period={period}
+            onPeriodChange={setPeriod}
+          />
+        </div>
 
-        {/* Saldos 3 cards (disponível | pendente | retido) + Sacar */}
-        <KpiGrid data={data} />
-
-        <div
-          className="grid w-full"
-          style={{
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: "var(--kpi-gap)",
-            alignItems: "stretch",
-          }}
-        >
-          <div
-            className="min-w-0"
-            style={{
-              gridColumn: "1 / 3",
-              height: 360,
-            }}
-          >
-            <RevenueChart
-              data={data.revenueHistory}
-              period={period}
-              onPeriodChange={setPeriod}
-            />
-          </div>
-
-          <div className="min-w-0" style={{ gridColumn: "3 / 4", height: 360 }}>
-            <MetricsStack data={data} />
-          </div>
+        <div className="min-w-0">
+          <MetricsStack data={data} />
         </div>
       </div>
-    </AccountAccessGate>
+    </div>
   );
 }
 

@@ -689,7 +689,7 @@ export function SegurancaView() {
               <div
                 className="grid tabular"
                 style={{
-                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
                   gap: 8,
                   fontSize: 13,
                   fontWeight: 600,

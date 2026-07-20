@@ -50,10 +50,10 @@ export function AuthShell({ children }: AuthShellProps) {
 
       {/* Coluna do formulário */}
       <main
-        className="flex min-h-screen flex-col items-center justify-center"
+        className="flex min-h-screen flex-col items-center justify-center w-full"
         style={{
           background: "var(--bg-app)",
-          padding: "32px 24px",
+          padding: "max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom))",
         }}
       >
         <div className="w-full" style={{ maxWidth: 400 }}>

@@ -118,14 +118,7 @@ function IntegrationCard({
 export function IntegracoesView() {
   return (
     <div className="flex flex-col" style={{ gap: 18 }}>
-      <div
-        className="grid w-full"
-        style={{
-          // API · UTMify · Webhook na mesma fileira
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-        }}
-      >
+      <div className="grid-integrations">
         <IntegrationCard
           title="API"
           iconSize={64}

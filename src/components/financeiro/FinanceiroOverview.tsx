@@ -413,13 +413,7 @@ export function FinanceiroOverview() {
       />
 
       {/* Métricas */}
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-        }}
-      >
+      <div className="grid-kpi-3">
         {metricCards.map((card) => (
           <div
             key={card.key}
@@ -488,7 +482,7 @@ export function FinanceiroOverview() {
 
       {/* Histórico de saques */}
       <div
-        className="surface-card overflow-hidden"
+        className="surface-card overflow-hidden table-scroll"
         style={{ borderRadius: "var(--radius-card)" }}
       >
         <div

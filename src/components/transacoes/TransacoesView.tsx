@@ -428,13 +428,7 @@ export function TransacoesView() {
       />
 
       {/* Indicadores */}
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-        }}
-      >
+      <div className="grid-kpi-3">
         {metricCards.map((card) => (
           <div
             key={card.key}

@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ArrowLeftRight,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowLeftRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "./BrandLogo";
 import { ActiveGreenAccent } from "./ActiveGreenAccent";
@@ -20,7 +17,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   {
     label: "Dashboard",
-    // /dash funciona para seller e para admin (home `/` redireciona admin → /admin)
     href: "/dash",
     iconSrc: "/icons/casa.png",
   },
@@ -38,8 +34,6 @@ const NAV: NavItem[] = [
   {
     label: "Integrações",
     href: "/integracoes",
-    // Flaticon #7082705 integração do sistema
-    // https://www.flaticon.com/br/icone-gratis/integracao-do-sistema_7082705
     iconSrc: "/icons/integracao.png",
   },
 ];
@@ -88,19 +82,11 @@ function isActive(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
-    <aside
-      className="flex flex-col z-20 h-full min-h-screen"
-      style={{
-        width: "var(--sidebar-width)",
-        background: "var(--bg-sidebar)",
-        padding: "14px 14px 16px",
-      }}
-      aria-label="Navegação principal"
-    >
+    <aside className="app-sidebar-panel" aria-label="Navegação principal">
       <div className="mb-4 px-1" style={{ minHeight: 44 }}>
         <BrandLogo />
       </div>
@@ -115,15 +101,18 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              onClick={() => onNavigate?.()}
               className={cn(
                 "group relative flex items-center gap-2.5 text-[13.5px]",
                 active ? "font-semibold" : "font-medium"
               )}
               style={{
-                height: "var(--nav-item-height)",
+                minHeight: "var(--nav-item-height)",
+                height: "auto",
+                paddingTop: 10,
+                paddingBottom: 10,
                 borderRadius: "var(--radius-md)",
                 overflow: "hidden",
-                // fundo = mesma cor do card do gráfico (--bg-card)
                 background: active ? "var(--bg-card)" : "transparent",
                 color: active ? ACTIVE_GREEN : "#c4cad6",
                 paddingLeft: 12,
@@ -142,9 +131,7 @@ export function Sidebar() {
             >
               {active ? <ActiveGreenAccent /> : null}
 
-              <span
-                className="relative z-[1] flex min-w-0 flex-1 items-center gap-2.5"
-              >
+              <span className="relative z-[1] flex min-w-0 flex-1 items-center gap-2.5">
                 {item.iconSrc ? (
                   <NavImgIcon src={item.iconSrc} active={active} />
                 ) : Icon ? (

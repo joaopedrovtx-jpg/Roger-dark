@@ -101,7 +101,7 @@ function isActive(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AdminSidebar() {
+export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { branding } = useBranding();
   const { user, isSuperAdmin } = useAuth();
@@ -122,18 +122,11 @@ export function AdminSidebar() {
   const homeHref = navItems[0]?.href ?? "/admin";
 
   return (
-    <aside
-      className="flex flex-col z-20 h-full min-h-screen"
-      style={{
-        width: "var(--sidebar-width)",
-        background: "var(--bg-sidebar)",
-        padding: "14px 14px 16px",
-      }}
-      aria-label="Navegação admin"
-    >
+    <aside className="app-sidebar-panel" aria-label="Navegação admin">
       <div className="mb-5 px-1 shrink-0">
         <Link
           href={homeHref}
+          onClick={() => onNavigate?.()}
           className="flex items-center select-none"
           style={{ textDecoration: "none" }}
           aria-label="Dark Pay Admin início"
@@ -165,12 +158,16 @@ export function AdminSidebar() {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              onClick={() => onNavigate?.()}
               className={cn(
                 "group relative flex items-center gap-2.5 text-[13.5px]",
                 active ? "font-semibold" : "font-medium"
               )}
               style={{
-                height: "var(--nav-item-height)",
+                minHeight: "var(--nav-item-height)",
+                height: "auto",
+                paddingTop: 10,
+                paddingBottom: 10,
                 borderRadius: "var(--radius-md)",
                 overflow: "hidden",
                 background: active ? "var(--bg-card)" : "transparent",

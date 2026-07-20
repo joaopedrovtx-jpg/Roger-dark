@@ -349,13 +349,15 @@ export function DocsView() {
     >
       {/* ═══ HEADER 64px ═══ */}
       <header
-        className="shrink-0 grid items-center"
+        className="shrink-0 grid items-center docs-topbar"
         style={{
-          height: 64,
-          padding: "0 28px",
+          minHeight: 64,
+          height: "auto",
+          padding: "10px 16px",
           borderBottom: `1px solid ${T.borderSoft}`,
-          gridTemplateColumns: "1fr minmax(240px, 360px) 1fr",
-          columnGap: 24,
+          gridTemplateColumns: "1fr minmax(160px, 360px) 1fr",
+          columnGap: 12,
+          rowGap: 10,
         }}
       >
         <div className="flex items-center min-w-0 justify-self-start">
@@ -426,10 +428,11 @@ export function DocsView() {
 
       {/* ═══ BODY: sidebar | content sem coluna “Nesta página” ═══ */}
       <div
-        className="flex-1 grid min-h-0 overflow-hidden"
+        className="flex-1 grid min-h-0 overflow-hidden docs-layout"
         style={{
           gridTemplateColumns: "248px minmax(0, 1fr)",
-          height: "calc(100vh - 64px)",
+          height: "calc(100dvh - 64px)",
+          minHeight: 0,
         }}
       >
         {/*
@@ -438,7 +441,7 @@ export function DocsView() {
           - thumb verde ~3cm: arrastar sobe/desce o MENU (não a página)
         */}
         <aside
-          className="relative overflow-hidden min-h-0"
+          className="relative overflow-hidden min-h-0 docs-sidebar"
           style={{
             background: T.bg,
             borderRight: `1px solid ${T.borderSoft}`,

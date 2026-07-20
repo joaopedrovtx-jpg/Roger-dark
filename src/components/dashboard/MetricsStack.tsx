@@ -21,15 +21,7 @@ const ICON_TICKET = 24;
  */
 export function MetricsStack({ data }: MetricsStackProps) {
   return (
-    <div
-      className="grid w-full h-full"
-      style={{
-        height: 360,
-        gridTemplateRows: "1fr 1fr 1fr 1fr",
-        gap: "var(--kpi-gap)",
-        alignItems: "stretch",
-      }}
-    >
+    <div className="metrics-stack w-full h-full">
       <div className="min-h-0 min-w-0">
         <KpiCard
           fill

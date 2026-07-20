@@ -111,13 +111,7 @@ export function KpiGrid({ data }: KpiGridProps) {
         />
       ) : null}
 
-      <div
-        className="grid w-full"
-        style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-        }}
-      >
+      <div className="grid-kpi-3">
         {items.map((item) => (
           <KpiCard
             key={item.key}

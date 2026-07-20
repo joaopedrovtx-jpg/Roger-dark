@@ -317,13 +317,7 @@ export function AdminDashboardView() {
       style={{ gap: "var(--main-gap)" }}
     >
       {/* Topo 3 indicadores */}
-      <div
-        className="grid w-full"
-        style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-        }}
-      >
+      <div className="grid-kpi-3">
         <KpiCard
           icon={<IconDolarSymbol size={ICON} />}
           label="Volume processado"
@@ -341,19 +335,9 @@ export function AdminDashboardView() {
         />
       </div>
 
-      {/* Meio gráfico 2 cols + 4 métricas */}
-      <div
-        className="grid w-full"
-        style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-          alignItems: "stretch",
-        }}
-      >
-        <div
-          className="min-w-0"
-          style={{ gridColumn: "1 / 3", height: 360 }}
-        >
+      {/* Meio gráfico + métricas */}
+      <div className="grid-dash-main">
+        <div className="min-w-0" style={{ minHeight: 280 }}>
           <RevenueChart
             data={chartData}
             period={period}
@@ -363,16 +347,7 @@ export function AdminDashboardView() {
           />
         </div>
 
-        <div
-          className="min-w-0 grid h-full"
-          style={{
-            gridColumn: "3 / 4",
-            height: 360,
-            gridTemplateRows: "1fr 1fr 1fr 1fr",
-            gap: "var(--kpi-gap)",
-            alignItems: "stretch",
-          }}
-        >
+        <div className="min-w-0 metrics-stack">
           <div className="min-h-0 min-w-0">
             <KpiCard
               fill
