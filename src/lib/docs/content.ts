@@ -1,3 +1,9 @@
+/**
+ * Documentação pública da API Dark Pay (produção).
+ * Base URL real do gateway em VPS: https://darkpays.online
+ * Foco: autenticação sk_/pk_ + cobranças Pix + consultas + saques.
+ */
+
 export type DocSectionId =
   | "introducao"
   | "integracao-ia"
@@ -7,25 +13,20 @@ export type DocSectionId =
   | "faq-localizacao"
   | "faq-webhooks-limite"
   | "faq-calculo"
-  | "faq-split"
   | "faq-polling"
   | "webhooks-intro"
   | "webhooks-pagamentos"
-  | "webhooks-transferencias"
-  | "webhooks-chargebacks"
   | "status-api"
-  | "produtor-meus-dados"
-  | "produtor-meu-saldo"
-  | "produtor-testar-credenciais"
-  | "consultas-transacao"
-  | "consultas-assinaturas"
-  | "consultas-transferencia"
+  | "conta-me"
+  | "conta-saldo"
   | "depositos-pagamentos"
-  | "depositos-receber-pix"
-  | "assinaturas-pix"
-  | "transferencias-criar"
-  | "transferencias-buscar"
-  | "outros-taxas-cambio";
+  | "depositos-criar-pix"
+  | "depositos-listar"
+  | "depositos-consultar"
+  | "depositos-sync"
+  | "consultas-transacoes"
+  | "saques-criar"
+  | "saques-listar";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -59,11 +60,18 @@ export interface DocSection {
   path?: string;
 }
 
+/** URL base da API em produção (VPS darkpays.online) */
+export const DOCS_ORIGIN = "https://darkpays.online";
+export const DOCS_BASE = `${DOCS_ORIGIN}/api/v1`;
+export const DOCS_HEALTH = `${DOCS_ORIGIN}/api/health`;
+
+/** @deprecated use DOCS_BASE — mantido se algum import legado existir */
+const BASE = DOCS_BASE;
+
 export const DOCS_NAV: DocNavItem[] = [
-  // Comece aqui
   { id: "introducao", label: "Introdução", group: "Comece aqui" },
   { id: "integracao-ia", label: "Integração com IA", group: "Comece aqui" },
-  // Informações da API
+
   { id: "autenticacao", label: "Autenticação", group: "Informações da API" },
   {
     id: "tratamento-erros",
@@ -75,7 +83,7 @@ export const DOCS_NAV: DocNavItem[] = [
     label: "Enums (Tipos de dados)",
     group: "Informações da API",
   },
-  // Dúvidas Frequentes
+
   {
     id: "faq-localizacao",
     label: "API bloqueada por localização",
@@ -92,157 +100,129 @@ export const DOCS_NAV: DocNavItem[] = [
     group: "Dúvidas Frequentes",
   },
   {
-    id: "faq-split",
-    label: "Como usar o split via API",
-    group: "Dúvidas Frequentes",
-  },
-  {
     id: "faq-polling",
     label: "Polling bloqueado",
     group: "Dúvidas Frequentes",
   },
-  // Webhooks
+
   { id: "webhooks-intro", label: "Introdução", group: "Webhooks" },
-  { id: "webhooks-pagamentos", label: "Pagamentos", group: "Webhooks" },
-  {
-    id: "webhooks-transferencias",
-    label: "Transferências",
-    group: "Webhooks",
-  },
-  {
-    id: "webhooks-chargebacks",
-    label: "Chargebacks / Disputas",
-    group: "Webhooks",
-  },
-  // Status
+  { id: "webhooks-pagamentos", label: "Pagamentos Pix", group: "Webhooks" },
+
   {
     id: "status-api",
     label: "Status da API",
     group: "Status",
     method: "GET",
   },
-  // Produtor
+
   {
-    id: "produtor-meus-dados",
-    label: "Meus dados",
-    group: "Produtor",
+    id: "conta-me",
+    label: "Minha conta",
+    group: "Conta",
     method: "GET",
   },
   {
-    id: "produtor-meu-saldo",
-    label: "Meu saldo",
-    group: "Produtor",
+    id: "conta-saldo",
+    label: "Meu saldo / financeiro",
+    group: "Conta",
     method: "GET",
   },
-  {
-    id: "produtor-testar-credenciais",
-    label: "Testar credenciais",
-    group: "Produtor",
-    method: "GET",
-  },
-  // Consultas
-  {
-    id: "consultas-transacao",
-    label: "Buscar transação",
-    group: "Consultas",
-    method: "GET",
-  },
-  {
-    id: "consultas-assinaturas",
-    label: "Buscar assinaturas",
-    group: "Consultas",
-    method: "GET",
-  },
-  {
-    id: "consultas-transferencia",
-    label: "Buscar transferência",
-    group: "Consultas",
-    method: "GET",
-  },
-  // Depósitos
+
   {
     id: "depositos-pagamentos",
-    label: "Pagamentos",
-    group: "Depósitos",
+    label: "Visão geral Pix",
+    group: "Pagamentos Pix",
   },
   {
-    id: "depositos-receber-pix",
-    label: "Receber pix",
-    group: "Depósitos",
-    method: "POST",
-  },
-  // Assinaturas
-  {
-    id: "assinaturas-pix",
-    label: "Assinatura pix",
-    group: "Assinaturas",
-    method: "POST",
-  },
-  // Transferências
-  {
-    id: "transferencias-criar",
-    label: "Criar transferência",
-    group: "Transferências",
+    id: "depositos-criar-pix",
+    label: "Criar cobrança Pix",
+    group: "Pagamentos Pix",
     method: "POST",
   },
   {
-    id: "transferencias-buscar",
-    label: "Buscar transferência",
-    group: "Transferências",
+    id: "depositos-listar",
+    label: "Listar cobranças",
+    group: "Pagamentos Pix",
     method: "GET",
   },
-  // Outros
   {
-    id: "outros-taxas-cambio",
-    label: "Taxas de câmbio",
-    group: "Outros",
+    id: "depositos-consultar",
+    label: "Consultar cobrança",
+    group: "Pagamentos Pix",
+    method: "GET",
+  },
+  {
+    id: "depositos-sync",
+    label: "Sincronizar status",
+    group: "Pagamentos Pix",
+    method: "POST",
+  },
+
+  {
+    id: "consultas-transacoes",
+    label: "Listar transações",
+    group: "Transações",
+    method: "GET",
+  },
+
+  {
+    id: "saques-criar",
+    label: "Criar saque Pix",
+    group: "Saques",
+    method: "POST",
+  },
+  {
+    id: "saques-listar",
+    label: "Listar saques",
+    group: "Saques",
     method: "GET",
   },
 ];
-
-const BASE = "https://api.darkpay.app/api/v1";
 
 export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
   introducao: {
     id: "introducao",
     category: "Comece aqui",
     title: "Introdução",
-    subtitle: "Aprenda a configurar e realizar transações",
+    subtitle: "API de pagamentos Pix do gateway Dark Pay",
     lead: [
-      "Bem-vindo(a) à documentação da API da Dark Pay, onde fornecemos todas as ferramentas necessárias para que você possa integrar facilmente funcionalidades de pagamentos e gerenciamento financeiro em sua aplicação. Esta API permite realizar operações como recebimentos via Pix, além de permitir saques, transferências, consulta de saldos e histórico de pagamento.",
-      "Nossa API é projetada com foco na segurança e na facilidade de uso, garantindo que você possa implementar funcionalidades complexas com simplicidade e confiabilidade.",
+      "Bem-vindo(a) à documentação da API Dark Pay. Com ela você cria cobranças Pix (QR Code / copia-e-cola), consulta status, lista transações e solicita saques — tudo autenticado com as chaves da sua conta (pk_ / sk_) geradas em Integrações → API.",
+      "O Dark Pay é o gateway: você integra com darkpays.online; a adquirente (PodPay/Velana) fica no servidor e não é exposta ao seu frontend.",
     ],
     headings: [
       {
-        title: "Requisições e URL base",
+        title: "URL base (produção)",
         paragraphs: [
-          "A API da Dark Pay é construída sobre os princípios REST, utilizando HTTPS em todas as requisições para garantir a segurança, a integridade e a privacidade dos seus dados. Não são suportadas requisições HTTP sem criptografia.",
-          "Utilize a seguinte URL base para todas as suas requisições:",
+          "Todas as rotas de negócio usam HTTPS. Não use HTTP sem TLS.",
+          "URL base da API v1:",
         ],
         codes: [
           {
             language: "text",
-            title: "URL base",
-            code: BASE,
+            title: "Base URL",
+            code: DOCS_BASE,
+          },
+          {
+            language: "text",
+            title: "Painel / origem",
+            code: DOCS_ORIGIN,
           },
         ],
       },
       {
-        title: "Autenticação",
+        title: "Primeiros passos",
         paragraphs: [
-          "Todas as requisições autenticadas usam o header Authorization com Bearer Token e a sua secret key. Veja a seção Autenticação em Informações da API.",
+          "1. Entre no painel → Integrações → API e crie uma credencial (pk_live_… / sk_live_…).",
+          "2. Copie a secret completa (botão copiar) e guarde só no backend.",
+          "3. Crie uma cobrança com POST /payments (Pix).",
+          "4. Exiba o QR / copia-e-cola ao cliente e confirme o pagamento via webhook ou POST …/sync.",
         ],
       },
       {
-        title: "Formato de Respostas",
+        title: "Formato",
         paragraphs: [
-          "Todas as respostas são retornadas em JSON. Códigos HTTP 2xx indicam sucesso. Erros seguem o formato padronizado descrito em Tratamento de erros.",
-        ],
-      },
-      {
-        title: "Suporte e Dúvidas",
-        paragraphs: [
-          "Consulte as Dúvidas Frequentes na navegação ou entre em contato com o suporte pelo painel Dark Pay.",
+          "Request e response em JSON. Valores monetários (amount) em reais (BRL), número decimal — mínimo R$ 1,00 (ex.: 97.00).",
+          "Códigos HTTP 2xx = sucesso. Erros vêm em JSON com code e message.",
         ],
       },
     ],
@@ -252,18 +232,18 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "integracao-ia",
     category: "Comece aqui",
     title: "Integração com IA",
-    subtitle: "Conecte a API Dark Pay a assistentes e automações",
+    subtitle: "Automações e agentes usando a API Pix",
     lead: [
-      "Você pode integrar a API Dark Pay a agentes de IA e automações para criar cobranças, consultar status e acionar transferências de forma assistida.",
-      "Nunca exponha a chave secreta no prompt, no frontend ou em repositórios públicos.",
+      "Você pode conectar a API a agentes de IA ou automações para criar cobranças e consultar status.",
+      "Nunca coloque a sk_ no prompt, no frontend, em repositório público ou em logs abertos.",
     ],
     headings: [
       {
         title: "Boas práticas",
         paragraphs: [
-          "Exponha apenas funções controladas (criar cobrança, consultar ID, listar últimos pagamentos).",
+          "Exponha só funções controladas no seu backend (criar Pix, consultar ID, listar últimos pagamentos).",
           "Valide amount, document e metadata antes de chamar a API.",
-          "Use webhooks para confirmar pagamento em vez de polling agressivo.",
+          "Prefira webhooks ou sync pontual em vez de polling agressivo.",
         ],
       },
     ],
@@ -273,39 +253,48 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "autenticacao",
     category: "Informações da API",
     title: "Autenticação",
-    subtitle: "Como autenticar suas requisições na API Dark Pay",
+    subtitle: "Bearer sk_ ou sessão do painel",
     lead: [
-      "Gere as chaves em Integrações → API no painel do seller. Use a secret (sk_) no backend do seu cassino/checkout.",
-      "O DarkPay é o gateway: você autentica com as chaves da sua conta DarkPay; a adquirente (ex.: PodPay) fica só no servidor DarkPay.",
+      "Gere as chaves em Integrações → API. Use a secret (sk_) no backend do seu sistema.",
+      "O gateway autentica a sua conta Dark Pay; a adquirente fica só no servidor Dark Pay.",
     ],
     headings: [
       {
-        title: "Header obrigatório",
+        title: "Header obrigatório (API key)",
         paragraphs: [
-          "Substitua sk_live_xxxxxxxx pela chave secreta da sua conta. Em ambiente de teste, use sk_test_.",
+          "Substitua sk_live_xxxxxxxx pela secret completa da conta. Em teste use sk_test_ se a credencial for de ambiente test.",
         ],
         codes: [
           {
             language: "bash",
-            title: "Criar cobrança PIX",
-            code: `curl -X POST ${BASE}/payments \\
+            title: "Criar cobrança Pix",
+            code: `curl -X POST ${DOCS_BASE}/payments \\
   -H "Authorization: Bearer sk_live_xxxxxxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
     "amount": 97.00,
     "description": "Pedido #1001",
     "customerName": "Cliente Final",
-    "customerDocument": "52998224725"
+    "customerDocument": "52998224725",
+    "customerEmail": "cliente@email.com"
   }'`,
           },
         ],
       },
       {
+        title: "Formas aceitas",
+        paragraphs: [
+          "Authorization: Bearer sk_live_… (recomendado)",
+          "X-Api-Key: sk_live_…",
+          "Basic base64(pk_live_…:sk_live_…)",
+          "Sessão do painel (cookie) — útil em testes logado no darkpays.online",
+        ],
+      },
+      {
         title: "Chave pública vs secreta",
         paragraphs: [
-          "pk_live_ / pk_test_ Client ID (pode ir em configs; ainda não exponha em frontend público se possível).",
-          "sk_live_ / sk_test_ Client Secret. Só no backend. Nunca no app do jogador, repositório ou prompt de IA.",
-          "Também aceito: header X-Api-Key: sk_… ou Basic base64(pk:sk).",
+          "pk_live_ / pk_test_ — Client ID (identificação da credencial).",
+          "sk_live_ / sk_test_ — Client Secret. Somente no backend. Nunca no app do cliente final.",
         ],
       },
     ],
@@ -315,14 +304,14 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "tratamento-erros",
     category: "Informações da API",
     title: "Tratamento de erros",
-    subtitle: "Códigos HTTP e formato de erro da API",
+    subtitle: "Códigos HTTP e corpo de erro",
     lead: [
-      "Quando uma requisição falha, a API retorna um corpo JSON com code, message e opcionalmente details.",
+      "Em falha, a API retorna JSON com error.code e error.message (e às vezes hint).",
     ],
     headings: [
       {
         title: "Formato padrão",
-        paragraphs: ["Exemplo de resposta de erro de validação:"],
+        paragraphs: ["Exemplo de validação de valor:"],
         codes: [
           {
             language: "json",
@@ -330,8 +319,7 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
             code: `{
   "error": {
     "code": "invalid_amount",
-    "message": "O valor mínimo da cobrança é R$ 1,00",
-    "details": { "field": "amount", "min": 100 }
+    "message": "amount obrigatório (mín. R$ 1,00)"
   }
 }`,
           },
@@ -340,7 +328,7 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
       {
         title: "Códigos HTTP comuns",
         paragraphs: [
-          "400 validação · 401 não autenticado · 403 sem permissão · 404 não encontrado · 409 conflito · 429 rate limit · 5xx falha interna.",
+          "400 validação · 401 não autenticado / secret inválida · 403 sem permissão · 404 não encontrado · 429 rate limit · 503 adquirente/banco indisponível · 5xx falha interna.",
         ],
       },
     ],
@@ -350,33 +338,33 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "enums",
     category: "Informações da API",
     title: "Enums (Tipos de dados)",
-    subtitle: "Valores aceitos em status e métodos",
+    subtitle: "Status e métodos usados na API Pix",
     lead: [
-      "Use apenas os valores abaixo em filtros e comparações de status nas requisições e nos webhooks.",
+      "Use estes valores ao comparar status de cobranças e saques.",
     ],
     headings: [
       {
-        title: "Status de pagamento",
+        title: "Status de cobrança / pagamento",
         paragraphs: [
-          "pending aguardando pagamento",
-          "paid pago / aprovado",
-          "refused recusado",
-          "expired expirado",
-          "refunded reembolsado",
-          "chargedback chargeback / disputa",
+          "waiting_payment / pending — aguardando Pix",
+          "paid / aprovada — pago",
+          "refused — recusado",
+          "expired — expirado",
+          "refunded — reembolsado",
         ],
       },
       {
-        title: "Status de transferência",
+        title: "Status de saque",
         paragraphs: [
-          "processing em processamento",
-          "paid concluída",
-          "refused recusada",
+          "pending — solicitado",
+          "processing — em processamento",
+          "paid / approved — concluído",
+          "refused / rejected — recusado",
         ],
       },
       {
-        title: "Método de pagamento",
-        paragraphs: ["pix Pix (principal método suportado)."],
+        title: "Método",
+        paragraphs: ["pix — pagamento instantâneo (método principal da API)."],
       },
     ],
   },
@@ -385,17 +373,17 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "faq-localizacao",
     category: "Dúvidas Frequentes",
     title: "API bloqueada por localização",
-    subtitle: "Por que minhas requisições são bloqueadas?",
+    subtitle: "Requisições recusadas por IP / região",
     lead: [
-      "Por segurança, algumas regiões ou IPs podem ser bloqueados temporariamente. Se receber 403 com code region_blocked, contate o suporte Dark Pay.",
+      "Algumas redes ou regiões podem ser bloqueadas por segurança. Se receber 403, confira a secret, use HTTPS e contate o suporte com o horário da falha.",
     ],
     headings: [
       {
         title: "O que fazer",
         paragraphs: [
-          "Confirme se está usando a secret key correta e HTTPS.",
-          "Evite proxies abertos ou VPNs de data centers em listas de abuso.",
-          "Abra um ticket com o request_id retornado no header da resposta.",
+          "Confirme sk_ completa (não use máscara sk_••••).",
+          "Evite proxies abertos de data centers em listas de abuso.",
+          "Teste com curl a partir do seu servidor de produção.",
         ],
       },
     ],
@@ -405,9 +393,9 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "faq-webhooks-limite",
     category: "Dúvidas Frequentes",
     title: "Limite de webhooks via API",
-    subtitle: "Quantas URLs de webhook posso cadastrar?",
+    subtitle: "Quantas URLs posso cadastrar?",
     lead: [
-      "Por padrão, cada conta pode registrar até 5 endpoints de webhook ativos. Limites maiores podem ser solicitados ao suporte.",
+      "No painel (Integrações → Webhooks) você cadastra as URLs que recebem eventos de pagamento. Limites maiores podem ser pedidos ao suporte.",
     ],
     headings: [],
   },
@@ -416,44 +404,15 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "faq-calculo",
     category: "Dúvidas Frequentes",
     title: "Cálculo do valor da transação",
-    subtitle: "Como a taxa é aplicada na cobrança",
+    subtitle: "Como a taxa é aplicada",
     lead: [
-      "O amount enviado na criação da cobrança é o valor cobrado do pagador. As taxas de MDR (ex.: 3,00% + R$ 0,15 no Pix D+0) são descontadas na liquidação, conforme o plano da conta.",
+      "O amount enviado é o valor cobrado do pagador em reais (ex.: 100.00 = R$ 100,00). MDR e taxas de saque seguem o plano da conta e são descontados na liquidação.",
     ],
     headings: [
       {
         title: "Exemplo",
         paragraphs: [
-          "Cobrança de R$ 100,00 (amount: 10000 centavos). Com taxa 3% + R$ 0,15, o líquido aproximado creditado é R$ 96,85.",
-        ],
-      },
-    ],
-  },
-
-  "faq-split": {
-    id: "faq-split",
-    category: "Dúvidas Frequentes",
-    title: "Como usar o split via API",
-    subtitle: "Divisão de recebíveis entre contas",
-    lead: [
-      "O split permite repartir o valor de uma cobrança entre a conta principal e recebedores cadastrados. Envie o array splits no body de POST de pagamento quando disponível no seu plano.",
-    ],
-    headings: [
-      {
-        title: "Exemplo de payload",
-        paragraphs: [],
-        codes: [
-          {
-            language: "json",
-            title: "splits",
-            code: `{
-  "amount": 10000,
-  "splits": [
-    { "recipient_id": "rc_abc", "percentage": 80 },
-    { "recipient_id": "rc_def", "percentage": 20 }
-  ]
-}`,
-          },
+          "Cobrança amount: 100.00. Com taxa 3% + R$ 0,15, o líquido aproximado creditado é R$ 96,85.",
         ],
       },
     ],
@@ -463,9 +422,9 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "faq-polling",
     category: "Dúvidas Frequentes",
     title: "Polling bloqueado",
-    subtitle: "Por que não devo consultar o status em loop",
+    subtitle: "Evite consultar status em loop",
     lead: [
-      "Consultas excessivas aos endpoints de busca podem ser limitadas (429). Prefira webhooks para confirmação de pagamento e use consulta pontual apenas como fallback.",
+      "Consultas excessivas podem retornar 429. Prefira webhooks ou use POST /payments/{id}/sync de forma pontual (ex.: a cada 5–10s enquanto pendente).",
     ],
     headings: [],
   },
@@ -474,22 +433,18 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "webhooks-intro",
     category: "Webhooks",
     title: "Introdução a Webhooks",
-    subtitle: "Receba eventos no seu servidor em tempo real",
+    subtitle: "Eventos no seu servidor",
     lead: [
-      "Webhooks notificam seu backend quando pagamentos, transferências ou chargebacks mudam de status sem necessidade de polling.",
+      "Webhooks avisam seu backend quando um Pix muda de status, sem precisar de polling constante.",
+      "Cadastre a URL no painel em Integrações → Webhooks. A Dark Pay envia POST JSON para a sua URL.",
     ],
     headings: [
       {
-        title: "Configuração",
+        title: "Boas práticas",
         paragraphs: [
-          "Cadastre a URL do webhook no painel (Integrações) ou via API. A Dark Pay envia POST JSON com o header X-DarkPay-Signature (HMAC-SHA256).",
-          "Responda HTTP 2xx em até 5s. Em falha, reintentamos com backoff.",
-        ],
-      },
-      {
-        title: "Assinatura",
-        paragraphs: [
-          "Valide a assinatura com a secret key antes de processar o evento.",
+          "Responda HTTP 2xx rapidamente.",
+          "Valide a origem/secret do webhook quando configurado.",
+          "Trate eventos de forma idempotente (mesmo id não processa duas vezes).",
         ],
       },
     ],
@@ -498,10 +453,10 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
   "webhooks-pagamentos": {
     id: "webhooks-pagamentos",
     category: "Webhooks",
-    title: "Webhooks de Pagamentos",
-    subtitle: "Eventos de cobranças e depósitos",
+    title: "Webhooks de Pagamentos Pix",
+    subtitle: "Eventos de cobrança",
     lead: [
-      "Eventos relacionados a pagamentos Pix e status de cobrança.",
+      "Eventos típicos de ciclo de vida da cobrança Pix.",
     ],
     headings: [
       {
@@ -512,53 +467,26 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
         codes: [
           {
             language: "json",
-            title: "payment.paid",
+            title: "Exemplo payment.paid",
             code: `{
   "id": "evt_91ab",
   "type": "payment.paid",
   "data": {
     "id": "pay_8f2a1c9e",
     "status": "paid",
-    "amount": 9900
+    "amount": 97.00,
+    "method": "pix"
   }
 }`,
           },
         ],
       },
-    ],
-  },
-
-  "webhooks-transferencias": {
-    id: "webhooks-transferencias",
-    category: "Webhooks",
-    title: "Webhooks de Transferências",
-    subtitle: "Eventos de saques e transferências",
-    lead: [
-      "Receba atualizações quando uma transferência for processada, paga ou recusada.",
-    ],
-    headings: [
       {
-        title: "Eventos",
+        title: "Webhooks da adquirente (servidor Dark Pay)",
         paragraphs: [
-          "transfer.created · transfer.processing · transfer.paid · transfer.refused",
-        ],
-      },
-    ],
-  },
-
-  "webhooks-chargebacks": {
-    id: "webhooks-chargebacks",
-    category: "Webhooks",
-    title: "Chargebacks / Disputas",
-    subtitle: "Eventos de contestação e chargeback",
-    lead: [
-      "Notificações quando uma disputa ou chargeback é aberta, atualizada ou resolvida.",
-    ],
-    headings: [
-      {
-        title: "Eventos",
-        paragraphs: [
-          "chargeback.opened · chargeback.updated · chargeback.won · chargeback.lost",
+          "Rotas internas do gateway (não use no seu app de cliente):",
+          `${DOCS_ORIGIN}/api/v1/webhooks/podpay`,
+          `${DOCS_ORIGIN}/api/v1/webhooks/velana`,
         ],
       },
     ],
@@ -568,28 +496,31 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "status-api",
     category: "Status",
     title: "Status da API",
-    subtitle: "Verifica se a API está operacional",
+    subtitle: "Health check do gateway",
     method: "GET",
-    path: "/status",
+    path: "/api/health",
     lead: [
-      "Endpoint público (ou autenticado, conforme configuração) para health check da API Dark Pay.",
+      "Endpoint público para verificar se o serviço e o banco estão operacionais.",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`GET ${BASE}/status`],
+        paragraphs: [`GET ${DOCS_HEALTH}`],
         codes: [
           {
             language: "bash",
             title: "cURL",
-            code: `curl ${BASE}/status`,
+            code: `curl ${DOCS_HEALTH}`,
           },
           {
             language: "json",
             title: "Response 200",
             code: `{
-  "status": "ok",
-  "time": "2026-07-12T18:00:00.000Z"
+  "ok": true,
+  "service": "darkpay",
+  "time": "2026-07-20T04:00:00.000Z",
+  "database": "ok",
+  "env": "production"
 }`,
           },
         ],
@@ -597,25 +528,25 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     ],
   },
 
-  "produtor-meus-dados": {
-    id: "produtor-meus-dados",
-    category: "Produtor",
-    title: "Meus dados",
-    subtitle: "Retorna os dados da conta autenticada",
+  "conta-me": {
+    id: "conta-me",
+    category: "Conta",
+    title: "Minha conta",
+    subtitle: "Dados do usuário autenticado",
     method: "GET",
-    path: "/producer/me",
+    path: "/auth/me",
     lead: [
-      "Obtém nome, e-mail, documento e informações cadastrais do produtor autenticado.",
+      "Retorna o usuário da sessão ou o vínculo da API key (roles, status, e-mail).",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`GET ${BASE}/producer/me`],
+        paragraphs: [`GET ${DOCS_BASE}/auth/me`],
         codes: [
           {
             language: "bash",
             title: "cURL",
-            code: `curl ${BASE}/producer/me \\
+            code: `curl ${DOCS_BASE}/auth/me \\
   -H "Authorization: Bearer sk_live_xxxxxxxx"`,
           },
         ],
@@ -623,319 +554,306 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     ],
   },
 
-  "produtor-meu-saldo": {
-    id: "produtor-meu-saldo",
-    category: "Produtor",
-    title: "Meu saldo",
-    subtitle: "Consulta saldos disponíveis, pendentes e retidos",
+  "conta-saldo": {
+    id: "conta-saldo",
+    category: "Conta",
+    title: "Meu saldo / financeiro",
+    subtitle: "Saldos e resumo financeiro do seller",
     method: "GET",
-    path: "/producer/balance",
+    path: "/finance",
     lead: [
-      "Retorna o saldo disponível para saque, o saldo pendente e o retido da conta.",
+      "Consulta saldo disponível, pendente, retido e listagens financeiras da conta autenticada.",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`GET ${BASE}/producer/balance`],
-        codes: [
-          {
-            language: "json",
-            title: "Response 200",
-            code: `{
-  "available": 78890186,
-  "pending": 19722546,
-  "held": 4930637,
-  "currency": "BRL"
-}`,
-          },
-        ],
-      },
-    ],
-  },
-
-  "produtor-testar-credenciais": {
-    id: "produtor-testar-credenciais",
-    category: "Produtor",
-    title: "Testar credenciais",
-    subtitle: "Valida se a secret key está correta",
-    method: "GET",
-    path: "/producer/credentials/test",
-    lead: [
-      "Útil para checar se o token está válido antes de processar operações em produção.",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/producer/credentials/test`],
-        codes: [
-          {
-            language: "json",
-            title: "Response 200",
-            code: `{
-  "valid": true,
-  "environment": "live",
-  "account_id": "acc_xxx"
-}`,
-          },
-        ],
-      },
-    ],
-  },
-
-  "consultas-transacao": {
-    id: "consultas-transacao",
-    category: "Consultas",
-    title: "Buscar transação",
-    subtitle: "Consulta uma transação pelo ID",
-    method: "GET",
-    path: "/transactions/{id}",
-    lead: [
-      "Retorna status, valor, método e metadados de uma transação específica.",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/transactions/{id}`],
+        paragraphs: [`GET ${DOCS_BASE}/finance`],
         codes: [
           {
             language: "bash",
             title: "cURL",
-            code: `curl ${BASE}/transactions/pay_8f2a1c9e \\
+            code: `curl ${DOCS_BASE}/finance \\
   -H "Authorization: Bearer sk_live_xxxxxxxx"`,
           },
         ],
-      },
-    ],
-  },
-
-  "consultas-assinaturas": {
-    id: "consultas-assinaturas",
-    category: "Consultas",
-    title: "Buscar assinaturas",
-    subtitle: "Lista ou detalha assinaturas Pix",
-    method: "GET",
-    path: "/subscriptions",
-    lead: [
-      "Consulte assinaturas recorrentes vinculadas à sua conta, com filtros por status e cliente.",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/subscriptions`],
-        codes: [
-          {
-            language: "bash",
-            title: "cURL",
-            code: `curl "${BASE}/subscriptions?status=active&limit=20" \\
-  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
-          },
-        ],
-      },
-    ],
-  },
-
-  "consultas-transferencia": {
-    id: "consultas-transferencia",
-    category: "Consultas",
-    title: "Buscar transferência",
-    subtitle: "Consulta uma transferência pelo ID",
-    method: "GET",
-    path: "/transfers/{id}",
-    lead: [
-      "Obtém o status e os detalhes de uma transferência/saque específico.",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/transfers/{id}`],
       },
     ],
   },
 
   "depositos-pagamentos": {
     id: "depositos-pagamentos",
-    category: "Depósitos",
-    title: "Pagamentos",
-    subtitle: "Visão geral dos depósitos e recebimentos",
+    category: "Pagamentos Pix",
+    title: "Visão geral Pix",
+    subtitle: "Fluxo de recebimento via Pix",
     lead: [
-      "A área de Depósitos cobre a criação e o acompanhamento de pagamentos recebidos (principalmente via Pix).",
-      "Use Receber pix para criar uma cobrança e as consultas de transação para acompanhar o status.",
+      "Toda cobrança Pix passa por POST /payments. O gateway gera QR Code e código copia-e-cola na adquirente configurada.",
     ],
     headings: [
       {
         title: "Fluxo recomendado",
         paragraphs: [
-          "1. Crie a cobrança com POST /payments/pix (Receber pix).",
-          "2. Exiba o QR Code / copia-e-cola ao cliente.",
-          "3. Confirme via webhook payment.paid (ou consulta pontual).",
+          `1. POST ${DOCS_BASE}/payments — cria cobrança.`,
+          "2. Mostre pix.qrCode / pix.copyPaste ao pagador.",
+          `3. Confirme com webhook ou POST ${DOCS_BASE}/payments/{id}/sync.`,
+          `4. Consulte a qualquer momento com GET ${DOCS_BASE}/payments/{id}.`,
         ],
       },
     ],
   },
 
-  "depositos-receber-pix": {
-    id: "depositos-receber-pix",
-    category: "Depósitos",
-    title: "Receber pix",
-    subtitle: "Cria uma cobrança Pix para receber um pagamento",
+  "depositos-criar-pix": {
+    id: "depositos-criar-pix",
+    category: "Pagamentos Pix",
+    title: "Criar cobrança Pix",
+    subtitle: "Gera QR Code e copia-e-cola",
     method: "POST",
-    path: "/payments/pix",
+    path: "/payments",
     lead: [
-      "Gera QR Code e EMV (copia-e-cola) para o valor informado. O status inicial é pending.",
+      "Cria uma cobrança Pix real na conta do seller autenticado. amount em reais (mín. 1.00).",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`POST ${BASE}/payments/pix`],
+        paragraphs: [`POST ${DOCS_BASE}/payments`],
         codes: [
           {
             language: "json",
-            title: "Request",
+            title: "Request body",
             code: `{
-  "amount": 9900,
+  "amount": 97.00,
   "description": "Pedido #1042",
-  "customer": {
-    "name": "Ana Souza",
-    "document": "12345678909",
-    "email": "ana@email.com"
-  },
-  "expires_in": 3600
+  "customerName": "Ana Souza",
+  "customerDocument": "52998224725",
+  "customerEmail": "ana@email.com",
+  "customerPhone": "11999999999",
+  "metadata": {
+    "orderId": "1042"
+  }
 }`,
           },
           {
             language: "bash",
             title: "cURL",
-            code: `curl -X POST ${BASE}/payments/pix \\
+            code: `curl -X POST ${DOCS_BASE}/payments \\
   -H "Authorization: Bearer sk_live_xxxxxxxx" \\
   -H "Content-Type: application/json" \\
-  -d '{"amount":9900,"description":"Pedido #1042"}'`,
+  -d '{
+    "amount": 97.00,
+    "description": "Pedido #1042",
+    "customerName": "Ana Souza",
+    "customerDocument": "52998224725"
+  }'`,
           },
           {
             language: "json",
             title: "Response 201",
             code: `{
   "id": "pay_8f2a1c9e",
-  "status": "pending",
-  "amount": 9900,
+  "status": "waiting_payment",
+  "amount": 97,
+  "currency": "BRL",
+  "method": "pix",
+  "provider": "velana",
+  "real": true,
   "pix": {
-    "qr_code": "00020126...6304ABCD",
-    "qr_code_base64": "data:image/png;base64,...",
-    "expires_at": "2026-07-12T19:00:00.000Z"
-  }
+    "qrCode": "00020126...6304ABCD",
+    "copyPaste": "00020126...6304ABCD"
+  },
+  "expiresAt": "2026-07-20T19:00:00.000Z",
+  "createdAt": "2026-07-20T18:00:00.000Z",
+  "syncUrl": "/api/v1/payments/pay_8f2a1c9e/sync"
 }`,
           },
+        ],
+      },
+      {
+        title: "Campos",
+        paragraphs: [
+          "amount (obrigatório) — número ≥ 1 (reais).",
+          "description — texto do pedido.",
+          "customerName / customerDocument / customerEmail / customerPhone — dados do pagador (documento ajuda a adquirente).",
+          "metadata — objeto string→string opcional.",
         ],
       },
     ],
   },
 
-  "assinaturas-pix": {
-    id: "assinaturas-pix",
-    category: "Assinaturas",
-    title: "Assinatura pix",
-    subtitle: "Cria uma assinatura recorrente via Pix",
-    method: "POST",
-    path: "/subscriptions/pix",
+  "depositos-listar": {
+    id: "depositos-listar",
+    category: "Pagamentos Pix",
+    title: "Listar cobranças",
+    subtitle: "Histórico de cobranças Pix da conta",
+    method: "GET",
+    path: "/payments",
     lead: [
-      "Cria cobranças recorrentes em intervalos definidos (semanal, mensal, anual), usando Pix como meio de pagamento.",
+      "Lista as cobranças do seller autenticado (mais recentes primeiro).",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`POST ${BASE}/subscriptions/pix`],
+        paragraphs: [`GET ${DOCS_BASE}/payments`],
         codes: [
           {
-            language: "json",
-            title: "Request",
-            code: `{
-  "amount": 4990,
-  "interval": "month",
-  "description": "Plano Pro",
-  "customer": {
-    "name": "Bruno Lima",
-    "document": "12345678909",
-    "email": "bruno@email.com"
-  }
-}`,
+            language: "bash",
+            title: "cURL",
+            code: `curl ${DOCS_BASE}/payments \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
           },
         ],
       },
     ],
   },
 
-  "transferencias-criar": {
-    id: "transferencias-criar",
-    category: "Transferências",
-    title: "Criar transferência",
-    subtitle: "Solicita transferência/saque do saldo via Pix",
-    method: "POST",
-    path: "/transfers",
+  "depositos-consultar": {
+    id: "depositos-consultar",
+    category: "Pagamentos Pix",
+    title: "Consultar cobrança",
+    subtitle: "Detalhe de uma cobrança pelo ID",
+    method: "GET",
+    path: "/payments/{id}",
     lead: [
-      "Transfere valor do saldo disponível para uma chave Pix. Pode haver taxa de saque conforme o plano (ex.: 3%).",
+      "Retorna status, valor, Pix e datas de uma cobrança específica da sua conta.",
     ],
     headings: [
       {
         title: "Endpoint",
-        paragraphs: [`POST ${BASE}/transfers`],
+        paragraphs: [`GET ${DOCS_BASE}/payments/{id}`],
         codes: [
           {
-            language: "json",
-            title: "Request",
-            code: `{
-  "amount": 10000,
-  "pix_key": "email@empresa.com",
-  "pix_key_type": "email"
-}`,
+            language: "bash",
+            title: "cURL",
+            code: `curl ${DOCS_BASE}/payments/pay_8f2a1c9e \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
           },
-        ],
-      },
-    ],
-  },
-
-  "transferencias-buscar": {
-    id: "transferencias-buscar",
-    category: "Transferências",
-    title: "Buscar transferência",
-    subtitle: "Consulta uma transferência pelo ID",
-    method: "GET",
-    path: "/transfers/{id}",
-    lead: [
-      "Mesmo recurso de consulta de transferência, disponível também no grupo Transferências.",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/transfers/{id}`],
-      },
-    ],
-  },
-
-  "outros-taxas-cambio": {
-    id: "outros-taxas-cambio",
-    category: "Outros",
-    title: "Taxas de câmbio",
-    subtitle: "Consulta taxas de câmbio disponíveis",
-    method: "GET",
-    path: "/fx/rates",
-    lead: [
-      "Retorna cotações de câmbio quando o recurso estiver habilitado na conta (operações multi-moeda).",
-    ],
-    headings: [
-      {
-        title: "Endpoint",
-        paragraphs: [`GET ${BASE}/fx/rates`],
-        codes: [
           {
             language: "json",
             title: "Response 200",
             code: `{
-  "base": "BRL",
-  "rates": {
-    "USD": 0.18,
-    "EUR": 0.17
+  "id": "pay_8f2a1c9e",
+  "status": "paid",
+  "amount": 97,
+  "method": "pix",
+  "pix": {
+    "qrCode": "00020126...",
+    "copyPaste": "00020126..."
   },
-  "updated_at": "2026-07-12T18:00:00.000Z"
+  "paidAt": "2026-07-20T18:05:00.000Z",
+  "real": true
 }`,
+          },
+        ],
+      },
+    ],
+  },
+
+  "depositos-sync": {
+    id: "depositos-sync",
+    category: "Pagamentos Pix",
+    title: "Sincronizar status",
+    subtitle: "Consulta a adquirente e atualiza a cobrança",
+    method: "POST",
+    path: "/payments/{id}/sync",
+    lead: [
+      "Força a sincronização do status do Pix com a adquirente. Use quando o pagamento acabou de ser feito e o webhook ainda não chegou.",
+    ],
+    headings: [
+      {
+        title: "Endpoint",
+        paragraphs: [`POST ${DOCS_BASE}/payments/{id}/sync`],
+        codes: [
+          {
+            language: "bash",
+            title: "cURL",
+            code: `curl -X POST ${DOCS_BASE}/payments/pay_8f2a1c9e/sync \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
+          },
+        ],
+      },
+    ],
+  },
+
+  "consultas-transacoes": {
+    id: "consultas-transacoes",
+    category: "Transações",
+    title: "Listar transações",
+    subtitle: "Extrato de movimentos da conta",
+    method: "GET",
+    path: "/transactions",
+    lead: [
+      "Lista transações (entradas/saídas) do seller autenticado, com filtros opcionais de período e status.",
+    ],
+    headings: [
+      {
+        title: "Endpoint",
+        paragraphs: [`GET ${DOCS_BASE}/transactions`],
+        codes: [
+          {
+            language: "bash",
+            title: "cURL",
+            code: `curl "${DOCS_BASE}/transactions" \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
+          },
+        ],
+      },
+    ],
+  },
+
+  "saques-criar": {
+    id: "saques-criar",
+    category: "Saques",
+    title: "Criar saque Pix",
+    subtitle: "Transfere saldo disponível para chave Pix",
+    method: "POST",
+    path: "/withdrawals",
+    lead: [
+      "Solicita saque do saldo disponível para uma chave Pix. amount em reais; pixKey obrigatória.",
+    ],
+    headings: [
+      {
+        title: "Endpoint",
+        paragraphs: [`POST ${DOCS_BASE}/withdrawals`],
+        codes: [
+          {
+            language: "json",
+            title: "Request",
+            code: `{
+  "amount": 50.00,
+  "pixKey": "luanmick121@gmail.com"
+}`,
+          },
+          {
+            language: "bash",
+            title: "cURL",
+            code: `curl -X POST ${DOCS_BASE}/withdrawals \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{"amount":50.00,"pixKey":"chave@email.com"}'`,
+          },
+        ],
+      },
+    ],
+  },
+
+  "saques-listar": {
+    id: "saques-listar",
+    category: "Saques",
+    title: "Listar saques",
+    subtitle: "Histórico de saques da conta",
+    method: "GET",
+    path: "/withdrawals",
+    lead: [
+      "Lista saques do seller. Filtro opcional: ?status=pending",
+    ],
+    headings: [
+      {
+        title: "Endpoint",
+        paragraphs: [`GET ${DOCS_BASE}/withdrawals`],
+        codes: [
+          {
+            language: "bash",
+            title: "cURL",
+            code: `curl "${DOCS_BASE}/withdrawals" \\
+  -H "Authorization: Bearer sk_live_xxxxxxxx"`,
           },
         ],
       },
