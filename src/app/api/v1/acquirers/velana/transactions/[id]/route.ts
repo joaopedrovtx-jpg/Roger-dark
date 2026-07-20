@@ -6,7 +6,7 @@ import {
   velanaNotConfigured,
 } from "@/lib/acquirers/velana/server";
 
-/** GET /api/v1/acquirers/velana/transactions/:id — GET /v1/transactions/{id} */
+/** GET /api/v1/acquirers/velana/transactions/:id GET /v1/transactions/{id} */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string }> }

@@ -264,7 +264,7 @@ export function AdminGerenteCreateModal({
           zIndex: 1,
         }}
       >
-        {/* X — mesmo padrão do modal de detalhe */}
+        {/* X mesmo padrão do modal de detalhe */}
         <div
           className="flex items-center justify-end shrink-0"
           style={{ padding: "16px 20px 0" }}
@@ -582,7 +582,7 @@ export function AdminGerenteCreateModal({
           </div>
         </div>
 
-        {/* Footer — mesmo padrão dos outros modais */}
+        {/* Footer mesmo padrão dos outros modais */}
         <div
           className="flex flex-col shrink-0"
           style={{ padding: "8px 24px 20px", gap: 10 }}

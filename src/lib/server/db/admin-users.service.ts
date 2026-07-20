@@ -63,7 +63,7 @@ function parseUserRoles(raw: unknown): string[] {
   return ["seller"];
 }
 
-/** Super-admin da plataforma — não entra na lista de sellers */
+/** Super-admin da plataforma não entra na lista de sellers */
 function isPlatformSuperAdmin(rolesRaw: unknown, email?: string | null): boolean {
   const roles = parseUserRoles(rolesRaw);
   if (roles.includes("admin")) return true;

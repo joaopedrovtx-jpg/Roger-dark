@@ -303,8 +303,8 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
       {
         title: "Chave pública vs secreta",
         paragraphs: [
-          "pk_live_ / pk_test_ — Client ID (pode ir em configs; ainda não exponha em frontend público se possível).",
-          "sk_live_ / sk_test_ — Client Secret. Só no backend. Nunca no app do jogador, repositório ou prompt de IA.",
+          "pk_live_ / pk_test_ Client ID (pode ir em configs; ainda não exponha em frontend público se possível).",
+          "sk_live_ / sk_test_ Client Secret. Só no backend. Nunca no app do jogador, repositório ou prompt de IA.",
           "Também aceito: header X-Api-Key: sk_… ou Basic base64(pk:sk).",
         ],
       },
@@ -340,7 +340,7 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
       {
         title: "Códigos HTTP comuns",
         paragraphs: [
-          "400 — validação · 401 — não autenticado · 403 — sem permissão · 404 — não encontrado · 409 — conflito · 429 — rate limit · 5xx — falha interna.",
+          "400 validação · 401 não autenticado · 403 sem permissão · 404 não encontrado · 409 conflito · 429 rate limit · 5xx falha interna.",
         ],
       },
     ],
@@ -358,25 +358,25 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
       {
         title: "Status de pagamento",
         paragraphs: [
-          "pending — aguardando pagamento",
-          "paid — pago / aprovado",
-          "refused — recusado",
-          "expired — expirado",
-          "refunded — reembolsado",
-          "chargedback — chargeback / disputa",
+          "pending aguardando pagamento",
+          "paid pago / aprovado",
+          "refused recusado",
+          "expired expirado",
+          "refunded reembolsado",
+          "chargedback chargeback / disputa",
         ],
       },
       {
         title: "Status de transferência",
         paragraphs: [
-          "processing — em processamento",
-          "paid — concluída",
-          "refused — recusada",
+          "processing em processamento",
+          "paid concluída",
+          "refused recusada",
         ],
       },
       {
         title: "Método de pagamento",
-        paragraphs: ["pix — Pix (principal método suportado)."],
+        paragraphs: ["pix Pix (principal método suportado)."],
       },
     ],
   },
@@ -476,7 +476,7 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     title: "Introdução a Webhooks",
     subtitle: "Receba eventos no seu servidor em tempo real",
     lead: [
-      "Webhooks notificam seu backend quando pagamentos, transferências ou chargebacks mudam de status — sem necessidade de polling.",
+      "Webhooks notificam seu backend quando pagamentos, transferências ou chargebacks mudam de status sem necessidade de polling.",
     ],
     headings: [
       {

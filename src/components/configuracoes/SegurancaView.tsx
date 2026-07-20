@@ -628,7 +628,7 @@ export function SegurancaView() {
           </div>
         ) : null}
 
-        {/* Backup codes — só uma vez após ativar */}
+        {/* Backup codes só uma vez após ativar */}
         {phase === "codes" ? (
           <div className="flex flex-col" style={{ gap: 14 }}>
             <p

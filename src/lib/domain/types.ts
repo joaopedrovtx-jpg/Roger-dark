@@ -1,5 +1,5 @@
 /**
- * Domínio unificado DarkPay — seller + admin.
+ * Domínio unificado DarkPay seller + admin.
  * Fonte de verdade de tipos para API, Prisma (espelho) e UI.
  */
 

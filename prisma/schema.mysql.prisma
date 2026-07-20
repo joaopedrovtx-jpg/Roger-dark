@@ -369,6 +369,8 @@ model ApiCredential {
   publicKey     String    @unique @db.VarChar(128)
   secretKeyHash String    @db.VarChar(255)
   secretKeyHint String?   @db.VarChar(32)
+  /** Secret completa cifrada (AES) — dono pode revelar/copiar no painel */
+  secretKeyEnc  String?   @db.Text
   permissions   Json
   active        Boolean   @default(true)
   lastUsedAt    DateTime?

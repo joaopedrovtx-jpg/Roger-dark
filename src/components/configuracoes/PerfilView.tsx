@@ -5,7 +5,7 @@ import { Check, Upload } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { authedFetch } from "@/lib/client/session";
 
-/** Ícone Icons8 (copiar) — preto no botão branco */
+/** Ícone Icons8 (copiar) preto no botão branco */
 const COPY_ICON_FILTER = "brightness(0)";
 
 const MAX_MB = 2;
@@ -248,7 +248,7 @@ export function PerfilView() {
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
             }}
           >
-            {accountId || "—"}
+            {accountId || "-"}
           </code>
           <button
             type="button"

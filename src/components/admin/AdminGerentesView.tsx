@@ -150,7 +150,7 @@ export function AdminGerentesView() {
         onCreate={handleCreate}
         existingEmails={gerentes.map((g) => g.email)}
       />
-      {/* Indicadores — 4 cards; botão Novo gerente acima de Sellers sob gestão */}
+      {/* Indicadores 4 cards; botão Novo gerente acima de Sellers sob gestão */}
       <div
         className="grid w-full items-end"
         style={{

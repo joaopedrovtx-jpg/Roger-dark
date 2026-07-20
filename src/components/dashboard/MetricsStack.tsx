@@ -17,7 +17,7 @@ const ICON_TX = 28;
 const ICON_TICKET = 24;
 
 /**
- * Cards à direita do gráfico — empilhados e alinhados
+ * Cards à direita do gráfico empilhados e alinhados
  */
 export function MetricsStack({ data }: MetricsStackProps) {
   return (

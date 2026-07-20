@@ -20,7 +20,7 @@ export async function GET() {
   }
 }
 
-/** PUT /api/v1/branding — staff com personalização */
+/** PUT /api/v1/branding staff com personalização */
 export async function PUT(req: Request) {
   const gate = await requireStaffPermission(req, "personalizacao");
   if (isGuardFail(gate)) return gate.error;

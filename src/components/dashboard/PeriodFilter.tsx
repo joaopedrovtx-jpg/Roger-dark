@@ -72,7 +72,7 @@ export function PeriodFilter({ value, onChange }: PeriodFilterProps) {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        {/* Funil filled — cor on-green no botão */}
+        {/* Funil filled cor on-green no botão */}
         <svg
           width={14}
           height={14}

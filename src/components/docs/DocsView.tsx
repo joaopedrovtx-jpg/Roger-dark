@@ -12,7 +12,7 @@ import {
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { ActiveGreenAccent } from "@/components/layout/ActiveGreenAccent";
 
-/** Altura da barra verde (~3cm) — thumb arrastável do menu */
+/** Altura da barra verde (~3cm) thumb arrastável do menu */
 const THUMB_H_PX = 114; // ≈ 3cm @ 96dpi
 /** Mesma grossura da scrollbar nativa (globals.css ::-webkit-scrollbar) */
 const THUMB_W_PX = 8;
@@ -28,19 +28,19 @@ const METHOD_COLOR: Record<HttpMethod, string> = {
 };
 
 /**
- * Spec visual (auditoria da referência Vizzion docs, ~1440–1600px)
+ * Spec visual (auditoria da referência Vizzion docs, ~1440 1600px)
  * ─────────────────────────────────────────────────────────────
  * Header h: 64px · padding X: 28px · border-bottom #1a1e26
  * Search: h 40 · max-w ~360 · radius 12 · bg #14181f · border #1f2430
- * Dashboard btn: h 36–38 · radius full · padding 0 18 · bg #00e676
+ * Dashboard btn: h 36 38 · radius full · padding 0 18 · bg #00e676
  * Theme: 36×36 circle
  *
  * Sidebar w: 248px · pad 24/20 · group title 14/600 #fff · gap groups 28
  * Nav item: h 34 · pad 0 12 · radius 8 · font 14
  *
  * Content pad: 32 40 48 32 · max-w ~680 (center col)
- * H1: 32–34/700 #fff · tracking -0.03em · mt 8
- * Subtitle: 15–16/400 #8b93a3 · mt 10
+ * H1: 32 34/700 #fff · tracking -0.03em · mt 8
+ * Subtitle: 15 16/400 #8b93a3 · mt 10
  * Body: 15/400 #9aa3b2 · lh 1.7 · gap 16 · mt 24
  * H2: 22/650 #fff · mt 40 · tracking -0.02em
  * URL chip: h ~44 · radius 10 · bg #161a21 · pad 0 16 · mono 13.5
@@ -424,7 +424,7 @@ export function DocsView() {
         </div>
       </header>
 
-      {/* ═══ BODY: sidebar | content — sem coluna “Nesta página” ═══ */}
+      {/* ═══ BODY: sidebar | content sem coluna “Nesta página” ═══ */}
       <div
         className="flex-1 grid min-h-0 overflow-hidden"
         style={{
@@ -455,7 +455,7 @@ export function DocsView() {
               overflowY: "auto",
               overflowX: "hidden",
               padding: "24px 18px 40px 20px",
-              // sem scrollbar nativa (evita trilho) — só o thumb custom
+              // sem scrollbar nativa (evita trilho) só o thumb custom
               scrollbarWidth: "none",
               msOverflowStyle: "none",
             }}
@@ -564,8 +564,8 @@ export function DocsView() {
             ) : null}
           </div>
 
-          {/* Thumb verde ~3cm — só rola o MENU LATERAL */}
-          {/* Só o thumb — sem trilho/fundo verde por trás */}
+          {/* Thumb verde ~3cm só rola o MENU LATERAL */}
+          {/* Só o thumb sem trilho/fundo verde por trás */}
           <div
             data-thumb="1"
             role="scrollbar"
@@ -679,7 +679,7 @@ export function DocsView() {
               ) : null}
             </div>
 
-            {/* Subtitle — cinza um pouco mais grosso */}
+            {/* Subtitle cinza um pouco mais grosso */}
             <p
               style={{
                 margin: "10px 0 0",
@@ -692,7 +692,7 @@ export function DocsView() {
               {section.subtitle}
             </p>
 
-            {/* Lead body — cinza mais grosso */}
+            {/* Lead body cinza mais grosso */}
             <div
               className="flex flex-col"
               style={{ gap: 16, marginTop: 24 }}

@@ -111,10 +111,10 @@ function configFromPrivateKey(
 
 /**
  * Server: prioridade
- * 1) Credencial PodPay salva no DB (id/code PODPAY) — NUNCA usa chave da Velana
+ * 1) Credencial PodPay salva no DB (id/code PODPAY) NUNCA usa chave da Velana
  * 2) PODPAY_API_KEY no .env
  *
- * Nota: isPrimary sozinha NÃO define PodPay — Velana também pode ser primária
+ * Nota: isPrimary sozinha NÃO define PodPay Velana também pode ser primária
  * com chave sk_… e não deve ser enviada à API PodPay.
  */
 export async function resolvePodPayConfigServer(): Promise<PodPayConfig | null> {

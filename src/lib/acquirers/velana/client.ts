@@ -157,7 +157,7 @@ export const velanaClient = {
     return resolveVelanaConfig();
   },
 
-  /** GET /balance/available — valida secret key */
+  /** GET /balance/available valida secret key */
   getAvailableBalance(config?: VelanaConfig): Promise<VelanaBalance> {
     return velanaFetch<VelanaBalance>("/balance/available", { config });
   },

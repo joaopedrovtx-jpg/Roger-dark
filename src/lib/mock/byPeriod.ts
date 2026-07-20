@@ -35,7 +35,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Hoje local (meia-noite) menos N dias — série real “últimos X dias” */
+/** Hoje local (meia-noite) menos N dias série real “últimos X dias” */
 function calendarDaysAgo(daysOffset = 0): Date {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
@@ -69,7 +69,7 @@ const HOUR_PROFILE = [
 ];
 
 /**
- * Série por hora (24 pontos) — Hoje / Ontem
+ * Série por hora (24 pontos) Hoje / Ontem
  * date: YYYY-MM-DDTHH:00
  */
 function buildHourlyHistory(key: "today" | "yesterday"): RevenuePoint[] {
@@ -98,7 +98,7 @@ function buildHourlyHistory(key: "today" | "yesterday"): RevenuePoint[] {
   return history;
 }
 
-/** Série por dia — exatamente N dias corridos (7 = últimos 7 dias, etc.) */
+/** Série por dia exatamente N dias corridos (7 = últimos 7 dias, etc.) */
 function buildDailyHistory(key: PeriodKey): RevenuePoint[] {
   const days = PERIOD_DAYS[key];
   // 7d → 7 pontos; 15d → 15; 30d → 28 (4 semanas); 60d → 60 (6 meses)

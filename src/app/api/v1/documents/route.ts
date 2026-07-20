@@ -1,6 +1,6 @@
 /**
- * GET  /api/v1/documents — lista documentos do seller logado
- * POST /api/v1/documents — envia pacote de documentos (upsert por kind)
+ * GET  /api/v1/documents lista documentos do seller logado
+ * POST /api/v1/documents envia pacote de documentos (upsert por kind)
  */
 import { NextResponse } from "next/server";
 import { requireAuth, isGuardFail } from "@/lib/server/guards";

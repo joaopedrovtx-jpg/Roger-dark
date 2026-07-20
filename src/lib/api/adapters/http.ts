@@ -1,5 +1,5 @@
 /**
- * Adapter HTTP — chama o BFF Next.js (/api/v1/*).
+ * Adapter HTTP chama o BFF Next.js (/api/v1/*).
  * Ative com NEXT_PUBLIC_DARKPAY_DATA_MODE=http
  *
  * Autenticação: cookie httpOnly (credentials: "include").

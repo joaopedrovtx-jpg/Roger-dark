@@ -12,7 +12,7 @@ interface AdminMetricCardProps {
 }
 
 /**
- * Card de indicador — mesmo padrão visual do KpiCard da dashboard
+ * Card de indicador mesmo padrão visual do KpiCard da dashboard
  * (ícone 48px, label 12px, valor 18px bold, surface-card).
  */
 export function AdminMetricCard({

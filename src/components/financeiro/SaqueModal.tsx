@@ -18,7 +18,7 @@ interface SaqueModalProps {
   onSuccess?: () => void;
 }
 
-/** Cantos arredondadinhos — padrão da plataforma (não pill) */
+/** Cantos arredondadinhos padrão da plataforma (não pill) */
 const radiusSoft = "var(--radius-md)" as const;
 
 /** Label + input no mesmo shell (layout anterior) */
@@ -166,7 +166,7 @@ export function SaqueModal({
           className="flex flex-col"
           style={{ padding: "8px 18px 18px", gap: 14 }}
         >
-          {/* Saldo — só o valor */}
+          {/* Saldo só o valor */}
           <div className="text-center" style={{ padding: "14px 0 6px" }}>
             <div
               className="tabular font-bold"
@@ -199,7 +199,7 @@ export function SaqueModal({
             </p>
           </div>
 
-          {/* Valor do saque — cantos arredondadinhos */}
+          {/* Valor do saque cantos arredondadinhos */}
           <label style={fieldShell}>
             <span style={fieldLabel}>
               Valor do saque <span style={{ color: "#ef4444" }}>*</span>
@@ -215,7 +215,7 @@ export function SaqueModal({
             />
           </label>
 
-          {/* Box taxa / você recebe — mesma cor sólida do campo Chave PIX */}
+          {/* Box taxa / você recebe mesma cor sólida do campo Chave PIX */}
           <div
             style={{
               padding: "12px 14px",
@@ -259,7 +259,7 @@ export function SaqueModal({
             </p>
           </div>
 
-          {/* Chave PIX — cantos arredondadinhos */}
+          {/* Chave PIX cantos arredondadinhos */}
           <label style={fieldShell}>
             <span style={fieldLabel}>
               Chave PIX <span style={{ color: "#ef4444" }}>*</span>
@@ -296,7 +296,7 @@ export function SaqueModal({
             </p>
           ) : null}
 
-          {/* Fechar + Solicitar — mesmo padrão dos outros botões da plataforma */}
+          {/* Fechar + Solicitar mesmo padrão dos outros botões da plataforma */}
           <div
             className="flex items-center justify-end gap-2.5"
             style={{ marginTop: 4 }}

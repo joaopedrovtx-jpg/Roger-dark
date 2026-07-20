@@ -378,6 +378,8 @@ model ApiCredential {
   publicKey     String    @unique
   secretKeyHash String
   secretKeyHint String?
+  /** Secret completa cifrada (AES) — dono pode revelar/copiar no painel */
+  secretKeyEnc  String?
   permissions   Json
   active        Boolean   @default(true)
   lastUsedAt    DateTime?

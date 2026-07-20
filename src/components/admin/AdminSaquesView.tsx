@@ -54,7 +54,7 @@ function statusTone(
 }
 
 /**
- * Valor + fundo do ícone Pix — mesmo padrão Financeiro / Transações
+ * Valor + fundo do ícone Pix mesmo padrão Financeiro / Transações
  * pendente → amarelo · recusado → vermelho · aprovado → branco + ícone preto
  */
 function toneForStatus(s: AdminSaqueStatus): {
@@ -108,7 +108,7 @@ export function AdminSaquesView() {
       if (!res.ok) {
         throw new Error(json.error || `Falha ao carregar saques (${res.status})`);
       }
-      // Banco real mesmo se lista vazia — NÃO cair no mock de demo
+      // Banco real mesmo se lista vazia NÃO cair no mock de demo
       setSaques(json.items ?? []);
       setSource(
         json.source === "mysql" || json.source === "database"
@@ -195,10 +195,10 @@ export function AdminSaquesView() {
         </p>
       ) : source === "mock" ? (
         <p style={{ margin: 0, fontSize: 12, color: "#fbbf24" }}>
-          Exibindo dados mock — faça login como admin e confira o banco
+          Exibindo dados mock. Faça login como admin e confira o banco
         </p>
       ) : null}
-      {/* Linha 1 — 3 indicadores */}
+      {/* Linha 1 3 indicadores */}
       <div
         className="grid w-full"
         style={{
@@ -223,7 +223,7 @@ export function AdminSaquesView() {
         />
       </div>
 
-      {/* Linha 2 — 3 indicadores */}
+      {/* Linha 2 3 indicadores */}
       <div
         className="grid w-full"
         style={{

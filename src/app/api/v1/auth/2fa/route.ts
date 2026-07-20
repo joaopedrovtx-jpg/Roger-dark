@@ -9,7 +9,7 @@ import {
   verifyTotp,
 } from "@/lib/server/totp";
 
-/** GET /api/v1/auth/2fa — status + setup secret se não ativo */
+/** GET /api/v1/auth/2fa status + setup secret se não ativo */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
@@ -98,7 +98,7 @@ export async function POST(req: Request) {
         backupCodes: hashed,
       },
     });
-    // Devolve plaintext UMA vez — depois só hashes no DB
+    // Devolve plaintext UMA vez depois só hashes no DB
     return NextResponse.json({
       enabled: true,
       backupCodes: codes,

@@ -14,11 +14,14 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
+  Eye,
+  EyeOff,
   Loader2,
   X,
 } from "lucide-react";
 
-/** Ações da credencial — mesmo tamanho (um pouco maior) */
+/** Ações da credencial mesmo tamanho (um pouco maior) */
 const ACTION_ICON = 18;
 const ACTION_BTN = 36;
 /** Filtro PNG preto → vermelho #ef4444 */
@@ -28,7 +31,7 @@ const FILTER_ICON_RED =
 const FILTER_ICON_WHITE = "brightness(0) saturate(100%) invert(1)";
 
 const STORAGE_IPS = "darkpay.api.authorized_ips.v1";
-/** Secrets revelados só nesta sessão (create/rotate) — nunca persistidos */
+/** Secrets revelados só nesta sessão (create/rotate) nunca persistidos */
 const SESSION_SECRETS = "darkpay.api.session_secrets.v1";
 
 export type ApiPermission =
@@ -102,30 +105,30 @@ function clearSessionSecret(id: string) {
 }
 
 /**
- * Exibe a secret para o usuário.
- * IMPORTANTE: nunca reconstruir sk_live_ + hint — isso gerava uma chave
- * “pequenininha” (ex.: sk_live_…a1b2) que o user copiava e falhava na API.
+ * Resolve a secret real para o painel.
+ * IMPORTANTE: nunca reconstruir sk_live_ + hint (gerava chave falsa curta).
  */
-function maskSecretDisplay(c: ApiCredential): {
-  value: string;
-  canCopy: boolean;
-  isFull: boolean;
-} {
-  if (c.secretKey && c.secretKey.startsWith("sk_") && c.secretKey.length >= 40) {
-    return { value: c.secretKey, canCopy: true, isFull: true };
+function resolveSecretFull(c: ApiCredential): string | null {
+  if (
+    c.secretKey &&
+    c.secretKey.startsWith("sk_") &&
+    !c.secretKey.includes("…") &&
+    !c.secretKey.includes("•") &&
+    c.secretKey.length >= 20
+  ) {
+    return c.secretKey;
   }
-  if (c.secretKeyHint) {
-    return {
-      value: `sk_••••••••${c.secretKeyHint.replace(/^•+…?/, "…")}`,
-      canCopy: false,
-      isFull: false,
-    };
+  return null;
+}
+
+function maskSecretForDisplay(full: string | null, hint?: string | null): string {
+  if (full && full.length > 12) {
+    return `${full.slice(0, 10)}${"•".repeat(12)}${full.slice(-4)}`;
   }
-  return {
-    value: "sk_•••••••• (só aparece completa ao criar ou rotacionar)",
-    canCopy: false,
-    isFull: false,
-  };
+  if (hint) {
+    return `sk_••••••••${hint.replace(/^•+…?/, "…")}`;
+  }
+  return "sk_••••••••••••";
 }
 
 function isCredentialExpired(expiresAt: string | null): boolean {
@@ -151,7 +154,7 @@ function formatDateTime(iso: string): string {
   });
 }
 
-/** Botões primários — mesmo raio das outras páginas (ex.: Novo gerente) */
+/** Botões primários mesmo raio das outras páginas (ex.: Novo gerente) */
 const btnPrimary: CSSProperties = {
   height: 42,
   padding: "0 16px",
@@ -202,7 +205,7 @@ const inputStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
-/** Overlay + sombra — mesmo padrão dos modais do admin */
+/** Overlay + sombra mesmo padrão dos modais do admin */
 const overlayBackdrop: CSSProperties = {
   background: "rgba(0, 0, 0, 0.62)",
 };
@@ -215,25 +218,53 @@ const modalSurface: CSSProperties = {
   zIndex: 1,
 };
 
-/** Cards/painéis — radius-card; botões/chips — radius-md (igual Nova credencial) */
+/** Cards/painéis radius-card; botões/chips radius-md (igual Nova credencial) */
 const radiusSoft = "var(--radius-card)" as const;
 const radiusBtn = "var(--radius-md)" as const;
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  const v = (text || "").trim();
+  if (!v) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(v);
+      return true;
+    }
+  } catch {
+    /* fallback abaixo */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = v;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1400);
-        } catch {
-          /* ignore */
-        }
+      onClick={async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const ok = await copyTextToClipboard(value);
+        if (!ok) return;
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1400);
       }}
       aria-label="Copiar"
+      title={value ? "Copiar" : "Nada para copiar"}
+      disabled={!value?.trim()}
       className="flex items-center justify-center shrink-0 transition-opacity hover:opacity-90"
       style={{
         width: 36,
@@ -241,9 +272,10 @@ function CopyButton({ value }: { value: string }) {
         borderRadius: radiusBtn,
         border: "none",
         /* fundo branco + ícone escuro (padrão da plataforma) */
-        background: copied ? "#22c55e" : "#ffffff",
-        color: copied ? "#fff" : "#0a0f0c",
-        cursor: "pointer",
+        background: "#ffffff",
+        color: "#0a0f0c",
+        cursor: value?.trim() ? "pointer" : "not-allowed",
+        opacity: !value?.trim() ? 0.45 : copied ? 0.85 : 1,
       }}
     >
       {copied ? (
@@ -270,19 +302,73 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
+function IconActionButton({
+  onClick,
+  ariaLabel,
+  disabled,
+  children,
+}: {
+  onClick?: () => void;
+  ariaLabel: string;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className="flex items-center justify-center shrink-0 transition-opacity hover:opacity-90"
+      style={{
+        width: 36,
+        height: 36,
+        borderRadius: radiusBtn,
+        border: "none",
+        background: "#ffffff",
+        color: "#0a0f0c",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SecretRow({
   label,
   value,
   canCopy = true,
-  highlight = false,
-  helper,
+  /** Secret completa — copiar sempre usa este valor (mesmo com máscara na tela) */
+  fullSecret = null,
+  secretMode = false,
 }: {
   label: string;
   value: string;
   canCopy?: boolean;
-  highlight?: boolean;
-  helper?: string;
+  fullSecret?: string | null;
+  /** true = linha de Client Secret (olho + copiar a secret inteira) */
+  secretMode?: boolean;
 }) {
+  const [visible, setVisible] = useState(false);
+  const hasFull = Boolean(
+    fullSecret &&
+      fullSecret.startsWith("sk_") &&
+      fullSecret.length >= 20 &&
+      !fullSecret.includes("…") &&
+      !fullSecret.includes("•")
+  );
+  // Na tela: mascarado por padrão; com olho abre a completa
+  const display =
+    secretMode && hasFull
+      ? visible
+        ? fullSecret!
+        : maskSecretForDisplay(fullSecret, null)
+      : value;
+  // Copiar SEMPRE a secret completa sk_… (nunca a máscara)
+  const copyValue = secretMode ? (hasFull ? fullSecret! : "") : value;
+
   return (
     <div className="flex flex-col gap-1.5">
       <span
@@ -299,10 +385,8 @@ function SecretRow({
         style={{
           padding: "12px 14px",
           borderRadius: radiusSoft,
-          background: highlight ? "rgba(74, 222, 128, 0.08)" : "var(--bg-card)",
-          border: highlight
-            ? "1px solid rgba(74, 222, 128, 0.45)"
-            : "1px solid var(--border-card)",
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-card)",
         }}
       >
         <code
@@ -312,37 +396,28 @@ function SecretRow({
             color: "var(--text-1)",
             wordBreak: "break-all",
             lineHeight: 1.4,
+            letterSpacing:
+              secretMode && !visible && hasFull ? "0.02em" : undefined,
           }}
         >
-          {value}
+          {display}
         </code>
-        {canCopy ? (
-          <CopyButton value={value} />
-        ) : (
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--text-3)",
-              whiteSpace: "nowrap",
-              fontWeight: 600,
-            }}
+        {/* Olho: mostrar/ocultar secret completa */}
+        {secretMode && hasFull ? (
+          <IconActionButton
+            ariaLabel={visible ? "Ocultar secret" : "Visualizar secret"}
+            onClick={() => setVisible((v) => !v)}
           >
-            sem cópia
-          </span>
-        )}
+            {visible ? (
+              <EyeOff size={16} strokeWidth={2.2} />
+            ) : (
+              <Eye size={16} strokeWidth={2.2} />
+            )}
+          </IconActionButton>
+        ) : null}
+        {/* Botão branco de copiar — SEMPRE na secret (criar/gerar/reset) e na pública */}
+        {secretMode || canCopy ? <CopyButton value={copyValue} /> : null}
       </div>
-      {helper ? (
-        <p
-          style={{
-            margin: 0,
-            fontSize: 12,
-            color: highlight ? "#4ade80" : "var(--text-3)",
-            lineHeight: 1.4,
-          }}
-        >
-          {helper}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -450,14 +525,13 @@ export function ApiIntegracaoView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [ipOpen, setIpOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  /** Id da credencial em rotação — ícone só gira enquanto true */
+  /** Id da credencial em rotação ícone só gira enquanto true */
   const [rotatingId, setRotatingId] = useState<string | null>(null);
 
   const [formName, setFormName] = useState("");
   const [formPerms, setFormPerms] = useState<ApiPermission[]>([]);
   const [formExpires, setFormExpires] = useState("");
   const [formManualSaque, setFormManualSaque] = useState(false);
-  const [formEnv, setFormEnv] = useState<"live" | "test">("live");
   const [formIp, setFormIp] = useState("");
 
   const mergeSecrets = useCallback((list: ApiCredential[]): ApiCredential[] => {
@@ -509,7 +583,6 @@ export function ApiIntegracaoView() {
     setFormPerms(["transacoes"]);
     setFormExpires("");
     setFormManualSaque(false);
-    setFormEnv("live");
     setCreateOpen(true);
   }
 
@@ -519,7 +592,6 @@ export function ApiIntegracaoView() {
     setFormPerms([...c.permissions]);
     setFormExpires(c.expiresAt ? c.expiresAt.slice(0, 10) : "");
     setFormManualSaque(c.requireManualSaqueApproval);
-    setFormEnv(c.env === "test" ? "test" : "live");
     setCreateOpen(true);
   }
 
@@ -564,7 +636,8 @@ export function ApiIntegracaoView() {
             permissions: formPerms.length ? formPerms : ["transacoes"],
             expiresAt,
             requireManualSaqueApproval: formManualSaque,
-            env: formEnv,
+            // Credenciais reais da conta (sempre live / funcionais)
+            env: "live",
           }),
         });
         const json = (await res.json()) as ApiCredential & {
@@ -573,11 +646,12 @@ export function ApiIntegracaoView() {
         };
         if (!res.ok) throw new Error(json.error || "Falha ao criar");
         if (json.secretKey) saveSessionSecret(json.id, json.secretKey);
-        setExpandedId(json.id);
-        setFlash(
-          json.warning ||
-            "Credencial criada. Copie a chave privada agora — ela não aparece de novo."
+        // Já entra na lista com secret + botão copiar
+        setCreds((prev) =>
+          mergeSecrets([{ ...json, secretKey: json.secretKey || null }, ...prev.filter((c) => c.id !== json.id)])
         );
+        setExpandedId(json.id);
+        setFlash(json.warning || "Credencial criada.");
       }
       setCreateOpen(false);
       await reload();
@@ -614,10 +688,22 @@ export function ApiIntegracaoView() {
       };
       if (!res.ok) throw new Error(json.error || "Falha ao rotacionar");
       if (json.secretKey) saveSessionSecret(json.id, json.secretKey);
+      // Atualiza na hora (secret + botão copiar com sk_ completa)
+      setCreds((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                ...json,
+                secretKey: json.secretKey || c.secretKey,
+              }
+            : c
+        )
+      );
       setExpandedId(id);
       setFlash(
         json.warning ||
-          "Novas chaves geradas. Copie a chave privada agora."
+          "Novas chaves geradas. Use o botão copiar na secret."
       );
       await reload();
     } catch (err) {
@@ -665,78 +751,14 @@ export function ApiIntegracaoView() {
     persistIps(ips.filter((i) => i.id !== id));
   }
 
-  const exampleBase =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/api/v1`
-      : "https://seu-dominio.com/api/v1";
-
   return (
     <div className="flex flex-col" style={{ gap: 18 }}>
       {error ? (
         <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{error}</p>
       ) : null}
       {flash ? (
-        <p style={{ margin: 0, fontSize: 13, color: "#4ade80" }}>{flash}</p>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>{flash}</p>
       ) : null}
-
-      <div
-        className="surface-card"
-        style={{
-          padding: "14px 16px",
-          borderRadius: radiusSoft,
-          border: "1px solid var(--border-card)",
-        }}
-      >
-        <p
-          style={{
-            margin: 0,
-            fontSize: 13,
-            color: "var(--text-2)",
-            lineHeight: 1.5,
-          }}
-        >
-          Use as chaves{" "}
-          <code style={{ color: "var(--text-1)" }}>pk_live_…</code> /{" "}
-          <code style={{ color: "var(--text-1)" }}>sk_live_…</code> no backend
-          do seu cassino ou checkout. O DarkPay intermedia o PIX com a
-          adquirente — você{" "}
-          <strong style={{ color: "var(--text-1)" }}>não</strong> usa chave da
-          adquirente no seu sistema.
-        </p>
-        <pre
-          className="tabular"
-          style={{
-            margin: "12px 0 0",
-            padding: "12px 14px",
-            borderRadius: 10,
-            background: "var(--bg-app)",
-            border: "1px solid var(--border-card)",
-            fontSize: 12,
-            color: "var(--text-1)",
-            overflowX: "auto",
-            lineHeight: 1.45,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >{`curl -X POST ${exampleBase}/payments \\
-  -H "Authorization: Bearer sk_live_SUA_CHAVE" \\
-  -H "Content-Type: application/json" \\
-  -d '{"amount":97,"description":"Pedido #1","customerName":"Cliente","customerDocument":"52998224725"}'`}</pre>
-        <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--text-3)" }}>
-          Docs completas em{" "}
-          <Link href="/docs" style={{ color: "var(--text-1)", fontWeight: 600 }}>
-            /docs
-          </Link>
-          . Teste visual em{" "}
-          <Link
-            href="/integracoes/pagamentos"
-            style={{ color: "var(--text-1)", fontWeight: 600 }}
-          >
-            Pagamentos PIX
-          </Link>
-          .
-        </p>
-      </div>
 
       <div
         className="grid w-full api-creds-layout"
@@ -746,7 +768,7 @@ export function ApiIntegracaoView() {
           alignItems: "start",
         }}
       >
-        {/* —— Credenciais de API —— */}
+        {/* -- Credenciais de API -- */}
         <section
           className="surface-card flex flex-col min-w-0"
           style={{
@@ -765,32 +787,54 @@ export function ApiIntegracaoView() {
                   color: "var(--text-1)",
                 }}
               >
-                Credenciais de API
+                API de integração
               </h1>
               <p
                 style={{
                   margin: "8px 0 0",
                   fontSize: 13,
-                  lineHeight: 1.45,
+                  lineHeight: 1.5,
                   color: "var(--text-2)",
                 }}
               >
-                Gere chaves reais da sua conta (banco) para integrar com a
+                Gerencie suas credenciais de API para integrar com a
                 plataforma.
               </p>
-              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--text-3)" }}>
-                A chave privada só aparece ao criar ou rotacionar — copie e
-                guarde no servidor.
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  color: "var(--text-3)",
+                }}
+              >
+                Leia a documentação para mais detalhes sobre como usar as
+                credenciais de API.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={openCreate}
-              className="inline-flex items-center shrink-0 transition-opacity hover:opacity-90"
-              style={btnPrimary}
-            >
-              Nova credencial
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <Link
+                href="/docs"
+                className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-90"
+                style={{
+                  ...btnGhost,
+                  textDecoration: "none",
+                  height: 42,
+                  boxSizing: "border-box",
+                }}
+              >
+                Documentação
+                <ExternalLink size={14} strokeWidth={2.25} aria-hidden />
+              </Link>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="inline-flex items-center transition-opacity hover:opacity-90"
+                style={btnPrimary}
+              >
+                Nova credencial
+              </button>
+            </div>
           </div>
 
           {!hydrated ? null : creds.length === 0 ? (
@@ -983,29 +1027,24 @@ export function ApiIntegracaoView() {
                         }}
                       >
                         <SecretRow
-                          label="Chave Pública (pk_…)"
+                          label="Chave Pública (Client ID)"
                           value={c.publicKey}
                           canCopy
                         />
                         {(() => {
-                          const sec = maskSecretDisplay(c);
+                          const full = resolveSecretFull(c);
                           const expired = isCredentialExpired(c.expiresAt);
                           return (
                             <>
                               <SecretRow
-                                label={
-                                  sec.isFull
-                                    ? "Chave Privada (sk_…) — copie agora"
-                                    : "Chave Privada (mascarada)"
-                                }
-                                value={sec.value}
-                                canCopy={sec.canCopy}
-                                highlight={sec.isFull}
-                                helper={
-                                  sec.isFull
-                                    ? "Esta é a secret completa. Guarde em local seguro — ao recarregar a página ela some daqui."
-                                    : "A secret completa não fica salva no painel. Use Rotacionar (ícone de recarregar) se perdeu a chave."
-                                }
+                                label="Chave Privada (Client Secret)"
+                                value={maskSecretForDisplay(
+                                  full,
+                                  c.secretKeyHint
+                                )}
+                                secretMode
+                                fullSecret={full}
+                                canCopy
                               />
                               {expired ? (
                                 <p
@@ -1052,9 +1091,12 @@ export function ApiIntegracaoView() {
                                     background: expired
                                       ? "#ef4444"
                                       : never
-                                        ? "#22c55e"
+                                        ? "#ffffff"
                                         : "#eab308",
-                                    color: never || expired ? "#ffffff" : "#0a0f0c",
+                                    color:
+                                      never || !expired
+                                        ? "#0a0f0c"
+                                        : "#ffffff",
                                   }}
                                 >
                                   {expired
@@ -1139,7 +1181,7 @@ export function ApiIntegracaoView() {
           )}
         </section>
 
-        {/* —— IPs Autorizados —— */}
+        {/* -- IPs Autorizados -- */}
         <section
           className="surface-card flex flex-col min-w-0"
           style={{
@@ -1356,52 +1398,6 @@ export function ApiIntegracaoView() {
                 autoFocus
               />
             </label>
-
-            {!editId ? (
-              <div>
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: "var(--text-1)",
-                    fontWeight: 600,
-                  }}
-                >
-                  Ambiente das chaves
-                </span>
-                <div
-                  className="flex gap-2"
-                  style={{ marginTop: 10 }}
-                >
-                  {(
-                    [
-                      { id: "live" as const, label: "Produção (pk_live_ / sk_live_)" },
-                      { id: "test" as const, label: "Teste (pk_test_ / sk_test_)" },
-                    ] as const
-                  ).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setFormEnv(opt.id)}
-                      style={{
-                        ...btnGhost,
-                        height: 36,
-                        fontSize: 12,
-                        background:
-                          formEnv === opt.id ? "#ffffff" : "var(--bg-elevated)",
-                        color:
-                          formEnv === opt.id ? "#0a0f0c" : "var(--text-1)",
-                        border:
-                          formEnv === opt.id
-                            ? "none"
-                            : "1px solid var(--border-muted)",
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
 
             <div>
               <span

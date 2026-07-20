@@ -11,7 +11,7 @@ export default function TaxasPage() {
           gap: 16,
         }}
       >
-        {/* Card Pix D+0 — taxa */}
+        {/* Card Pix D+0 taxa */}
         <article
           className="surface-card relative flex flex-col"
           style={{

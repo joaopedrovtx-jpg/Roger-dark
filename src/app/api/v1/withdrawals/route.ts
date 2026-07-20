@@ -3,7 +3,12 @@ import {
   createWithdrawal,
   listWithdrawals,
 } from "@/lib/services/withdrawal.service";
-import { isGuardFail, requireAuth } from "@/lib/server/guards";
+import {
+  isGuardFail,
+  requireAuth,
+  resolveSellerScope,
+  viewOnlyForbidden,
+} from "@/lib/server/guards";
 import { getSellerFinance } from "@/lib/server/db/seller-finance.service";
 import { securityHeaders } from "@/lib/server/security";
 
@@ -11,10 +16,13 @@ export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
 
+  const scope = await resolveSellerScope(req, gate);
+  if (isGuardFail(scope)) return scope.error;
+
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") ?? undefined;
-    const sellerId = gate.user.id;
+    const sellerId = scope.sellerId;
 
     const fin = await getSellerFinance(sellerId);
     if (fin) {
@@ -52,6 +60,13 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
+
+  const scope = await resolveSellerScope(req, gate);
+  if (isGuardFail(scope)) return scope.error;
+  // Prova social: staff não saca na conta do seller
+  if (scope.viewOnly) {
+    return viewOnlyForbidden().error;
+  }
 
   try {
     const body = (await req.json()) as {

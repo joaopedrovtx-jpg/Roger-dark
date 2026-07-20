@@ -16,6 +16,10 @@ import type {
   Session,
 } from "@/lib/domain/types";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
+import {
+  BrandLoadingScreen,
+  waitBrandLoadingMin,
+} from "@/components/layout/BrandLoadingScreen";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -58,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    const startedAt = Date.now();
     try {
       const me = await authJson<AuthUser>("/me");
       setUser(me);
@@ -65,6 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       clearClientToken();
     } finally {
+      // Logo pulsando no mínimo 2s ao carregar a página / sessão
+      await waitBrandLoadingMin(startedAt);
       setLoading(false);
     }
   }, []);
@@ -74,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (input: LoginInput) => {
-    // Sessão só via cookie httpOnly — sem token no JS
+    // Sessão só via cookie httpOnly sem token no JS
     clearClientToken();
     const data = await authJson<{ user: AuthUser; expiresAt?: string }>(
       "/login",
@@ -140,7 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={value}>
+      {children}
+      {/* Bootstrap da sessão / entrada no sistema: logo pulsando */}
+      {loading ? <BrandLoadingScreen label="Carregando…" /> : null}
+    </AuthContext.Provider>
   );
 }
 

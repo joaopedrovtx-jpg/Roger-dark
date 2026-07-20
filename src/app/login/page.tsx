@@ -3,7 +3,7 @@ import { AuthShell } from "@/components/auth/AuthShell";
 import { LoginForm } from "@/components/auth/LoginForm";
 
 export const metadata: Metadata = {
-  title: "Login — Dark Pay",
+  title: "Login Dark Pay",
   description: "Acesse sua conta Dark Pay",
 };
 

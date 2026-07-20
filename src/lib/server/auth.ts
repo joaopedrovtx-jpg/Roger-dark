@@ -1,5 +1,5 @@
 /**
- * Auth REAL — MySQL (Prisma) + cookie httpOnly (+ Bearer opcional).
+ * Auth REAL MySQL (Prisma) + cookie httpOnly (+ Bearer opcional).
  */
 
 import { cookies } from "next/headers";
@@ -105,7 +105,7 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
           ? (mgr.permissions as string[])
           : [];
         next = { ...next, permissions: perms };
-        // Gerente inativo perde acesso staff (sem role na sessão — checado no guard)
+        // Gerente inativo perde acesso staff (sem role na sessão checado no guard)
         if (mgr.status === "inativo") {
           next = {
             ...next,

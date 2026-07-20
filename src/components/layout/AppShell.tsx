@@ -4,6 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { UserMenu } from "./UserMenu";
 import { AccountPendingBanner } from "./AccountPendingBanner";
 import { AccountAccessGate } from "./AccountAccessGate";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 import { SaleNotificationsProvider } from "@/components/notifications/SaleNotificationsProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -25,6 +26,7 @@ export function AppShell({
 
   const body = (
     <>
+      <ImpersonationBanner />
       <AccountPendingBanner />
       <div className="flex items-center justify-between gap-4 mb-4">
         {title ? (

@@ -155,7 +155,7 @@ export async function createPixCharge(
 
   const { isMockAllowed } = await import("@/lib/server/mock-check");
   if (isMockAllowed()) {
-    console.warn("[payments] ALLOW_MOCK_DATA=1 — cobrança MOCK, não real");
+    console.warn("[payments] ALLOW_MOCK_DATA=1 cobrança MOCK, não real");
     return {
       ...(await createPixChargeMock(input)),
       provider: "mock",

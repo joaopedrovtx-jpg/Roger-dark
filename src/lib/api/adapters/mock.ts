@@ -1,5 +1,5 @@
 /**
- * Adapter mock unificado — memory-store + mocks.
+ * Adapter mock unificado memory-store + mocks.
  * Seller e admin compartilham saques, cobranças e saldos.
  */
 
@@ -294,7 +294,7 @@ export const mockAdapter: DarkPayApi = {
     if (typeof window !== "undefined") return loadBranding();
     return {
       logoUrl: "/logo-darkpay-header.png",
-      faviconUrl: "/logo-darkpay-clean.jpg",
+      faviconUrl: "/Fiveicon.png",
       authImageUrl: "/banner-darkpay.jpg",
       banners: [
         {

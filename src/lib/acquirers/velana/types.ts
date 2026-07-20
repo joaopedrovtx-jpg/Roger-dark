@@ -1,5 +1,5 @@
 /**
- * Tipos Velana API v1 — espelho da documentação oficial
+ * Tipos Velana API v1 espelho da documentação oficial
  * https://velana.readme.io/reference/introducao
  * https://velana.readme.io/reference/criar-transacao
  *
@@ -38,7 +38,7 @@ export type VelanaTransferStatus =
   | "canceled"
   | string;
 
-/** customer.document — objeto document */
+/** customer.document objeto document */
 export interface VelanaDocument {
   number: string;
   type: "cpf" | "cnpj";
@@ -75,7 +75,7 @@ export interface VelanaAddress {
 }
 
 /**
- * item — required: title, unitPrice, quantity, tangible
+ * item required: title, unitPrice, quantity, tangible
  * unitPrice em centavos
  */
 export interface VelanaItem {

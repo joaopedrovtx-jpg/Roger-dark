@@ -1,5 +1,5 @@
 /**
- * Tipos PodPay API v1 — espelho da OpenAPI docs.podpay.app
+ * Tipos PodPay API v1 espelho da OpenAPI docs.podpay.app
  * Valores monetários em CENTAVOS (inteiros).
  */
 

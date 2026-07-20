@@ -2,7 +2,7 @@
 
 export const BRANDING_STORAGE_KEY = "darkpay.branding.v4";
 
-/** Banner da Dashboard — imagem + nome + link opcional (clique redireciona) */
+/** Banner da Dashboard imagem + nome + link opcional (clique redireciona) */
 export interface BrandBanner {
   id: string;
   /** URL da imagem (path ou data URL) */
@@ -47,7 +47,7 @@ export function createBanner(
 
 export const DEFAULT_BRANDING: PlatformBranding = {
   logoUrl: "/logo-darkpay-header.png",
-  faviconUrl: "/logo-darkpay-clean.jpg",
+  faviconUrl: "/Fiveicon.png",
   banners: [
     {
       id: "bn_default",
@@ -61,7 +61,7 @@ export const DEFAULT_BRANDING: PlatformBranding = {
 
 type LegacyBranding = Partial<PlatformBranding> & {
   bannerUrl?: string;
-  /** legado v2/v3 — só URLs */
+  /** legado v2/v3 só URLs */
   bannerUrls?: Array<string | BrandBanner>;
 };
 
@@ -122,9 +122,18 @@ export function loadBranding(): PlatformBranding {
       window.localStorage.getItem("darkpay.branding.v1");
     if (!raw) return cloneDefaultBranding();
     const parsed = JSON.parse(raw) as LegacyBranding;
+    // Migra favicon legado do projeto → favicon do site
+    const legacyFavicons = new Set([
+      "/logo-darkpay-clean.jpg",
+      "logo-darkpay-clean.jpg",
+    ]);
+    const rawFavicon = parsed.faviconUrl || DEFAULT_BRANDING.faviconUrl;
+    const faviconUrl = legacyFavicons.has(rawFavicon)
+      ? DEFAULT_BRANDING.faviconUrl
+      : rawFavicon;
     return {
       logoUrl: parsed.logoUrl || DEFAULT_BRANDING.logoUrl,
-      faviconUrl: parsed.faviconUrl || DEFAULT_BRANDING.faviconUrl,
+      faviconUrl,
       banners: normalizeBanners(parsed),
       authImageUrl: parsed.authImageUrl || DEFAULT_BRANDING.authImageUrl,
     };

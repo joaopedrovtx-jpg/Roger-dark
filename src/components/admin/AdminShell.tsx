@@ -7,6 +7,7 @@ import { ShieldAlert } from "lucide-react";
 import { AdminSidebar } from "./AdminSidebar";
 import { UserMenu } from "@/components/layout/UserMenu";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { BrandLoadingScreen } from "@/components/layout/BrandLoadingScreen";
 
 interface AdminShellProps {
   children: React.ReactNode;
@@ -44,14 +45,7 @@ export function AdminShell({ children, title }: AdminShellProps) {
   }, [loading, user, isAdmin, router]);
 
   if (loading) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: "var(--bg-app)", color: "var(--text-2)" }}
-      >
-        Verificando acesso…
-      </div>
-    );
+    return <BrandLoadingScreen label="Verificando acesso…" />;
   }
 
   if (!user || !isAdmin) {

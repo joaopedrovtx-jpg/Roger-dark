@@ -41,15 +41,15 @@ const DEFAULT_PERIOD: PeriodValue = {
 };
 
 function formatDateTime(iso: string): string {
-  if (!iso || iso === "undefined" || iso === "null") return "—";
+  if (!iso || iso === "undefined" || iso === "null") return "-";
   try {
     const date = formatChartDate(iso);
-    if (!date || date.includes("NaN") || date.includes("undefined")) return "—";
+    if (!date || date.includes("NaN") || date.includes("undefined")) return "-";
     const time = iso.includes("T") ? iso.split("T")[1]?.slice(0, 5) : "";
     if (!time || time.includes("undefined")) return date;
     return `${date} ${time}`;
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -158,7 +158,7 @@ function formatAmount(tx: AdminLedgerTx): { text: string; color: string } {
  * Layout espelhado da Dashboard de usuário:
  * 1) 3 indicadores no topo
  * 2) gráfico (2 cols) + 4 métricas empilhadas (1 col)
- * 3) histórico real (API de pagamento / PIX) com polling — sem fake
+ * 3) histórico real (API de pagamento / PIX) com polling sem fake
  */
 export function AdminDashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
@@ -210,7 +210,7 @@ export function AdminDashboardView() {
         ledger?: AdminLedgerTx[];
       };
       if (json.metrics) setMetrics(json.metrics);
-      // Gráfico real (volume da API) — sem métricas fictícias
+      // Gráfico real (volume da API) sem métricas fictícias
       if (Array.isArray(json.volumeHistory)) {
         const cleaned = json.volumeHistory
           .map((p: { date?: string; amount?: number; grain?: "hour" | "day" }) => {
@@ -316,7 +316,7 @@ export function AdminDashboardView() {
       className="flex flex-col w-full min-w-0"
       style={{ gap: "var(--main-gap)" }}
     >
-      {/* Topo — 3 indicadores */}
+      {/* Topo 3 indicadores */}
       <div
         className="grid w-full"
         style={{
@@ -341,7 +341,7 @@ export function AdminDashboardView() {
         />
       </div>
 
-      {/* Meio — gráfico 2 cols + 4 métricas */}
+      {/* Meio gráfico 2 cols + 4 métricas */}
       <div
         className="grid w-full"
         style={{
@@ -358,8 +358,7 @@ export function AdminDashboardView() {
             data={chartData}
             period={period}
             onPeriodChange={setPeriod}
-            title="Histórico de volume processado"
-            subtitle="Acompanhe o histórico de pagamentos da plataforma"
+            title="Movimentações"
             yAxisLabel="Volume"
           />
         </div>
@@ -555,9 +554,9 @@ export function AdminDashboardView() {
 
         {/*
           Paginação:
-          esquerda — Página X de Y
-          centro   — Por página | N
-          direita  — Anterior / Próxima
+          esquerda Página X de Y
+          centro   Por página | N
+          direita  Anterior / Próxima
         */}
         <div
           className="px-5 py-4 grid items-center gap-3"

@@ -142,7 +142,7 @@ export async function GET(req: Request) {
       hint:
         forSeller?.routingMode === "personalizado"
           ? `Esta conta usa rota PERSONALIZADA → ${forSeller.provider}. Cobranças com a sk_ desta conta vão por ela.`
-          : `Esta conta usa a principal da plataforma → ${forSeller?.provider || platform?.provider || "—"}. Para forçar outra, Admin → Usuários → este seller → Adquirentes → Ativar → Salvar.`,
+          : `Esta conta usa a principal da plataforma → ${forSeller?.provider || platform?.provider || "-"}. Para forçar outra, Admin → Usuários → este seller → Adquirentes → Ativar → Salvar.`,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";

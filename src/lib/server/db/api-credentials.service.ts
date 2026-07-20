@@ -2,13 +2,19 @@
  * Credenciais de API do seller (Integrações → API).
  * Formato gateway:
  *   publicKey  pk_live_… | pk_test_…
- *   secretKey  sk_live_… | sk_test_…  (retornada só na criação/rotação)
+ *   secretKey  sk_live_… | sk_test_…
  *
- * O seller usa essas chaves no cassino/checkout próprio.
- * DarkPay intermedia com a adquirente (PodPay) no servidor — o seller nunca vê sk_ da PodPay.
+ * Secret fica com hash (auth) + cópia cifrada (painel: ver/copiar pelo dono).
+ * DarkPay intermedia com a adquirente no servidor o seller nunca vê sk_ da PodPay.
  */
 
-import { createHash, randomBytes } from "crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
 export type ApiPermission =
@@ -24,13 +30,20 @@ export type ApiCredentialMeta = {
   requireManualSaqueApproval: boolean;
   expiresAt: string | null;
   env: ApiKeyEnv;
+  /**
+   * Secret cifrada do painel (AES).
+   * Guardada no JSON `permissions` para funcionar mesmo se a coluna
+   * `secretKeyEnc` não existir no Prisma Client em runtime (hot-reload).
+   * Nunca exposta ao cliente como campo de permissão.
+   */
+  skEnc?: string | null;
 };
 
 export type ApiCredentialPublic = {
   id: string;
   name: string;
   publicKey: string;
-  /** null após listagem — só preenchida em create/rotate */
+  /** null após listagem só preenchida em create/rotate */
   secretKey: string | null;
   secretKeyHint: string | null;
   permissions: ApiPermission[];
@@ -70,11 +83,19 @@ export function hashApiSecret(secret: string): string {
   return createHash("sha256").update(secret.trim()).digest("hex");
 }
 
-/** Hint visual — NUNCA deve ser montado de volta como sk_ completa na UI */
+/** Hint visual NUNCA deve ser montado de volta como sk_ completa na UI */
 export function secretHint(secret: string): string {
   const s = secret.trim();
   if (s.length <= 12) return "••••••••";
   return `••••…${s.slice(-4)}`;
+}
+
+function secretEncKey(): Buffer {
+  const raw =
+    process.env.SESSION_SECRET?.trim() ||
+    process.env.NEXTAUTH_SECRET?.trim() ||
+    "darkpay-dev-secret-key-change-me!!";
+  return createHash("sha256").update(raw).digest();
 }
 
 /**
@@ -85,11 +106,41 @@ export function secretHint(secret: string): string {
 export function isValidApiSecretFormat(secret: string): boolean {
   const s = secret.trim();
   if (!s.startsWith("sk_live_") && !s.startsWith("sk_test_")) return false;
-  // máscara da UI — nunca é a secret real
+  // máscara da UI nunca é a secret real
   if (s.includes("…") || s.includes("•") || s.includes("...")) return false;
   // sk_live_ (8) + pelo menos 12 chars de entropia
   if (s.length < 20) return false;
   return /^sk_(live|test)_[a-zA-Z0-9]+$/.test(s);
+}
+
+/** AES-256-GCM: "v1:" + iv_b64 + ":" + tag_b64 + ":" + data_b64 */
+export function encryptApiSecret(secret: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", secretEncKey(), iv);
+  const enc = Buffer.concat([
+    cipher.update(secret, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString("base64url")}:${tag.toString("base64url")}:${enc.toString("base64url")}`;
+}
+
+export function decryptApiSecret(payload: string | null | undefined): string | null {
+  if (!payload || !payload.startsWith("v1:")) return null;
+  try {
+    const parts = payload.split(":");
+    if (parts.length !== 4) return null;
+    const iv = Buffer.from(parts[1], "base64url");
+    const tag = Buffer.from(parts[2], "base64url");
+    const data = Buffer.from(parts[3], "base64url");
+    const decipher = createDecipheriv("aes-256-gcm", secretEncKey(), iv);
+    decipher.setAuthTag(tag);
+    const dec = Buffer.concat([decipher.update(data), decipher.final()]);
+    const secret = dec.toString("utf8");
+    return isValidApiSecretFormat(secret) ? secret : null;
+  } catch {
+    return null;
+  }
 }
 
 export type ApiKeyAuthFailure =
@@ -173,7 +224,7 @@ export async function authenticateApiKeyDetailed(req: Request): Promise<{
       return { auth: null, failure: "blocked" };
     }
 
-    // Secret correta manda — public key opcional (não derruba auth se divergir)
+    // Secret correta manda public key opcional (não derruba auth se divergir)
     // (antes: mismatch de pk_ após rotacionar gerava “expirada” falso)
 
     const meta = parsePermissions(row.permissions);
@@ -210,6 +261,7 @@ function parsePermissions(raw: unknown): ApiCredentialMeta {
     requireManualSaqueApproval: false,
     expiresAt: null,
     env: "live",
+    skEnc: null,
   };
   if (Array.isArray(raw)) {
     return {
@@ -232,9 +284,115 @@ function parsePermissions(raw: unknown): ApiCredentialMeta {
       expiresAt:
         typeof o.expiresAt === "string" && o.expiresAt ? o.expiresAt : null,
       env: o.env === "test" ? "test" : "live",
+      skEnc: typeof o.skEnc === "string" && o.skEnc ? o.skEnc : null,
     };
   }
   return defaults;
+}
+
+/** Payload JSON persistido (inclui skEnc; client só vê scopes). */
+function permissionsJson(meta: ApiCredentialMeta): Prisma.InputJsonValue {
+  return {
+    scopes: meta.scopes,
+    requireManualSaqueApproval: meta.requireManualSaqueApproval,
+    expiresAt: meta.expiresAt,
+    env: meta.env,
+    ...(meta.skEnc ? { skEnc: meta.skEnc } : {}),
+  };
+}
+
+function isUnknownPrismaArgError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Unknown argument") ||
+    msg.includes("secretKeyEnc") ||
+    msg.includes("Unknown arg")
+  );
+}
+
+/** Decifra secret do dono: coluna secretKeyEnc OU JSON permissions.skEnc */
+function resolveOwnerSecret(
+  row: { secretKeyEnc?: string | null; permissions?: unknown },
+  explicit: string | null = null
+): string | null {
+  if (explicit && isValidApiSecretFormat(explicit)) return explicit;
+  const fromCol = decryptApiSecret(
+    (row as { secretKeyEnc?: string | null }).secretKeyEnc
+  );
+  if (fromCol) return fromCol;
+  const meta = parsePermissions(row.permissions);
+  return decryptApiSecret(meta.skEnc) || null;
+}
+
+/**
+ * Create/update com secretKeyEnc quando o client Prisma conhece o campo.
+ * Fallback automático se o client em memória estiver desatualizado (hot-reload).
+ */
+async function createCredentialRow(data: {
+  id: string;
+  userId: string;
+  name: string;
+  publicKey: string;
+  secretKeyHash: string;
+  secretKeyHint: string;
+  secretEnc: string;
+  permissions: Prisma.InputJsonValue;
+}) {
+  const base: Prisma.ApiCredentialUncheckedCreateInput = {
+    id: data.id,
+    userId: data.userId,
+    name: data.name,
+    publicKey: data.publicKey,
+    secretKeyHash: data.secretKeyHash,
+    secretKeyHint: data.secretKeyHint,
+    permissions: data.permissions,
+    active: true,
+  };
+  try {
+    return await prisma.apiCredential.create({
+      data: {
+        ...base,
+        secretKeyEnc: data.secretEnc,
+      },
+    });
+  } catch (err) {
+    if (!isUnknownPrismaArgError(err)) throw err;
+    // Client Prisma antigo / sem coluna: grava só no JSON (skEnc)
+    return await prisma.apiCredential.create({ data: base });
+  }
+}
+
+async function updateCredentialSecrets(
+  id: string,
+  data: {
+    publicKey: string;
+    secretKeyHash: string;
+    secretKeyHint: string;
+    secretEnc: string;
+    permissions: Prisma.InputJsonValue;
+  }
+) {
+  const base: Prisma.ApiCredentialUncheckedUpdateInput = {
+    publicKey: data.publicKey,
+    secretKeyHash: data.secretKeyHash,
+    secretKeyHint: data.secretKeyHint,
+    permissions: data.permissions,
+  };
+  try {
+    return await prisma.apiCredential.update({
+      where: { id },
+      data: {
+        ...base,
+        secretKeyEnc: data.secretEnc,
+      },
+    });
+  } catch (err) {
+    if (!isUnknownPrismaArgError(err)) throw err;
+    return await prisma.apiCredential.update({
+      where: { id },
+      data: base,
+    });
+  }
 }
 
 function toPublic(
@@ -243,6 +401,7 @@ function toPublic(
     name: string;
     publicKey: string;
     secretKeyHint: string | null;
+    secretKeyEnc?: string | null;
     permissions: unknown;
     active: boolean;
     lastUsedAt: Date | null;
@@ -252,11 +411,12 @@ function toPublic(
   secretKey: string | null = null
 ): ApiCredentialPublic {
   const meta = parsePermissions(row.permissions);
+  const resolved = resolveOwnerSecret(row, secretKey);
   return {
     id: row.id,
     name: row.name,
     publicKey: row.publicKey,
-    secretKey,
+    secretKey: resolved,
     secretKeyHint: row.secretKeyHint,
     permissions: meta.scopes,
     requireManualSaqueApproval: meta.requireManualSaqueApproval,
@@ -292,6 +452,7 @@ export async function listApiCredentials(
     where: { userId },
     orderBy: { createdAt: "desc" },
   });
+  // Retorna secret decifrada ao dono (ver/copiar no painel sem regenerar)
   return rows.map((r) => toPublic(r, null));
 }
 
@@ -308,27 +469,24 @@ export async function createApiCredential(
   await assertDb();
   const env: ApiKeyEnv = input.env === "test" ? "test" : "live";
   const { publicKey, secretKey } = generateKeyPair(env);
+  const secretEnc = encryptApiSecret(secretKey);
   const meta: ApiCredentialMeta = {
-    scopes:
-      input.permissions?.length
-        ? input.permissions
-        : ["transacoes"],
+    scopes: input.permissions?.length ? input.permissions : ["transacoes"],
     requireManualSaqueApproval: !!input.requireManualSaqueApproval,
     expiresAt: input.expiresAt || null,
     env,
+    skEnc: secretEnc,
   };
 
-  const row = await prisma.apiCredential.create({
-    data: {
-      id: newId("cred"),
-      userId,
-      name: (input.name || "API Integração").trim() || "API Integração",
-      publicKey,
-      secretKeyHash: hashApiSecret(secretKey),
-      secretKeyHint: secretHint(secretKey),
-      permissions: meta,
-      active: true,
-    },
+  const row = await createCredentialRow({
+    id: newId("cred"),
+    userId,
+    name: (input.name || "API Integração").trim() || "API Integração",
+    publicKey,
+    secretKeyHash: hashApiSecret(secretKey),
+    secretKeyHint: secretHint(secretKey),
+    secretEnc,
+    permissions: permissionsJson(meta),
   });
 
   return toPublic(row, secretKey);
@@ -352,6 +510,7 @@ export async function updateApiCredential(
   if (!existing) throw new Error("Credencial não encontrada");
 
   const prev = parsePermissions(existing.permissions);
+  // Preserva skEnc ao editar nome/perms (não apaga a secret do painel)
   const meta: ApiCredentialMeta = {
     scopes: input.permissions ?? prev.scopes,
     requireManualSaqueApproval:
@@ -359,13 +518,14 @@ export async function updateApiCredential(
     expiresAt:
       input.expiresAt !== undefined ? input.expiresAt : prev.expiresAt,
     env: prev.env,
+    skEnc: prev.skEnc ?? null,
   };
 
   const row = await prisma.apiCredential.update({
     where: { id: existing.id },
     data: {
       name: input.name?.trim() || existing.name,
-      permissions: meta,
+      permissions: permissionsJson(meta),
       active: input.active ?? existing.active,
     },
   });
@@ -382,16 +542,20 @@ export async function rotateApiCredential(
   });
   if (!existing) throw new Error("Credencial não encontrada");
 
-  const meta = parsePermissions(existing.permissions);
-  const { publicKey, secretKey } = generateKeyPair(meta.env);
+  const prev = parsePermissions(existing.permissions);
+  const { publicKey, secretKey } = generateKeyPair(prev.env);
+  const secretEnc = encryptApiSecret(secretKey);
+  const meta: ApiCredentialMeta = {
+    ...prev,
+    skEnc: secretEnc,
+  };
 
-  const row = await prisma.apiCredential.update({
-    where: { id: existing.id },
-    data: {
-      publicKey,
-      secretKeyHash: hashApiSecret(secretKey),
-      secretKeyHint: secretHint(secretKey),
-    },
+  const row = await updateCredentialSecrets(existing.id, {
+    publicKey,
+    secretKeyHash: hashApiSecret(secretKey),
+    secretKeyHint: secretHint(secretKey),
+    secretEnc,
+    permissions: permissionsJson(meta),
   });
   return toPublic(row, secretKey);
 }
@@ -432,7 +596,7 @@ export function messageForApiKeyFailure(
 ): string {
   switch (failure) {
     case "masked":
-      return "Chave de API incompleta (máscara). Em Integrações → API, rotacione e copie a secret completa — não use sk_••••…xxxx.";
+      return "Chave de API incompleta (máscara). Em Integrações → API, rotacione e copie a secret completa não use sk_••••…xxxx.";
     case "expired":
       return "Chave de API expirada. Realize o reset (rotacionar) da sua chave em Integrações → API.";
     case "inactive":

@@ -11,9 +11,9 @@ export function BrandLogo() {
       href="/"
       className="flex items-center select-none"
       style={{ textDecoration: "none" }}
-      aria-label="Dark Pay — início"
+      aria-label="Dark Pay início"
     >
-      {/* Logo recortada (sem fundo preto) — personalizável no Admin */}
+      {/* Logo recortada (sem fundo preto) personalizável no Admin */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={branding.logoUrl}

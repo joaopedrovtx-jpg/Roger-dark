@@ -65,7 +65,7 @@ export function accountLocked(user: AuthUser | null | undefined): boolean {
  */
 export function isKycAllowedPath(pathname: string): boolean {
   if (!pathname) return false;
-  // Dashboard seller — aberta com banner de KYC
+  // Dashboard seller aberta com banner de KYC
   if (pathname === "/" || pathname === "/dash") return true;
   if (pathname.startsWith("/configuracoes")) return true;
   if (pathname.startsWith("/docs")) return true;

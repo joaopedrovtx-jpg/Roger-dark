@@ -30,7 +30,7 @@ function detectProvider(a: {
   const id = (a.id || "").toLowerCase();
   const key = (a.privateKey || "").trim();
 
-  // Código/id mandam — nunca classificar Velana como PodPay só porque a key começa com sk_
+  // Código/id mandam nunca classificar Velana como PodPay só porque a key começa com sk_
   if (code === "VELANA" || id === "velana") return "velana";
   if (code === "PODPAY" || id === "podpay") return "podpay";
 
@@ -50,7 +50,7 @@ export type SellerRouteResult = ResolvedAcquirer & {
 /**
  * Rota do seller:
  * - routingMode=personalizado + preferredAdquirenteId → SEMPRE essa adquirente
- *   (não cai na principal da plataforma — é o propósito do override).
+ *   (não cai na principal da plataforma é o propósito do override).
  * - caso contrário → #1 da plataforma.
  */
 export async function resolveAcquirerForSeller(
@@ -143,7 +143,7 @@ export async function resolveActiveAcquirer(): Promise<ResolvedAcquirer | null> 
           enabled: true,
           status: "ativo",
         },
-        // #1 do painel (priority ASC) manda — isPrimary só desempate
+        // #1 do painel (priority ASC) manda isPrimary só desempate
         orderBy: [{ priority: "asc" }, { isPrimary: "desc" }],
         take: 30,
       });
@@ -183,7 +183,7 @@ export async function resolveActiveAcquirer(): Promise<ResolvedAcquirer | null> 
     /* DB offline */
   }
 
-  // Fallback env — não prefere Velana se só PodPay estiver no env
+  // Fallback env não prefere Velana se só PodPay estiver no env
   const hasVelanaEnv = !!(
     process.env.VELANA_SECRET_KEY ||
     process.env.VELANA_API_KEY ||

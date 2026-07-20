@@ -29,12 +29,12 @@ export function warnWeakSecrets(): void {
     "";
   if (sec.length < 32 || /change-me|darkpay-dev|example/i.test(sec)) {
     console.warn(
-      "[security] SESSION_SECRET fraco ou de exemplo em produção — gere com: openssl rand -hex 32"
+      "[security] SESSION_SECRET fraco ou de exemplo em produção gere com: openssl rand -hex 32"
     );
   }
   if (!process.env.PODPAY_WEBHOOK_SECRET?.trim()) {
     console.warn(
-      "[security] PODPAY_WEBHOOK_SECRET ausente em produção — webhooks PodPay falharão"
+      "[security] PODPAY_WEBHOOK_SECRET ausente em produção webhooks PodPay falharão"
     );
   }
 }

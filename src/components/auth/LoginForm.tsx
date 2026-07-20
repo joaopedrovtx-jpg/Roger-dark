@@ -4,6 +4,10 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Lock, Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
+import {
+  BrandLoadingScreen,
+  waitBrandLoadingMin,
+} from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
@@ -57,6 +61,7 @@ export function LoginForm() {
         return;
       }
       setLoading(true);
+      const startedAt = Date.now();
       try {
         clearClientToken();
         const res = await authedFetch("/api/v1/auth/login/2fa", {
@@ -68,6 +73,8 @@ export function LoginForm() {
           user?: { roles?: string[] };
         };
         if (!res.ok) throw new Error(json.error || "Código 2FA inválido");
+        // Logo pulsando no mínimo 2s antes de entrar
+        await waitBrandLoadingMin(startedAt);
         goAfterLogin(json.user?.roles || []);
       } catch (err) {
         setError(
@@ -84,6 +91,7 @@ export function LoginForm() {
     }
 
     setLoading(true);
+    const startedAt = Date.now();
     try {
       clearClientToken();
       const res = await authedFetch("/api/v1/auth/login", {
@@ -105,6 +113,8 @@ export function LoginForm() {
         return;
       }
 
+      // Logo pulsando no mínimo 2s antes de entrar no painel
+      await waitBrandLoadingMin(startedAt);
       goAfterLogin(json.user?.roles || []);
     } catch (err) {
       setError(
@@ -116,6 +126,9 @@ export function LoginForm() {
 
   return (
     <div className="flex flex-col" style={{ gap: 28 }}>
+      {/* Entrando no sistema: logo principal pulsando no centro */}
+      {loading ? <BrandLoadingScreen label="Entrando…" /> : null}
+
       <div className="flex justify-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

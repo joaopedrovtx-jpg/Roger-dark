@@ -1,5 +1,5 @@
 /**
- * Guards de API — sessão (cookie ou Bearer) + API key do seller + papel admin.
+ * Guards de API sessão (cookie ou Bearer) + API key do seller + papel admin.
  */
 import { NextResponse } from "next/server";
 import {
@@ -63,7 +63,7 @@ export async function requireAuth(
  * Sessão do painel OU chave de API do seller (Bearer sk_live_/sk_test_).
  * Usado em /api/v1/payments e demais endpoints de integração externa.
  *
- * IMPORTANTE: se vier Bearer sk_*, a conta da API key manda — NÃO a sessão admin.
+ * IMPORTANTE: se vier Bearer sk_*, a conta da API key manda NÃO a sessão admin.
  * Assim a rota personalizada do seller (PodPay/Velana) é a do dono da sk_.
  */
 /**
@@ -294,6 +294,125 @@ export async function requireStaffPermission(
   return r;
 }
 
-export function isGuardFail(r: GuardOk | GuardFail): r is GuardFail {
-  return "error" in r;
+export function isGuardFail(
+  r: GuardOk | GuardFail | SellerScope | { error?: NextResponse }
+): r is GuardFail {
+  return (
+    typeof r === "object" &&
+    r !== null &&
+    "error" in r &&
+    (r as GuardFail).error instanceof NextResponse
+  );
+}
+
+/** Header enviado pelo painel ao visualizar um seller (prova social). */
+export const VIEW_SELLER_HEADER = "x-darkpay-view-seller";
+
+export type SellerScope = {
+  /** Id da conta cujos dados serão lidos */
+  sellerId: string;
+  /** true = staff só visualiza (sem saque / escrita) */
+  viewOnly: boolean;
+  /** Nome opcional do staff logado */
+  actorId: string;
+};
+
+/**
+ * Resolve o seller alvo de uma rota do painel.
+ * - Seller normal → a própria conta
+ * - Staff com header X-DarkPay-View-Seller → conta do seller (somente leitura)
+ */
+export async function resolveSellerScope(
+  req: Request,
+  gate: GuardOk
+): Promise<SellerScope | GuardFail> {
+  const raw =
+    req.headers.get("x-darkpay-view-seller") ||
+    req.headers.get("X-DarkPay-View-Seller") ||
+    "";
+  const viewId = raw.trim();
+
+  if (!viewId || viewId === gate.user.id) {
+    return {
+      sellerId: gate.user.id,
+      viewOnly: false,
+      actorId: gate.user.id,
+    };
+  }
+
+  const { rolesIncludeStaff } = await import("@/lib/staff");
+  if (!rolesIncludeStaff(gate.user.roles)) {
+    return {
+      error: NextResponse.json(
+        {
+          error: "Sem permissão para visualizar outra conta",
+          code: "forbidden_view_seller",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  // Confere se o usuário existe e não é outro super-admin
+  if (isDatabaseConfigured()) {
+    try {
+      const target = await prisma.user.findUnique({
+        where: { id: viewId },
+        select: { id: true, roles: true, status: true },
+      });
+      if (!target) {
+        return {
+          error: NextResponse.json(
+            { error: "Usuário não encontrado", code: "seller_not_found" },
+            { status: 404 }
+          ),
+        };
+      }
+      let roles: string[] = [];
+      try {
+        const r = target.roles as unknown;
+        const arr = Array.isArray(r)
+          ? r
+          : typeof r === "string"
+            ? JSON.parse(r)
+            : [];
+        if (Array.isArray(arr)) roles = arr.map((x) => String(x).toLowerCase());
+      } catch {
+        /* ignore */
+      }
+      if (roles.includes("admin")) {
+        return {
+          error: NextResponse.json(
+            {
+              error: "Não é possível visualizar conta de super-admin",
+              code: "forbidden_view_admin",
+            },
+            { status: 403 }
+          ),
+        };
+      }
+    } catch {
+      /* se DB falhar, ainda permite com o id (dev) */
+    }
+  }
+
+  return {
+    sellerId: viewId,
+    viewOnly: true,
+    actorId: gate.user.id,
+  };
+}
+
+/** Bloqueia escrita (ex.: saque) quando staff está só visualizando. */
+export function viewOnlyForbidden(): GuardFail {
+  return {
+    error: NextResponse.json(
+      {
+        error:
+          "Modo visualização: não é permitido realizar saques ou ações na conta do seller.",
+        code: "view_only",
+      },
+      { status: 403 }
+    ),
+  };
 }

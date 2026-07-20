@@ -107,7 +107,7 @@ async function podpayFetch(path: string, init?: RequestInit) {
 }
 
 /**
- * Hub PodPay — espelho da documentação docs.podpay.app
+ * Hub PodPay espelho da documentação docs.podpay.app
  * Credenciais · Saldo · Pagamentos · Saques · Checkout · Webhooks
  */
 export function PodPayView() {
@@ -197,7 +197,7 @@ export function PodPayView() {
     setEnv(resolvedEnv);
     setPreview(`${apiKey.trim().slice(0, 12)}…${apiKey.trim().slice(-4)}`);
     setApiKey("");
-    setMsg("Credenciais PodPay salvas — use as abas para testar a API.");
+    setMsg("Credenciais PodPay salvas. Use as abas para testar a API.");
   }
 
   function handleClear() {
@@ -206,7 +206,7 @@ export function PodPayView() {
     setPreview(null);
     setApiKey("");
     setBalance(null);
-    setMsg("PodPay desconectada — mock local ativo.");
+    setMsg("PodPay desconectada. Mock local ativo.");
   }
 
   async function run(fn: () => Promise<void>) {
@@ -489,7 +489,7 @@ export function PodPayView() {
               lineHeight: 1.45,
             }}
           >
-            Hub completo da documentação —{" "}
+            Hub completo da documentação{" "}
             <a
               href="https://docs.podpay.app/"
               target="_blank"
@@ -498,8 +498,7 @@ export function PodPayView() {
             >
               docs.podpay.app
             </a>
-            {" · "}
-            saldo, pagamentos, saques, checkout e webhooks.
+            : saldo, pagamentos, saques, checkout e webhooks.
           </p>
         </div>
         <span
@@ -595,8 +594,8 @@ export function PodPayView() {
                 onChange={(e) => setEnv(e.target.value as PodPayEnv)}
                 style={{ ...inputStyle, cursor: "pointer" }}
               >
-                <option value="sandbox">Sandbox — sandbox.podpay.app</option>
-                <option value="live">Produção — api.podpay.app</option>
+                <option value="sandbox">Sandbox (sandbox.podpay.app)</option>
+                <option value="live">Produção (api.podpay.app)</option>
               </select>
             </Field>
             {preview ? (
@@ -652,7 +651,7 @@ export function PodPayView() {
                 value={
                   balance.maxAntecipable != null
                     ? formatBRL(balance.maxAntecipable)
-                    : "—"
+                    : "-"
                 }
               />
             </div>
@@ -906,7 +905,7 @@ export function PodPayView() {
           <Card>
             <SectionTitle>Sessão · cupom · pay (PIX)</SectionTitle>
             <p style={hintStyle}>
-              GET sessão · POST coupon · POST pay — endpoints da doc Checkout.
+              GET sessão · POST coupon · POST pay endpoints da doc Checkout.
             </p>
             <div className="flex flex-col" style={{ gap: 10 }}>
               <Field label="session token / sessionId">
@@ -1038,7 +1037,7 @@ export function PodPayView() {
             <code style={codeBlock}>
               POST {webhookUrl || "/api/v1/webhooks/podpay"}
               <br />
-              GET {webhookUrl || "/api/v1/webhooks/podpay"} — health
+              GET {webhookUrl || "/api/v1/webhooks/podpay"} health
               <br />
               <br />
               Payload: event, timestamp, data, signature, version, eventId,

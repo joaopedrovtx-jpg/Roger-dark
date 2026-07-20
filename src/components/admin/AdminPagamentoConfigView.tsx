@@ -105,7 +105,7 @@ function toCredential(a: ApiAcquirer): AcquirerCredential & {
   publicKeyHint?: string | null;
   privateKeyHint?: string | null;
 } {
-  // Listagem NÃO traz secret completa — só hints
+  // Listagem NÃO traz secret completa só hints
   const env: AcquirerEnv = a.env === "sandbox" ? "sandbox" : "live";
   return {
     id: a.id,
@@ -297,7 +297,7 @@ export function AdminPagamentoConfigView() {
             publicKey,
             privateKey,
             env,
-            // NÃO forçar principal ao salvar chave — isso é o painel Gerenciamento (#1)
+            // NÃO forçar principal ao salvar chave isso é o painel Gerenciamento (#1)
           }),
         }
       );
@@ -459,7 +459,7 @@ export function AdminPagamentoConfigView() {
                       spellCheck={false}
                       placeholder={
                         meta.hasPublicKey && !draft.publicKey
-                          ? `Salva ${meta.publicKeyHint || "••••"} — clique no olho`
+                          ? `Salva ${meta.publicKeyHint || "••••"}. Clique no olho`
                           : "Chave pública"
                       }
                       value={draft.publicKey}
@@ -506,7 +506,7 @@ export function AdminPagamentoConfigView() {
                       spellCheck={false}
                       placeholder={
                         meta.hasPrivateKey && !draft.privateKey
-                          ? `Salva ${meta.privateKeyHint || "••••"} — clique no olho`
+                          ? `Salva ${meta.privateKeyHint || "••••"}. Clique no olho`
                           : "Chave secreta"
                       }
                       value={draft.privateKey}

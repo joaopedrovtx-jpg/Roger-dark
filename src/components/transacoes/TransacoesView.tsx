@@ -18,7 +18,7 @@ import {
   IconTransferFilled,
 } from "@/components/dashboard/KpiIcons";
 
-/** Métricas vazias — só preenche com vendas reais da API */
+/** Métricas vazias só preenche com vendas reais da API */
 const EMPTY_METRICS: TransacoesMetrics = {
   pendentes: 0,
   pagos: 0,
@@ -38,7 +38,7 @@ function statusLabel(status: VendaStatus): string {
   return map[status];
 }
 
-/** Cores sólidas (igual painel admin) — sem transparente */
+/** Cores sólidas (igual painel admin) sem transparente */
 const SOLID = {
   pending: "#f5a623",
   refused: "#ef4444",
@@ -395,8 +395,8 @@ export function TransacoesView() {
           items.map((t) => ({
             id: t.id,
             date: t.date,
-            customer: t.customer ?? "—",
-            product: t.product ?? "—",
+            customer: t.customer ?? "-",
+            product: t.product ?? "-",
             method: "PIX" as const,
             amount: t.amount,
             status: t.status as VendaStatus,
@@ -524,7 +524,7 @@ export function TransacoesView() {
                   >
                     {loading
                       ? "Carregando vendas…"
-                      : "Nenhuma venda ainda. Gere um PIX em Integrações → Pagamentos e pague — a venda aparece aqui."}
+                      : "Nenhuma venda ainda. Gere um PIX em Integrações → Pagamentos e pague. A venda aparece aqui."}
                   </td>
                 </tr>
               ) : null}

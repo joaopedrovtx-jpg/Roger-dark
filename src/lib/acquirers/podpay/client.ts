@@ -108,7 +108,7 @@ export const podpayClient = {
     return resolvePodPayConfig();
   },
 
-  /** POST /v1/transactions — criar cobrança PIX/cartão/boleto */
+  /** POST /v1/transactions criar cobrança PIX/cartão/boleto */
   createTransaction(
     dto: PodPayCreateTransaction,
     opts?: { idempotencyKey?: string; config?: PodPayConfig }
@@ -215,7 +215,7 @@ export const podpayClient = {
 
   // ── Checkout ──────────────────────────────────────────
 
-  /** POST /v1/checkout/sessions — criar sessão hospedada */
+  /** POST /v1/checkout/sessions criar sessão hospedada */
   createCheckoutSession(
     dto: PodPayCheckoutCreateSessionRequest,
     opts?: { idempotencyKey?: string; config?: PodPayConfig }
@@ -231,7 +231,7 @@ export const podpayClient = {
     });
   },
 
-  /** GET /v1/checkout/sessions/{token} — sessão pública */
+  /** GET /v1/checkout/sessions/{token} sessão pública */
   getCheckoutPublicSession(
     token: string,
     config?: PodPayConfig
@@ -258,7 +258,7 @@ export const podpayClient = {
     );
   },
 
-  /** POST /v1/checkout/sessions/{token}/pay — gera PIX no checkout */
+  /** POST /v1/checkout/sessions/{token}/pay gera PIX no checkout */
   payCheckoutSession(
     token: string,
     dto: PodPayCheckoutPayRequest,

@@ -109,7 +109,10 @@ export async function middleware(req: NextRequest) {
     pathname.endsWith(".png") ||
     pathname.endsWith(".jpg") ||
     pathname.endsWith(".webp") ||
-    pathname.endsWith(".svg");
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".wav") ||
+    pathname.endsWith(".mp3") ||
+    pathname.startsWith("/sounds");
 
   if (isPublic) {
     if (

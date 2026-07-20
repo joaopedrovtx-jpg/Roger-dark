@@ -80,7 +80,7 @@ export async function listSellerTransactions(
     items: items.map((t) => ({
       id: t.id,
       date: t.date.toISOString(),
-      customer: t.customer ?? "—",
+      customer: t.customer ?? "-",
       product: t.product ?? t.description,
       method: "PIX" as const,
       amount: n(t.amount),

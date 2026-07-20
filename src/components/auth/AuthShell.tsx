@@ -23,7 +23,7 @@ export function AuthShell({ children }: AuthShellProps) {
         gridTemplateColumns: "minmax(0, 1.15fr) minmax(360px, 0.85fr)",
       }}
     >
-      {/* Imagem full-bleed — personalizada em Admin → Personalização */}
+      {/* Imagem full-bleed personalizada em Admin → Personalização */}
       <aside
         className="relative hidden min-h-screen overflow-hidden lg:block"
         style={{

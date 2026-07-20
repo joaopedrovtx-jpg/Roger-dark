@@ -5,6 +5,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -23,7 +24,7 @@ interface RevenueChartProps {
   className?: string;
   period?: PeriodValue;
   onPeriodChange?: (period: PeriodValue) => void;
-  /** Padrão seller: Histórico de faturamento */
+  /** Padrão seller: Faturamento */
   title?: string;
   subtitle?: string;
   /** Eixo Y curto (seller: Faturamento · admin: Volume) */
@@ -81,8 +82,8 @@ function toBucketPoints(
     buckets[bucket] += Number(sorted[i].amount) || 0;
     const d = formatChartDate(sorted[i].date);
     if (!dateRanges[bucket]) dateRanges[bucket] = d;
-    else if (d !== "—") {
-      dateRanges[bucket] = `${dateRanges[bucket].split(" – ")[0]} – ${d}`;
+    else if (d !== "-") {
+      dateRanges[bucket] = `${dateRanges[bucket].split(" ")[0]} ${d}`;
     }
   }
 
@@ -111,8 +112,8 @@ export function RevenueChart({
   className,
   period,
   onPeriodChange,
-  title = "Histórico de faturamento",
-  subtitle = "Acompanhe o histórico de transações do seu negócio",
+  title = "Faturamento",
+  subtitle,
   yAxisLabel = "Faturamento",
   hidePeriodFilter = false,
 }: RevenueChartProps) {
@@ -134,14 +135,14 @@ export function RevenueChart({
     let points = data.map((d) => {
       const grain = d.grain ?? (isHourly ? "hour" : "day");
       let label = formatChartLabel(d.date, grain);
-      if (label === "—" || /undefined|null/i.test(label)) {
+      if (label === "-" || /undefined|null/i.test(label)) {
         const m = String(d.date || "").match(/(\d{4})-(\d{2})-(\d{2})/);
-        label = m ? `${m[3]}/${m[2]}` : "—";
+        label = m ? `${m[3]}/${m[2]}` : "-";
       }
       const fullDate =
         grain === "hour"
           ? label
-          : formatChartDate(d.date) !== "—"
+          : formatChartDate(d.date) !== "-"
             ? formatChartDate(d.date)
             : label;
       return {
@@ -152,27 +153,23 @@ export function RevenueChart({
       } satisfies ChartRow;
     });
 
-    if (period?.key === "7d") {
+    // Série diária/horária: sempre da esquerda → direita (cronológico)
+    if (period?.key === "7d" || period?.key === "15d") {
+      const take = period.key === "7d" ? 7 : 15;
       points = [...points]
         .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
-        .slice(0, 7);
-      return points.filter((d) => d.label !== "—");
-    }
-
-    if (period?.key === "15d") {
-      points = [...points]
-        .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
-        .slice(0, 15);
-      return points.filter((d) => d.label !== "—");
+        .slice(0, take)
+        .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
+      return points.filter((d) => d.label !== "-");
     }
 
     if (!isHourly && points.length > 1) {
       points = [...points].sort((a, b) =>
-        b._sortKey.localeCompare(a._sortKey)
+        a._sortKey.localeCompare(b._sortKey)
       );
     }
 
-    return points.filter((d) => d.label !== "—");
+    return points.filter((d) => d.label !== "-");
   }, [data, isHourly, isMonthlyWeeks, isSixtyMonths, period?.key]);
 
   const displayData = useMemo(() => {
@@ -181,6 +178,7 @@ export function RevenueChart({
     if (isSixtyMonths) return toMonthlyPoints([]);
     const now = new Date();
     const rows: ChartRow[] = [];
+    // Fallback: últimos 7 dias em ordem cronológica (esq → dir)
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setHours(12, 0, 0, 0);
@@ -193,23 +191,47 @@ export function RevenueChart({
         _sortKey: iso,
       });
     }
-    return rows.reverse();
+    return rows;
   }, [chartData, isMonthlyWeeks, isSixtyMonths]);
 
   const amounts = displayData.map((d) => d.amount);
   const minRaw = amounts.length ? Math.min(...amounts) : 0;
   const maxRaw = amounts.length ? Math.max(...amounts) : 0;
   const pad = Math.max(50, (maxRaw - minRaw) * 0.12 || 100);
-  const minY =
-    maxRaw <= 0 ? 0 : Math.max(0, Math.floor((minRaw - pad) / 50) * 50);
+  // Lateral: escala de faturamento a partir de 0 até o topo dos valores
+  const minY = 0;
   const maxY =
     maxRaw <= 0 ? 100 : Math.ceil((maxRaw + pad) / 50) * 50 || 100;
 
-  // Altura fixa do plot — igual nas duas dashboards (padrão seller)
-  const plotHeight = 260;
-  const line = "var(--chart-line)";
-  const grid = "var(--chart-grid)";
-  const axis = "var(--chart-axis)";
+  /** Ticks do eixo Y (0, …, valores de faturamento) */
+  const yTicks = useMemo(() => {
+    const steps = 4;
+    const out: number[] = [];
+    for (let i = 0; i <= steps; i++) {
+      out.push(Math.round((maxY / steps) * i));
+    }
+    return out;
+  }, [maxY]);
+
+  // Altura do plot + espaço p/ datas + texto "Período"
+  const plotHeight = 290;
+  /**
+   * Paleta só branco/cinza.
+   * Linha da curva e eixos bem finos (mesma “finura” da lateral).
+   */
+  const line = "#ffffff";
+  const axisStroke = "#ffffff";
+  /** Mesma espessura da lateral e da base */
+  const axisWidth = 1;
+  /** Curva do faturamento — fina (antes 2.5 ficava grossa no zero) */
+  const curveWidth = 1.25;
+  const tickFill = "#ffffff";
+  /** Grade na cor do fundo do ícone dos indicadores */
+  const gridStroke = "var(--bg-card-inner-icon)";
+  const zeroLine = "var(--bg-card-inner-icon)";
+  const dotFill = "#ffffff";
+  const dotStroke = "#0c0e12";
+  const gradientId = "revenueGradientWhite";
 
   const xAxisTitle = isHourly
     ? "Hora"
@@ -219,18 +241,27 @@ export function RevenueChart({
         ? "Meses"
         : "Período";
 
+  const manyXTicks = displayData.length > 12;
+  const xInterval = isHourly
+    ? 2
+    : isBucketed
+      ? 0
+      : manyXTicks
+        ? "preserveStartEnd"
+        : 0;
+
   return (
     <div
       className={`surface-card flex flex-col w-full min-w-0 ${className ?? ""}`}
       style={{
-        padding: "16px 16px 8px",
+        padding: "16px 16px 10px",
         borderRadius: "var(--radius-card)",
         height: "100%",
-        minHeight: plotHeight + 100,
+        minHeight: plotHeight + 72,
       }}
     >
-      {/* Cabeçalho padrão: título + subtítulo | filtro */}
-      <div className="mb-3 shrink-0 flex items-start justify-between gap-3">
+      {/* Cabeçalho: título | filtro de período */}
+      <div className="mb-2 shrink-0 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2
             className="font-semibold"
@@ -263,7 +294,12 @@ export function RevenueChart({
         ) : null}
       </div>
 
-      {/* Plot — mesma altura e margens do gráfico do seller */}
+      {/*
+        Estrutura de eixos:
+        - lateral: Faturamento + escala de valores (0 → …)
+        - embaixo: datas + texto "Período"
+        - linhas brancas em L
+      */}
       <div
         className="w-full min-w-0"
         style={{ height: plotHeight, minHeight: plotHeight }}
@@ -271,7 +307,7 @@ export function RevenueChart({
         <ResponsiveContainer width="100%" height={plotHeight}>
           <AreaChart
             data={displayData}
-            margin={{ top: 8, right: 12, left: 0, bottom: 8 }}
+            margin={{ top: 12, right: 14, left: 10, bottom: 36 }}
             onMouseMove={(state) => {
               const idx =
                 typeof state?.activeTooltipIndex === "number"
@@ -282,72 +318,98 @@ export function RevenueChart({
             onMouseLeave={() => setHoverIndex(null)}
           >
             <defs>
-              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor="var(--chart-line)"
-                  stopOpacity={0.28}
-                />
-                <stop
-                  offset="100%"
-                  stopColor="var(--chart-line)"
-                  stopOpacity={0}
-                />
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ffffff" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
               </linearGradient>
             </defs>
 
+            {/* Grade cinza clara (quadriculado) */}
             <CartesianGrid
-              stroke={grid}
-              vertical={false}
+              stroke={gridStroke}
+              strokeWidth={0.75}
+              horizontal
+              vertical
               strokeDasharray="0"
             />
 
+            <ReferenceLine y={0} stroke={zeroLine} strokeWidth={0.75} />
+
             <XAxis
               dataKey="label"
+              type="category"
               tick={{
-                fill: axis,
-                fontSize: isBucketed ? 11 : 10,
+                fill: tickFill,
+                fontSize: isBucketed ? 11 : 10.5,
+                fontWeight: 500,
               }}
-              axisLine={false}
+              // Linha de cima das datas — mesma finura da lateral
+              axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
               tickLine={false}
-              dy={6}
-              interval={isHourly ? 2 : isBucketed ? 0 : "preserveStartEnd"}
-              minTickGap={isHourly ? 8 : 4}
+              dy={8}
+              angle={isBucketed || isHourly ? 0 : -35}
+              textAnchor={isBucketed || isHourly ? "middle" : "end"}
+              height={isBucketed || isHourly ? 36 : 52}
+              interval={xInterval}
+              minTickGap={isHourly ? 10 : 2}
+              padding={{ left: 8, right: 8 }}
               label={{
                 value: xAxisTitle,
                 position: "insideBottom",
                 offset: -2,
-                fill: axis,
-                fontSize: 10,
+                fill: tickFill,
+                fontSize: 11,
+                fontWeight: 600,
               }}
             />
 
             <YAxis
               domain={[minY, maxY]}
-              tick={{ fill: axis, fontSize: 10 }}
-              axisLine={false}
+              ticks={yTicks}
+              tick={{
+                fill: tickFill,
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+              // Linha lateral (escala de faturamento)
+              axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
               tickLine={false}
-              width={44}
+              width={48}
+              tickFormatter={(v) => {
+                const n = Number(v) || 0;
+                if (n >= 1_000_000) {
+                  const m = n / 1_000_000;
+                  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+                }
+                if (n >= 1000) {
+                  const k = n / 1000;
+                  return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+                }
+                return String(n);
+              }}
+              allowDecimals={false}
               label={{
                 value: yAxisLabel,
                 angle: -90,
                 position: "insideLeft",
-                offset: 8,
-                fill: axis,
-                fontSize: 10,
+                offset: 4,
+                fill: tickFill,
+                fontSize: 11,
+                fontWeight: 600,
                 style: { textAnchor: "middle" },
               }}
             />
 
             <Tooltip
-              cursor={{ stroke: line, strokeOpacity: 0.25 }}
+              // Coluna do hover: escura (nunca verde)
+              cursor={{
+                stroke: "var(--bg-card-inner-icon)",
+                strokeWidth: 1.25,
+                strokeOpacity: 1,
+              }}
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const value = Number(payload[0]?.value ?? 0);
-                const row = payload[0]?.payload as ChartRow;
-                const dateLine = isBucketed
-                  ? row?.label || ""
-                  : row?.fullDate || row?.label || "";
                 return (
                   <div
                     style={{
@@ -358,23 +420,11 @@ export function RevenueChart({
                       boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
                     }}
                   >
-                    {dateLine ? (
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: axis,
-                          marginBottom: 4,
-                          fontWeight: 500,
-                        }}
-                      >
-                        {dateLine}
-                      </div>
-                    ) : null}
                     <div
                       style={{
                         fontSize: 13,
                         fontWeight: 600,
-                        color: line,
+                        color: "#ffffff",
                       }}
                     >
                       {formatBRL(value)}
@@ -388,16 +438,16 @@ export function RevenueChart({
               type="monotone"
               dataKey="amount"
               stroke={line}
-              strokeWidth={2.5}
-              fill="url(#revenueGradient)"
+              strokeWidth={curveWidth}
+              fill={`url(#${gradientId})`}
               isAnimationActive
               animationDuration={500}
               animationEasing="ease-out"
               activeDot={{
-                r: 5,
-                fill: "var(--chart-dot-fill)",
-                stroke: "var(--chart-dot-stroke)",
-                strokeWidth: 2,
+                r: 3.5,
+                fill: dotFill,
+                stroke: dotStroke,
+                strokeWidth: 1.25,
               }}
               dot={(props) => {
                 const { cx, cy, index } = props as {
@@ -412,10 +462,10 @@ export function RevenueChart({
                     key={`dot-${index}`}
                     cx={cx}
                     cy={cy}
-                    r={active ? 5 : 4}
-                    fill="var(--chart-dot-fill)"
-                    stroke="var(--chart-dot-stroke)"
-                    strokeWidth={2}
+                    r={active ? 3.5 : 2.75}
+                    fill={dotFill}
+                    stroke={dotStroke}
+                    strokeWidth={1.25}
                     style={{ cursor: "pointer" }}
                   />
                 );

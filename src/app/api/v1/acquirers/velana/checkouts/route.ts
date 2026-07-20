@@ -58,7 +58,7 @@ export async function POST(req: Request) {
         ? `${config.postbackBaseUrl.replace(/\/$/, "")}/api/v1/webhooks/velana`
         : undefined);
 
-    // splits obrigatório na API — recipientId 1 = principal da empresa (docs)
+    // splits obrigatório na API recipientId 1 = principal da empresa (docs)
     const recipientId = body.recipientId ?? 1;
 
     const data = await velanaClient.createCheckout(

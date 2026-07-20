@@ -7,7 +7,7 @@ import {
   velanaNotConfigured,
 } from "@/lib/acquirers/velana/server";
 
-/** GET /api/v1/acquirers/velana/balance — GET /v1/balance/available */
+/** GET /api/v1/acquirers/velana/balance GET /v1/balance/available */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;

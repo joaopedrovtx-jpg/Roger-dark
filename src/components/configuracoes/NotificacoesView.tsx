@@ -9,6 +9,7 @@ import {
   loadNotificationPrefs,
   requestNotificationPermission,
   saveNotificationPrefs,
+  unlockNotificationAudio,
   type NotificationPrefs,
 } from "@/lib/notifications";
 
@@ -213,6 +214,9 @@ export function NotificacoesView() {
 
     setBusy(true);
     try {
+      // Desbloqueia som (caixa registradora) no mesmo gesto do clique
+      unlockNotificationAudio();
+
       // 1) Chama o browser AGORA (gesto do clique) → popup Permitir / Bloquear
       const perm = await requestNotificationPermission();
       setPermission(perm);

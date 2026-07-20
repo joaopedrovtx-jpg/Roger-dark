@@ -45,7 +45,7 @@ function formatDateTime(iso: string): string {
   return time ? `${date} ${time}` : date;
 }
 
-/** CPF ou CNPJ — prioriza CNPJ da empresa quando existir */
+/** CPF ou CNPJ prioriza CNPJ da empresa quando existir */
 function documentLabel(u: AdminUser): string {
   if (u.cnpj?.trim()) return u.cnpj;
   return u.document;
@@ -256,7 +256,7 @@ export function AdminUsuariosView() {
         onSaveDocs={saveUserDocs}
         onSaveRouting={saveUserRouting}
       />
-      {/* Linha 1 — 3 indicadores */}
+      {/* Linha 1 3 indicadores */}
       <div
         className="grid w-full"
         style={{
@@ -281,7 +281,7 @@ export function AdminUsuariosView() {
         />
       </div>
 
-      {/* Linha 2 — 3 indicadores */}
+      {/* Linha 2 3 indicadores */}
       <div
         className="grid w-full"
         style={{

@@ -274,59 +274,63 @@ export function AdminAdquirentesView() {
         maxPriority={items.length}
       />
 
-      {/* Rota (lista/métricas) · Credenciais (chaves públicas/privadas) */}
+      {/* Abas + filtro de período na mesma linha */}
       <div
-        className="inline-flex items-center self-start surface-card"
-        style={{
-          padding: 4,
-          borderRadius: "var(--radius-md)",
-          gap: 2,
-        }}
-        role="tablist"
-        aria-label="Seções de adquirentes"
+        className="flex items-center justify-between w-full min-w-0 flex-wrap"
+        style={{ gap: 12 }}
       >
-        {(
-          [
-            { id: "rota" as const, label: "Gerenciamento" },
-            { id: "credenciais" as const, label: "Credenciais" },
-          ] as const
-        ).map((s) => {
-          const on = section === s.id;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setSection(s.id)}
-              style={{
-                height: 36,
-                padding: "0 16px",
-                borderRadius: "var(--radius-md)",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 13.5,
-                fontWeight: on ? 650 : 500,
-                background: on ? "#ffffff" : "transparent",
-                color: on ? "#0a0f0c" : "var(--text-2)",
-              }}
-            >
-              {s.label}
-            </button>
-          );
-        })}
+        <div
+          className="inline-flex items-center surface-card shrink-0"
+          style={{
+            padding: 4,
+            borderRadius: "var(--radius-md)",
+            gap: 2,
+          }}
+          role="tablist"
+          aria-label="Seções de adquirentes"
+        >
+          {(
+            [
+              { id: "rota" as const, label: "Gerenciamento" },
+              { id: "credenciais" as const, label: "Credenciais" },
+            ] as const
+          ).map((s) => {
+            const on = section === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setSection(s.id)}
+                style={{
+                  height: 36,
+                  padding: "0 16px",
+                  borderRadius: "var(--radius-md)",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13.5,
+                  fontWeight: on ? 650 : 500,
+                  background: on ? "#ffffff" : "transparent",
+                  color: on ? "#0a0f0c" : "var(--text-2)",
+                }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {section === "rota" ? (
+          <PeriodFilter value={period} onChange={setPeriod} />
+        ) : null}
       </div>
 
       {section === "credenciais" ? <AdminPagamentoConfigView /> : null}
 
       {section === "rota" ? (
         <>
-      {/* Filtro de período (mesmo botão/funil do dashboard) */}
-      <div className="flex items-center justify-end w-full">
-        <PeriodFilter value={period} onChange={setPeriod} />
-      </div>
-
-      {/* Linha 1 — volume / transações / total */}
+      {/* Linha 1 volume / transações / total */}
       <div
         className="grid w-full"
         style={{
@@ -351,7 +355,7 @@ export function AdminAdquirentesView() {
         />
       </div>
 
-      {/* Linha 2 — status das adquirentes */}
+      {/* Linha 2 status das adquirentes */}
       <div
         className="grid w-full"
         style={{
@@ -376,7 +380,7 @@ export function AdminAdquirentesView() {
         />
       </div>
 
-      {/* Linha 3 — performance da rota / adquirência */}
+      {/* Linha 3 performance da rota / adquirência */}
       <div
         className="grid w-full"
         style={{
@@ -402,7 +406,7 @@ export function AdminAdquirentesView() {
         />
       </div>
 
-      {/* Abas + busca — padrão saques / gerentes */}
+      {/* Abas + busca padrão saques / gerentes */}
       <div
         className="flex flex-wrap items-center w-full min-w-0"
         style={{ gap: 10 }}
@@ -479,7 +483,7 @@ export function AdminAdquirentesView() {
         </div>
       </div>
 
-      {/* Tabela — ações de status só no modal (Ver) */}
+      {/* Tabela ações de status só no modal (Ver) */}
       <div
         className="surface-card overflow-hidden"
         style={{ borderRadius: "var(--radius-card)" }}

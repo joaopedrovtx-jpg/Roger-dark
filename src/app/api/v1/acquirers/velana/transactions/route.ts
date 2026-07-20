@@ -10,7 +10,7 @@ import { toCents } from "@/lib/acquirers/velana/mappers";
  * Cria PIX real na conta Velana (Admin / teste da integração).
  *
  * Body: { amount, description?, customerName?, customerEmail?, customerPhone?, customerDocument? }
- * Auth API Velana: Basic base64(secretKey:x) — secret do Admin → Credenciais.
+ * Auth API Velana: Basic base64(secretKey:x) secret do Admin → Credenciais.
  */
 export async function POST(req: Request) {
   const gate = await requireAdmin(req);
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
   }
 }
 
-/** GET — lista transações remotas na Velana */
+/** GET lista transações remotas na Velana */
 export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;

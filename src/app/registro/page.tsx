@@ -3,7 +3,7 @@ import { AuthShell } from "@/components/auth/AuthShell";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 
 export const metadata: Metadata = {
-  title: "Criar conta — Dark Pay",
+  title: "Criar conta Dark Pay",
   description: "Crie sua conta na Dark Pay",
 };
 

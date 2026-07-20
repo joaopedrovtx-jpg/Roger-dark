@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -126,6 +127,8 @@ export function PagamentosApiView() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [result, setResult] = useState<CreateResult | null>(null);
+  const resultRef = useRef<CreateResult | null>(null);
+  resultRef.current = result;
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [list, setList] = useState<PaymentCharge[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -303,23 +306,8 @@ export function PagamentosApiView() {
         const becamePaid =
           json.status === "paid" || json.status === "aprovada";
 
+        // Lê estado atual sem side-effect no setState (evita double-fire)
         setResult((prev) => {
-          const wasPending =
-            prev?.id === chargeId &&
-            prev.status !== "paid" &&
-            prev.status !== "aprovada";
-
-          // Notificação real: só na transição pendente → pago (Pagamentos)
-          if (becamePaid && wasPending && prev) {
-            emitSaleEvent({
-              kind: "aprovada",
-              amount: json.amount ?? prev.amount,
-              customer: undefined,
-              product: prev.message,
-              id: chargeId,
-            });
-          }
-
           if (prev && prev.id === chargeId) {
             return {
               ...prev,
@@ -330,6 +318,25 @@ export function PagamentosApiView() {
           }
           return prev;
         });
+
+        // Notificação + som só na transição pendente → pago
+        // (emitSaleEvent tem dedupe por id; não dispara “do nada”)
+        if (becamePaid) {
+          const prev = resultRef.current;
+          const wasPending =
+            prev?.id === chargeId &&
+            prev.status !== "paid" &&
+            prev.status !== "aprovada";
+          if (wasPending) {
+            emitSaleEvent({
+              kind: "aprovada",
+              amount: json.amount ?? prev.amount ?? 0,
+              customer: undefined,
+              product: prev.message,
+              id: chargeId,
+            });
+          }
+        }
         await refreshList();
       } catch (e) {
         if (!silent) {
@@ -488,7 +495,7 @@ export function PagamentosApiView() {
           Cobranças{" "}
           <strong style={{ color: "var(--text-1)" }}>PIX reais</strong> (sem
           simulação) com a <code style={{ fontSize: 12 }}>sk_</code> da sua
-          conta — mesmo fluxo do cassino/checkout.
+          conta, mesmo fluxo do cassino/checkout.
           {accountLabel ? (
             <>
               {" "}
@@ -529,7 +536,7 @@ export function PagamentosApiView() {
               }}
             >
               Use a <code>pk_</code> / <code>sk_</code> gerada em Integrações →
-              API. A secret completa só aparece ao criar/rotacionar — copie na
+              API. A secret completa só aparece ao criar/rotacionar. Copie na
               hora (a máscara curta não funciona na API).
             </p>
           </div>
@@ -615,7 +622,7 @@ export function PagamentosApiView() {
                   <strong style={{ color: "var(--text-1)" }}>
                     Permissões:
                   </strong>{" "}
-                  {selected.permissions.join(", ") || "—"}
+                  {selected.permissions.join(", ") || "-"}
                 </div>
               </div>
             ) : null}
@@ -658,7 +665,7 @@ export function PagamentosApiView() {
                 {secretLooksMasked
                   ? "Isso é máscara, não a secret. Limpamos e usamos sua sessão logada. Para testar com sk_, rotacione em Integrações → API e cole a chave completa."
                   : hasApiKey
-                    ? "✓ Secret completa — auth por API key (com fallback da sessão)."
+                    ? "✓ Secret completa. Auth por API key (com fallback da sessão)."
                     : "Opcional: cole a sk_ completa. Sem ela, o teste usa sua sessão logada no painel."}
               </span>
             </label>
@@ -803,11 +810,11 @@ export function PagamentosApiView() {
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
             <div>
               <strong style={{ color: "var(--text-1)" }}>Conta:</strong>{" "}
-              {result.sellerEmail || result.sellerId || "—"}
+              {result.sellerEmail || result.sellerId || "-"}
             </div>
             <div>
               <strong style={{ color: "var(--text-1)" }}>Adquirente:</strong>{" "}
-              {result.provider || "—"}
+              {result.provider || "-"}
               {result.routingMode ? ` (${result.routingMode})` : ""}
             </div>
             <div>
@@ -815,7 +822,7 @@ export function PagamentosApiView() {
             </div>
             <div>
               <strong style={{ color: "var(--text-1)" }}>TX:</strong>{" "}
-              {result.transactionId || "—"}
+              {result.transactionId || "-"}
             </div>
             <div>
               <strong style={{ color: "var(--text-1)" }}>Status:</strong>{" "}
@@ -839,7 +846,7 @@ export function PagamentosApiView() {
                     cursor: syncing ? "wait" : "pointer",
                   }}
                 >
-                  {syncing ? "Verificando…" : "Já paguei — verificar"}
+                  {syncing ? "Verificando…" : "Já paguei? Verificar"}
                 </button>
               ) : null}
             </div>

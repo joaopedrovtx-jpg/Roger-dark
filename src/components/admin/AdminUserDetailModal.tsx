@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { formatBRL, formatChartDate } from "@/lib/format";
+import { setImpersonateSeller } from "@/lib/client/impersonate";
 import {
   adquirentesMock,
   DEFAULT_SELLER_FEES,
@@ -116,7 +117,7 @@ function statusBadgeColors(s: UserStatus): {
 } {
   if (s === "ativo") return { background: "#ffffff", color: "#0a0f0c" };
   if (s === "bloqueado") return { background: "#ef4444", color: "#ffffff" };
-  // pendente — amarelo
+  // pendente amarelo
   return { background: "#eab308", color: "#0a0f0c" };
 }
 
@@ -282,7 +283,7 @@ function DocMockSurface({
   );
 }
 
-/** Lightbox — documento aberto em tela cheia (estética do modal DarkPay) */
+/** Lightbox documento aberto em tela cheia (estética do modal DarkPay) */
 function DocViewerLightbox({
   doc,
   onClose,
@@ -420,7 +421,7 @@ function ReadField({
       <input
         type="text"
         readOnly
-        value={value?.trim() ? value : "—"}
+        value={value?.trim() ? value : "-"}
         className={valueStyle ? "tabular" : undefined}
         style={{ ...inputStyle, ...valueStyle }}
         tabIndex={0}
@@ -463,7 +464,7 @@ function PhoneField({ phone }: { phone: string }) {
         <input
           type="text"
           readOnly
-          value={phone?.trim() ? phone : "—"}
+          value={phone?.trim() ? phone : "-"}
           className="tabular min-w-0"
           style={{
             ...inputStyle,
@@ -472,7 +473,7 @@ function PhoneField({ phone }: { phone: string }) {
             maxWidth: "100%",
           }}
           tabIndex={0}
-          size={Math.max((phone?.trim() || "—").length, 10)}
+          size={Math.max((phone?.trim() || "-").length, 10)}
         />
         <a
           href={wa ?? undefined}
@@ -606,7 +607,7 @@ export function AdminUserDetailModal({
   const [tab, setTab] = useState<DetailTab>(initialTab);
   const [viewingDoc, setViewingDoc] = useState<DocPreviewItem | null>(null);
   const [fees, setFees] = useState<SellerFees>({ ...DEFAULT_SELLER_FEES });
-  /** Adquirente ativa p/ este seller (modo personalizado) — 0 ou 1 */
+  /** Adquirente ativa p/ este seller (modo personalizado) 0 ou 1 */
   const [activeSellerAcqId, setActiveSellerAcqId] = useState<string | null>(
     null
   );
@@ -1097,21 +1098,15 @@ export function AdminUserDetailModal({
               type="button"
               onClick={() => {
                 if (!user) return;
-                try {
-                  localStorage.setItem(
-                    "darkpay.impersonate.seller",
-                    JSON.stringify({
-                      id: user.id,
-                      name: user.name,
-                      email: user.email,
-                      at: new Date().toISOString(),
-                    })
-                  );
-                } catch {
-                  /* ignore */
-                }
+                // Prova social: painel do seller em modo só visualização
+                setImpersonateSeller({
+                  id: user.id,
+                  name: user.name,
+                  email: user.email,
+                });
                 onClose();
-                router.push("/");
+                // /dash (não /) — home redireciona admin para /admin
+                router.push("/dash");
               }}
               className="inline-flex items-center justify-center gap-1.5 font-semibold transition-opacity hover:opacity-90"
               style={{
@@ -1125,7 +1120,7 @@ export function AdminUserDetailModal({
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
-              title={`Abrir dashboard de ${user.name}`}
+              title={`Visualizar dashboard de ${user.name} (somente leitura)`}
             >
               <ExternalLink size={14} strokeWidth={2.25} aria-hidden />
               Dashboard
@@ -1617,7 +1612,7 @@ export function AdminUserDetailModal({
                     color: "#eab308",
                   }}
                 >
-                  Alterações não salvas — clique em Salvar para aplicar na API.
+                  Alterações não salvas. Clique em Salvar para aplicar na API.
                 </p>
               ) : null}
             </div>

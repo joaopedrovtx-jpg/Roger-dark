@@ -136,7 +136,7 @@ export async function dbSetWithdrawalStatus(
           balanceAfter: 0,
           referenceType: "withdrawal",
           referenceId: id,
-          description: "Saque recusado — valor devolvido",
+          description: "Saque recusado valor devolvido",
         },
       });
     }

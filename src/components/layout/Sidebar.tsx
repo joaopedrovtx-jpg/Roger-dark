@@ -38,7 +38,7 @@ const NAV: NavItem[] = [
   {
     label: "Integrações",
     href: "/integracoes",
-    // Flaticon #7082705 — integração do sistema
+    // Flaticon #7082705 integração do sistema
     // https://www.flaticon.com/br/icone-gratis/integracao-do-sistema_7082705
     iconSrc: "/icons/integracao.png",
   },

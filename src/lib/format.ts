@@ -54,18 +54,18 @@ function parseChartParts(
 
 /**
  * Data do gráfico em dd/mm/yyyy (tooltip / detalhe).
- * Nunca devolve "undefined/undefined/…" — invalido vira "—".
+ * Nunca devolve "undefined/undefined/…" invalido vira "-".
  */
 export function formatChartDate(iso: string | null | undefined): string {
   const p = parseChartParts(iso);
-  if (!p) return "—";
+  if (!p) return "-";
   return `${p.d}/${p.m}/${p.y}`;
 }
 
 /** Eixo X compacto: só dia/mês (ex.: 23/12) */
 export function formatChartDateShort(iso: string | null | undefined): string {
   const p = parseChartParts(iso);
-  if (!p) return "—";
+  if (!p) return "-";
   return `${p.d}/${p.m}`;
 }
 
@@ -74,13 +74,13 @@ export function formatChartLabel(
   iso: string | null | undefined,
   grain: "hour" | "day" = "day"
 ): string {
-  if (iso == null || String(iso).trim() === "") return "—";
+  if (iso == null || String(iso).trim() === "") return "-";
   const raw = String(iso);
   if (grain === "hour") {
     // "2025-12-23T14:00" ou "2025-12-23T14:00:00"
     const time = raw.includes("T") ? raw.split("T")[1] : "";
     const hour = (time || "").slice(0, 2);
-    if (!/^\d{2}$/.test(hour)) return "—";
+    if (!/^\d{2}$/.test(hour)) return "-";
     return `${hour}h`;
   }
   return formatChartDateShort(raw);

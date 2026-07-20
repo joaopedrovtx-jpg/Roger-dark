@@ -17,6 +17,7 @@ import {
   IconPixFilled,
 } from "@/components/dashboard/KpiIcons";
 import { SaqueModal } from "./SaqueModal";
+import { isImpersonating } from "@/lib/client/impersonate";
 
 const PENDING_YELLOW = "#f5a623";
 const RECUSADO_RED = "#ef4444";
@@ -35,7 +36,7 @@ function isPending(status: SaqueStatus): boolean {
 }
 
 /**
- * Fundo do ícone Pix + valor — mesmo padrão das transações
+ * Fundo do ícone Pix + valor mesmo padrão das transações
  * pendente → amarelo · recusado → vermelho · pago → branco + ícone preto
  */
 function toneForStatus(status: SaqueStatus): {
@@ -308,6 +309,16 @@ export function FinanceiroOverview() {
   const [saqueFixed, setSaqueFixed] = useState(0);
   const [saqueOpen, setSaqueOpen] = useState(false);
   const [selected, setSelected] = useState<SaqueTransaction | null>(null);
+  const [viewOnly, setViewOnly] = useState(false);
+
+  useEffect(() => {
+    setViewOnly(isImpersonating());
+    function sync() {
+      setViewOnly(isImpersonating());
+    }
+    window.addEventListener("darkpay:impersonate", sync);
+    return () => window.removeEventListener("darkpay:impersonate", sync);
+  }, []);
 
   async function reload() {
     try {
@@ -447,7 +458,10 @@ export function FinanceiroOverview() {
             {card.isSacar ? (
               <button
                 type="button"
-                onClick={() => setSaqueOpen(true)}
+                onClick={() => {
+                  if (!viewOnly) setSaqueOpen(true);
+                }}
+                disabled={viewOnly}
                 className="inline-flex shrink-0 items-center font-semibold text-[13px] transition-opacity hover:opacity-90"
                 style={{
                   height: 34,
@@ -456,8 +470,14 @@ export function FinanceiroOverview() {
                   background: "var(--green-use)",
                   color: "var(--on-green)",
                   border: "none",
-                  cursor: "pointer",
+                  cursor: viewOnly ? "not-allowed" : "pointer",
+                  opacity: viewOnly ? 0.4 : 1,
                 }}
+                title={
+                  viewOnly
+                    ? "Modo visualização: saque não permitido"
+                    : undefined
+                }
               >
                 Sacar
               </button>

@@ -12,10 +12,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Dark Pay — Payment Solutions",
+  title: "Dark Pay Payment Solutions",
   description: "Painel de controle Dark Pay",
   icons: {
-    icon: "/logo-darkpay-clean.jpg",
+    icon: "/Fiveicon.png",
+    apple: "/Fiveicon.png",
   },
 };
 

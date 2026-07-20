@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { KpiCard } from "./KpiCard";
 import {
   IconDolarSymbol,
@@ -10,6 +10,7 @@ import {
 import { formatBRL } from "@/lib/format";
 import type { DashboardData } from "@/types/dashboard";
 import { SaqueModal } from "@/components/financeiro/SaqueModal";
+import { isImpersonating } from "@/lib/client/impersonate";
 
 interface KpiGridProps {
   data: DashboardData;
@@ -17,11 +18,18 @@ interface KpiGridProps {
 
 const ICON = 24;
 
-function WithdrawButton({ onClick }: { onClick: () => void }) {
+function WithdrawButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90 whitespace-nowrap"
       style={{
         height: 32,
@@ -33,8 +41,14 @@ function WithdrawButton({ onClick }: { onClick: () => void }) {
         color: "var(--on-green)",
         background: "var(--green-use)",
         lineHeight: 1,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
       }}
+      title={
+        disabled
+          ? "Modo visualização: saque não permitido"
+          : undefined
+      }
     >
       Sacar
     </button>
@@ -44,6 +58,16 @@ function WithdrawButton({ onClick }: { onClick: () => void }) {
 /** Linha de cima: disponível | pendente | retido (3 colunas iguais) */
 export function KpiGrid({ data }: KpiGridProps) {
   const [saqueOpen, setSaqueOpen] = useState(false);
+  const [viewOnly, setViewOnly] = useState(false);
+
+  useEffect(() => {
+    setViewOnly(isImpersonating());
+    function sync() {
+      setViewOnly(isImpersonating());
+    }
+    window.addEventListener("darkpay:impersonate", sync);
+    return () => window.removeEventListener("darkpay:impersonate", sync);
+  }, []);
 
   const items: Array<{
     key: string;
@@ -57,7 +81,11 @@ export function KpiGrid({ data }: KpiGridProps) {
       icon: <IconDolarSymbol size={ICON} />,
       label: "Saldo disponível",
       value: formatBRL(data.balances.available),
-      action: <WithdrawButton onClick={() => setSaqueOpen(true)} />,
+      action: viewOnly ? (
+        <WithdrawButton onClick={() => undefined} disabled />
+      ) : (
+        <WithdrawButton onClick={() => setSaqueOpen(true)} />
+      ),
     },
     {
       key: "pending",
@@ -75,11 +103,13 @@ export function KpiGrid({ data }: KpiGridProps) {
 
   return (
     <>
-      <SaqueModal
-        open={saqueOpen}
-        onClose={() => setSaqueOpen(false)}
-        available={data.balances.available}
-      />
+      {!viewOnly ? (
+        <SaqueModal
+          open={saqueOpen}
+          onClose={() => setSaqueOpen(false)}
+          available={data.balances.available}
+        />
+      ) : null}
 
       <div
         className="grid w-full"

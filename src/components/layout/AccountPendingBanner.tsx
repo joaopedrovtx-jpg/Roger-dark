@@ -4,15 +4,18 @@ import Link from "next/link";
 import { IconClockFilled } from "@/components/dashboard/KpiIcons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { accountLocked } from "@/lib/kyc";
+import { isImpersonating } from "@/lib/client/impersonate";
 
 /**
  * Faixa amarela fixa de aviso no topo (dashboard e páginas liberadas):
  * conta precisa de aprovação / envio de documentos. Botão preto.
  */
 export function AccountPendingBanner() {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
 
-  if (loading || !accountLocked(user)) return null;
+  // Staff em visualização ou admin: não mostrar banner KYC do staff
+  if (loading || isAdmin || isImpersonating()) return null;
+  if (!accountLocked(user)) return null;
 
   const docsSubmitted = Boolean(user?.kyc?.docsSubmitted);
   const hasRejected = Boolean(user?.kyc?.hasRejected);

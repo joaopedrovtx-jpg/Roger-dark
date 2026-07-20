@@ -1,6 +1,6 @@
 import type { DashboardData } from "@/types/dashboard";
 
-/** Mock congelado da SPEC — valores da imagem de referência */
+/** Mock congelado da SPEC valores da imagem de referência */
 export const dashboardMock: DashboardData = {
   user: {
     name: "Igor Rocha",

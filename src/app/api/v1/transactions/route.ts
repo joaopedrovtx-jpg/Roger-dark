@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/server/memory-store";
-import { isGuardFail, requireAuth } from "@/lib/server/guards";
+import {
+  isGuardFail,
+  requireAuth,
+  resolveSellerScope,
+} from "@/lib/server/guards";
 import { listSellerTransactions } from "@/lib/server/db/seller-transactions.service";
 
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
   if (isGuardFail(gate)) return gate.error;
 
+  const scope = await resolveSellerScope(req, gate);
+  if (isGuardFail(scope)) return scope.error;
+
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") ?? undefined;
     const page = Number(searchParams.get("page") ?? 1);
     const pageSize = Number(searchParams.get("pageSize") ?? 40);
-    const sellerId = gate.user.id;
+    const sellerId = scope.sellerId;
 
     const fromDb = await listSellerTransactions(sellerId, {
       page,
@@ -55,7 +62,7 @@ export async function GET(req: Request) {
       items: items.map((t) => ({
         id: t.id,
         date: t.date,
-        customer: t.customer ?? "—",
+        customer: t.customer ?? "-",
         product: t.product ?? t.description,
         method: "PIX" as const,
         amount: t.amount,

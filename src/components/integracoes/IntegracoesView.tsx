@@ -42,7 +42,7 @@ function IntegrationCard({
 }: IntegrationCardProps) {
   const content = (
     <>
-      {/* Quadrado do logo — imagem como fundo ou ícone */}
+      {/* Quadrado do logo imagem como fundo ou ícone */}
       <span
         className="flex shrink-0 items-center justify-center overflow-hidden"
         style={{
@@ -121,7 +121,8 @@ export function IntegracoesView() {
       <div
         className="grid w-full"
         style={{
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          // API · UTMify · Webhook na mesma fileira
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
           gap: "var(--kpi-gap)",
         }}
       >
@@ -130,26 +131,13 @@ export function IntegracoesView() {
           iconSize={64}
           description={
             <>
-              Credenciais pk_/sk_ para integrar
+              Gerencie credenciais de API
               <br />
-              cassino, checkout e backend
+              e integre com a plataforma
             </>
           }
           logoBg="/icons/api-logo.jpg"
           href="/integracoes/api"
-        />
-        <IntegrationCard
-          title="Pagamentos PIX"
-          iconSize={64}
-          description={
-            <>
-              Playground: criar cobrança e
-              <br />
-              QR Code na sua conta
-            </>
-          }
-          logoBg="/icons/pix.png"
-          href="/integracoes/pagamentos"
         />
         <IntegrationCard
           title="UTMify"

@@ -95,7 +95,7 @@ function ReadField({
       <input
         type="text"
         readOnly
-        value={value?.trim() ? value : "—"}
+        value={value?.trim() ? value : "-"}
         className={valueStyle ? "tabular" : undefined}
         style={{ ...inputStyle, ...valueStyle }}
         tabIndex={0}
@@ -384,7 +384,7 @@ export function AdminAdquirenteDetailModal({
           </div>
         </div>
 
-        {/* Footer — ações de status só no modal (padrão saques) */}
+        {/* Footer ações de status só no modal (padrão saques) */}
         <div
           className="flex flex-wrap items-center justify-end gap-2.5 shrink-0"
           style={{ padding: "12px 24px 20px" }}

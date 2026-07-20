@@ -4,7 +4,7 @@ import { AuthShell } from "@/components/auth/AuthShell";
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm";
 
 export const metadata: Metadata = {
-  title: "Criar nova senha — Dark Pay",
+  title: "Criar nova senha Dark Pay",
   description: "Defina uma nova senha para sua conta Dark Pay",
 };
 

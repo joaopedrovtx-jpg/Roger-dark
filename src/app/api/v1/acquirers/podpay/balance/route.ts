@@ -7,7 +7,7 @@ import {
   resolvePodPayConfigFromRequest,
 } from "@/lib/acquirers/podpay/config";
 
-/** GET /api/v1/acquirers/podpay/balance — saldo remoto PodPay */
+/** GET /api/v1/acquirers/podpay/balance saldo remoto PodPay */
 export async function GET(req: Request) {
   const __gate = await requireAdmin(req);
   if (isGuardFail(__gate)) return __gate.error;

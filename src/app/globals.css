@@ -59,14 +59,14 @@
   --icon-on-green: var(--on-green);
   --star-amber: #f5a623;
 
-  /* Chart — acompanha o acento da UI (como antes) */
-  --chart-line: var(--green-use);
-  --chart-dot-fill: var(--green-use);
+  /* Chart — só branco/cinza (sem verde) */
+  --chart-line: #ffffff;
+  --chart-dot-fill: #ffffff;
   --chart-dot-stroke: #0c0e12;
   --chart-fill-start: rgba(255, 255, 255, 0.22);
   --chart-fill-end: rgba(255, 255, 255, 0);
-  --chart-grid: #1c222d;
-  --chart-axis: #6d7585;
+  --chart-grid: var(--bg-card-inner-icon);
+  --chart-axis: #ffffff;
   --chart-plot-height: 260px;
   --chart-card-height: 360px;
 
@@ -158,9 +158,53 @@ body {
   background: #f2f4f7;
 }
 
+/* Logo pulsando no carregamento (login / bootstrap) — ritmo mais lento */
+@keyframes brand-logo-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.12));
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.94);
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0));
+  }
+}
+
+.brand-logo-pulse {
+  animation: brand-logo-pulse 2.4s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.brand-loading-screen {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visually hidden (acessibilidade) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Recharts tooltip polish */
 .recharts-default-tooltip {
   border-radius: var(--radius-md) !important;
+}
+
+/* Linha vertical do hover no gráfico — escura, nunca verde */
+.recharts-tooltip-cursor {
+  stroke: var(--bg-card-inner-icon) !important;
+  stroke-width: 1.25px !important;
+  fill: none !important;
 }
 
 /* API credentials page — stack columns on small screens */

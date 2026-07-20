@@ -1,6 +1,6 @@
 /**
  * Store em memória (server + client via globalThis).
- * Em modo real começa vazio — vendas/saques só entram via API / PodPay / DB.
+ * Em modo real começa vazio vendas/saques só entram via API / PodPay / DB.
  */
 
 import type {
@@ -100,7 +100,7 @@ export function getBrandingFromStore(): PlatformBranding {
   }
   return {
     logoUrl: "/logo-darkpay-header.png",
-    faviconUrl: "/logo-darkpay-clean.jpg",
+    faviconUrl: "/Fiveicon.png",
     authImageUrl: "/banner-darkpay.jpg",
     banners: [
       {

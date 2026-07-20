@@ -4,7 +4,7 @@ import { isAdmin2faRequired } from "@/lib/server/admin-2fa-policy";
 import { isProduction, isMockAllowed } from "@/lib/server/security";
 import { webhookQueueSize } from "@/lib/server/webhook-queue";
 
-/** GET /api/health — healthcheck + posture de segurança (sem secrets) */
+/** GET /api/health healthcheck + posture de segurança (sem secrets) */
 export async function GET() {
   const { warnWeakSecrets } = await import("@/lib/server/security");
   warnWeakSecrets();

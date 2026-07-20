@@ -5,6 +5,10 @@ import Link from "next/link";
 import { Lock, Mail, Phone, User } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  BrandLoadingScreen,
+  waitBrandLoadingMin,
+} from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
 
 function onlyDigits(v: string) {
@@ -53,6 +57,7 @@ export function RegisterForm() {
     }
 
     setLoading(true);
+    const startedAt = Date.now();
     try {
       await register({
         name: name.trim(),
@@ -60,19 +65,21 @@ export function RegisterForm() {
         phone: phone.trim(),
         password,
       });
-      // hard navigate para aplicar cookie de sessão
+      // Logo pulsando no mínimo 2s antes de entrar
+      await waitBrandLoadingMin(startedAt);
       window.location.assign("/");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Não foi possível criar a conta."
       );
-    } finally {
       setLoading(false);
     }
   }
 
   return (
     <div className="flex flex-col" style={{ gap: 24 }}>
+      {loading ? <BrandLoadingScreen label="Criando conta…" /> : null}
+
       {/* Logo (personalizável no Admin) */}
       <div className="flex justify-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}

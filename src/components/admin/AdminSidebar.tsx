@@ -136,7 +136,7 @@ export function AdminSidebar() {
           href={homeHref}
           className="flex items-center select-none"
           style={{ textDecoration: "none" }}
-          aria-label="Dark Pay Admin — início"
+          aria-label="Dark Pay Admin início"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img

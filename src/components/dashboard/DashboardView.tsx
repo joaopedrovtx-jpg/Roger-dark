@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccountPendingBanner } from "@/components/layout/AccountPendingBanner";
 import { AccountAccessGate } from "@/components/layout/AccountAccessGate";
+import { ImpersonationBanner } from "@/components/layout/ImpersonationBanner";
 import { KpiGrid } from "./KpiGrid";
 import { MetricsStack } from "./MetricsStack";
 import { PromoBanner } from "./PromoBanner";
@@ -18,7 +19,7 @@ const DEFAULT_PERIOD: PeriodValue = {
 };
 
 /** Painel real: zeros até a API devolver vendas/saldos do banco */
-function emptyDashboard(name = "—"): DashboardData {
+function emptyDashboard(name = "-"): DashboardData {
   // 7 dias reais (calendário atual) com amount 0
   const revenueHistory: DashboardData["revenueHistory"] = [];
   for (let i = 6; i >= 0; i--) {
@@ -67,7 +68,7 @@ function mapApiToDashboard(json: Record<string, unknown>): DashboardData {
 
   return {
     user: {
-      name: user?.name ?? "—",
+      name: user?.name ?? "-",
       avatarUrl: user?.avatarUrl ?? null,
     },
     balances: {
@@ -131,13 +132,14 @@ export function DashboardView() {
           gap: "var(--main-gap)",
         }}
       >
+        <ImpersonationBanner />
         <PageHeader name={data.user.name} avatarUrl={data.user.avatarUrl} />
 
         <AccountPendingBanner />
 
         <PromoBanner />
 
-        {/* Saldos — 3 cards (disponível | pendente | retido) + Sacar */}
+        {/* Saldos 3 cards (disponível | pendente | retido) + Sacar */}
         <KpiGrid data={data} />
 
         <div

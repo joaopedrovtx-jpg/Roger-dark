@@ -1,6 +1,6 @@
 /**
- * GET  /api/v1/account/profile — dados cadastrais do seller
- * PATCH /api/v1/account/profile — atualiza PF/PJ (CNPJ, empresa, endereço…)
+ * GET  /api/v1/account/profile dados cadastrais do seller
+ * PATCH /api/v1/account/profile atualiza PF/PJ (CNPJ, empresa, endereço…)
  */
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
@@ -102,13 +102,13 @@ export async function PATCH(req: Request) {
     cnpj?: string;
     displayName?: string;
     avatarUrl?: string | null;
-    /** CPF do representante (PJ) — guardado em document se PJ */
+    /** CPF do representante (PJ) guardado em document se PJ */
     representativeDocument?: string;
     address?: string;
     city?: string;
     state?: string;
     zip?: string;
-    /** Campos extras em notas/endereço livre (nome da mãe etc. — UI only se não houver coluna) */
+    /** Campos extras em notas/endereço livre (nome da mãe etc. UI only se não houver coluna) */
     motherName?: string;
     birthDate?: string;
     neighborhood?: string;
@@ -124,7 +124,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  // Meu perfil: staff ou conta ativa — salva foto / nome de exibição sem KYC
+  // Meu perfil: staff ou conta ativa salva foto / nome de exibição sem KYC
   const isStaff =
     auth.user.roles.includes("admin") || auth.user.roles.includes("manager");
   if (body.profileOnly || body.avatarUrl !== undefined) {
@@ -226,9 +226,9 @@ export async function PATCH(req: Request) {
 
     // se veio CPF do representante, guardamos em notes via displayName? 
     // Mantém document como CNPJ; CPF rep pode ir no campo document só se PF.
-    // Opcional: armazenar CPF rep no address meta — melhor em company field.
-    // Usamos phone já; rep CPF fica em um segundo campo se schema tiver — não tem.
-    // Guardamos rep no `document` não — CNPJ já está. 
+    // Opcional: armazenar CPF rep no address meta melhor em company field.
+    // Usamos phone já; rep CPF fica em um segundo campo se schema tiver não tem.
+    // Guardamos rep no `document` não CNPJ já está. 
     // Vamos deixar repDoc em notes do user? Schema não tem notes.
     // Ignora persistência de repDoc se não houver coluna; UI envia e company/cnpj são o foco.
     void repDoc;

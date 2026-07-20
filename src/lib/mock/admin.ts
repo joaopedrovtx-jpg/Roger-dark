@@ -1,4 +1,4 @@
-/** Mock data do Painel Admin — DarkPay */
+/** Mock data do Painel Admin DarkPay */
 
 export type UserStatus = "ativo" | "bloqueado" | "pendente";
 export type DocReviewStatus = "pendente" | "aprovado" | "rejeitado";
@@ -208,7 +208,7 @@ export interface Adquirente {
   transactionsMes: number;
   settlement: string;
   priority: number;
-  /** Taxa de conversão de pagamentos (0–100) — exibida no admin em vez da taxa MDR */
+  /** Taxa de conversão de pagamentos (0–100) exibida no admin em vez da taxa MDR */
   conversionRate: number;
 }
 
@@ -423,7 +423,7 @@ export const adminMetricsMock: AdminMetrics = {
 };
 
 /**
- * Série fictícia do gráfico — valores da SPEC / referência visual
+ * Série fictícia do gráfico valores da SPEC / referência visual
  * (ordem L→R no chart: mais recente → mais antigo)
  */
 export const adminVolumeHistoryMock: Array<{
@@ -467,7 +467,7 @@ export interface AdminLedgerTx {
   status: AdminTxStatus;
 }
 
-/** Histórico total — entradas (vendas) e saídas (saques), ordenado por data desc */
+/** Histórico total entradas (vendas) e saídas (saques), ordenado por data desc */
 const adminLedgerRaw: AdminLedgerTx[] = [
   {
     id: "TX-20941",
@@ -668,7 +668,7 @@ export const adminUsersMock: AdminUser[] = [
     displayName: "DarkPay Store",
     company: "DarkPay Soluções LTDA",
     cnpj: "12.345.678/0001-90",
-    address: "Av. Paulista, 1000 — cj. 101",
+    address: "Av. Paulista, 1000 cj. 101",
     city: "São Paulo",
     state: "SP",
     zip: "01310-100",

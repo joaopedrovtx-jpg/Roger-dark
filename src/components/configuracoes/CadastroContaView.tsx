@@ -414,7 +414,7 @@ function formatCep(v: string): string {
   return d.replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
-/** Data de nascimento: DD/MM/AAAA — máx. 8 dígitos */
+/** Data de nascimento: DD/MM/AAAA máx. 8 dígitos */
 function formatBirthDate(v: string): string {
   const d = onlyDigits(v).slice(0, 8);
   if (d.length <= 2) return d;
@@ -445,7 +445,7 @@ function InformacoesPanel() {
   const [nomeMae, setNomeMae] = useState("");
   const [nascimento, setNascimento] = useState("");
 
-  // PJ — empresa
+  // PJ empresa
   const [cnpj, setCnpj] = useState("");
   const [razaoSocial, setRazaoSocial] = useState("");
   const [nomeFantasia, setNomeFantasia] = useState("");
@@ -511,7 +511,7 @@ function InformacoesPanel() {
         setCep(formatCep(p.zip || ""));
         setCidade(p.city || "");
         setEstado(p.state || "São Paulo");
-        // address pode vir "rua, 123" — usa como logradouro
+        // address pode vir "rua, 123" usa como logradouro
         setEndereco(p.address || "");
 
         // Já tem documento cadastrado → formulário travado
@@ -1059,7 +1059,7 @@ function DocKindIcon({
     return <IconUserProfileFilled size={size} tone="white" />;
   }
   if (kind === "contrato_social") {
-    // Comprovante / PDF — contrato social
+    // Comprovante / PDF contrato social
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -1078,7 +1078,7 @@ function DocKindIcon({
       />
     );
   }
-  // doc_frente + doc_verso — documentos da plataforma
+  // doc_frente + doc_verso documentos da plataforma
   return <IconDocumentosFilled size={size} tone="white" />;
 }
 
@@ -1500,7 +1500,7 @@ export function CadastroContaView({
 
   return (
     <div className="flex flex-col" style={{ gap: 18, maxWidth: 920 }}>
-      {/* Tabs — cantos radius-md (padrão dashboard), sem pill */}
+      {/* Tabs cantos radius-md (padrão dashboard), sem pill */}
       <div
         className="inline-flex items-center self-start"
         style={{
@@ -1530,7 +1530,7 @@ export function CadastroContaView({
                 cursor: "pointer",
                 fontSize: 13.5,
                 fontWeight: on ? 650 : 500,
-                // fundo escuro no ativo — sem borda (o container já é cinza)
+                // fundo escuro no ativo sem borda (o container já é cinza)
                 background: on ? "var(--bg-card)" : "transparent",
                 color: on ? "var(--text-1)" : "var(--text-2)",
                 boxShadow: "none",

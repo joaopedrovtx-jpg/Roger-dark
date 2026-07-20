@@ -8,8 +8,8 @@ import {
 } from "@/lib/server/db/api-credentials.service";
 
 /**
- * GET  /api/v1/api-credentials — lista credenciais do seller (sem secret)
- * POST /api/v1/api-credentials — cria (retorna secret uma vez)
+ * GET  /api/v1/api-credentials lista credenciais do seller (com secret do dono)
+ * POST /api/v1/api-credentials cria (retorna secret)
  */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       {
         ...created,
         warning:
-          "Copie a chave privada agora. Ela não será exibida novamente por segurança.",
+          "Chave criada. Use o olho para ver e o botão copiar quando precisar.",
       },
       { status: 201 }
     );

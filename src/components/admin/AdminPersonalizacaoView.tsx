@@ -43,7 +43,7 @@ const btnPrimary: CSSProperties = {
   cursor: "pointer",
 };
 
-/** Cancelar / secundário — mesmo padrão dos outros modais (Webhooks, Gerentes…) */
+/** Cancelar / secundário mesmo padrão dos outros modais (Webhooks, Gerentes…) */
 const btnGhost: CSSProperties = {
   height: 42,
   padding: "0 18px",
@@ -242,7 +242,7 @@ export function AdminPersonalizacaoView() {
           body: JSON.stringify(payload),
         });
       } catch {
-        /* offline — localStorage já salvo */
+        /* offline localStorage já salvo */
       }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
@@ -524,7 +524,7 @@ function tileBoxStyle(shape: TileShape): CSSProperties {
   if (shape === "tall") {
     return { width: "100%", height: 168 };
   }
-  // wide — banners da dashboard (faixa baixa)
+  // wide banners da dashboard (faixa baixa)
   return { width: "100%", height: 72 };
 }
 
@@ -942,7 +942,7 @@ function BannerConfigModal({
   );
 }
 
-/** Tile de upload — clique ou arraste, cantos radius-card */
+/** Tile de upload clique ou arraste, cantos radius-card */
 function UploadTile({
   formId,
   label,

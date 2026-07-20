@@ -1,7 +1,7 @@
 /**
  * Ícones preenchidos (estilo flat/solid tipo Flaticon)
  * Real brasileiro: flaticon.com/br/icone-gratis/real-brasileiro_9382131
- * (Freepik) — free with attribution
+ * (Freepik) free with attribution
  */
 
 type IconTone = "white" | "black" | "yellow" | "red";
@@ -26,10 +26,10 @@ const base = {
 const filterWhite = "brightness(0) saturate(100%) invert(1)";
 /** brightness(0) mantém o ícone preto */
 const filterBlack = "brightness(0) saturate(100%)";
-/** ≈ #f5a623 — amarelo status pendente */
+/** ≈ #f5a623 amarelo status pendente */
 const filterYellow =
   "brightness(0) saturate(100%) invert(72%) sepia(68%) saturate(1480%) hue-rotate(360deg) brightness(101%) contrast(96%)";
-/** ≈ #ef4444 — vermelho status recusado */
+/** ≈ #ef4444 vermelho status recusado */
 const filterRed =
   "brightness(0) saturate(100%) invert(36%) sepia(86%) saturate(2476%) hue-rotate(338deg) brightness(98%) contrast(96%)";
 
@@ -86,7 +86,7 @@ export function IconRealBrasileiro({ size = 24, className }: IconProps) {
 }
 
 /**
- * Símbolo do dólar (Flaticon #126179) — saldo disponível
+ * Símbolo do dólar (Flaticon #126179) saldo disponível
  * https://www.flaticon.com/br/icone-gratis/simbolo-do-dolar_126179
  */
 export function IconDolarSymbol({ size = 24, className, tone = "white" }: IconProps) {
@@ -101,7 +101,7 @@ export function IconDolarSymbol({ size = 24, className, tone = "white" }: IconPr
 }
 
 /**
- * Cadeado (Flaticon #45259) — saldo retido
+ * Cadeado (Flaticon #45259) saldo retido
  * https://www.flaticon.com/br/icone-gratis/simbolo-de-cadeado-para-interface-de-seguranca_45259
  */
 export function IconLockFilled({ size = 24, className }: IconProps) {
@@ -111,7 +111,7 @@ export function IconLockFilled({ size = 24, className }: IconProps) {
 }
 
 /**
- * Sino (Flaticon #15767730) — notificações
+ * Sino (Flaticon #15767730) notificações
  * https://www.flaticon.com/free-icon/bell_15767730
  */
 export function IconBellFilled({ size = 24, className, tone = "white" }: IconProps) {
@@ -164,7 +164,7 @@ export function Icon2FAFilled({
 }
 
 /**
- * Dinheiro voando (Flaticon #4263415) — lucro líquido
+ * Dinheiro voando (Flaticon #4263415) lucro líquido
  * https://www.flaticon.com/br/icone-gratis/dinheiro-voando_4263415
  */
 export function IconMoneyFlying({ size = 24, className }: IconProps) {
@@ -177,7 +177,7 @@ export function IconMoneyFlying({ size = 24, className }: IconProps) {
   );
 }
 
-/** Cifrão em círculo — fallback */
+/** Cifrão em círculo fallback */
 export function IconDollarFilled({
   size = 24,
   className,
@@ -198,7 +198,7 @@ export function IconDollarFilled({
   );
 }
 
-/** Relógio preenchido — saldo pendente / retido */
+/** Relógio preenchido saldo pendente / retido */
 export function IconClockFilled({
   size = 24,
   className,
@@ -220,7 +220,7 @@ export function IconClockFilled({
 }
 
 /**
- * Transferência / setas (ícone original) — total de transações
+ * Transferência / setas (ícone original) total de transações
  */
 export function IconTransferFilled({
   size = 24,
@@ -243,7 +243,7 @@ export function IconTransferFilled({
 }
 
 /**
- * Desconto / porcentagem (Flaticon #16252897) — ticket médio
+ * Desconto / porcentagem (Flaticon #16252897) ticket médio
  * https://www.flaticon.com/br/icone-gratis/desconto_16252897
  */
 export function IconPercentFilled({ size = 24, className }: IconProps) {
@@ -256,7 +256,7 @@ export function IconPercentFilled({ size = 24, className }: IconProps) {
   );
 }
 
-/** Saída de dinheiro (seta para baixo em círculo) — total de saídas */
+/** Saída de dinheiro (seta para baixo em círculo) total de saídas */
 export function IconOutflowFilled({
   size = 24,
   className,
@@ -282,7 +282,7 @@ export function IconOutflowFilled({
 }
 
 /**
- * PIX (Icons8 uqpbD9vhCDEQ) — recolorido verde do tema
+ * PIX (Icons8 uqpbD9vhCDEQ) recolorido verde do tema
  * https://img.icons8.com/?size=100&id=uqpbD9vhCDEQ&format=png&color=000000
  */
 export function IconPixFilled({
@@ -301,7 +301,7 @@ export function IconPixFilled({
 }
 
 /**
- * Usuários / grupo (Icons8 #9542) — total de usuários
+ * Usuários / grupo (Icons8 #9542) total de usuários
  * https://img.icons8.com/?size=100&id=9542&format=png&color=000000
  */
 export function IconUsersFilled({ size = 24, className }: IconProps) {
@@ -315,7 +315,7 @@ export function IconUsersFilled({ size = 24, className }: IconProps) {
 }
 
 /**
- * Gerente / CEO (Flaticon #2047262) — total de gerentes
+ * Gerente / CEO (Flaticon #2047262) total de gerentes
  * https://www.flaticon.com/br/icone-gratis/ceo_2047262
  */
 export function IconGerenteFilled({ size = 24, className }: IconProps) {
@@ -329,7 +329,7 @@ export function IconGerenteFilled({ size = 24, className }: IconProps) {
 }
 
 /**
- * Documentos (Icons8 #23187) — Meus documentos / compliance
+ * Documentos (Icons8 #23187) Meus documentos / compliance
  * https://img.icons8.com/?size=100&id=23187&format=png&color=000000
  */
 export function IconDocumentosFilled({ size = 24, className, tone = "white" }: IconProps) {
@@ -350,7 +350,7 @@ export function IconBancoFilled({ size = 24, className }: IconProps) {
   );
 }
 
-/** Carteira preenchida — alternativa saldo */
+/** Carteira preenchida alternativa saldo */
 export function IconWalletFilled({
   size = 24,
   className,
@@ -372,7 +372,7 @@ export function IconWalletFilled({
   );
 }
 
-/** Check em círculo — vendas aprovadas */
+/** Check em círculo vendas aprovadas */
 export function IconCheckFilled({
   size = 24,
   className,
@@ -397,7 +397,7 @@ export function IconCheckFilled({
   );
 }
 
-/** X em círculo — vendas recusadas */
+/** X em círculo vendas recusadas */
 export function IconXFilled({
   size = 24,
   className,

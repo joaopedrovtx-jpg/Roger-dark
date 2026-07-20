@@ -3,6 +3,7 @@
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AppShell } from "@/components/layout/AppShell";
+import { BrandLoadingScreen } from "@/components/layout/BrandLoadingScreen";
 
 /**
  * Shell de Configurações (perfil / segurança):
@@ -19,14 +20,7 @@ export function ConfigShell({
   const { isAdmin, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: "var(--bg-app)", color: "var(--text-3)", fontSize: 13 }}
-      >
-        Carregando…
-      </div>
-    );
+    return <BrandLoadingScreen label="Carregando…" />;
   }
 
   if (isAdmin) {

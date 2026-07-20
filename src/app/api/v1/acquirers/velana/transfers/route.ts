@@ -9,7 +9,7 @@ import {
 
 /**
  * POST /api/v1/acquirers/velana/transfers
- * Docs: POST /v1/transfers — saque/transferência PIX
+ * Docs: POST /v1/transfers saque/transferência PIX
  * Body: { amount (reais), pixKey, postbackUrl?, recipientId?, externalRef? }
  */
 export async function POST(req: Request) {

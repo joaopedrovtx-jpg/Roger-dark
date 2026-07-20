@@ -7,7 +7,7 @@ import {
 import type { PodPayCreateTransaction } from "@/lib/acquirers/podpay/types";
 import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 
-/** GET /api/v1/acquirers/podpay/transactions — lista vendas remotas */
+/** GET /api/v1/acquirers/podpay/transactions lista vendas remotas */
 export async function GET(req: Request) {
   const __gate = await requireAdmin(req);
   if (isGuardFail(__gate)) return __gate.error;
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   }
 }
 
-/** POST /api/v1/acquirers/podpay/transactions — cria direto na PodPay */
+/** POST /api/v1/acquirers/podpay/transactions cria direto na PodPay */
 export async function POST(req: Request) {
   const __gate = await requireAdmin(req);
   if (isGuardFail(__gate)) return __gate.error;

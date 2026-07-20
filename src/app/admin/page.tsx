@@ -3,7 +3,7 @@ import { AdminDashboardView } from "@/components/admin/AdminDashboardView";
 
 export default function AdminDashboardPage() {
   return (
-    <AdminShell title="Dashboard">
+    <AdminShell>
       <AdminDashboardView />
     </AdminShell>
   );
