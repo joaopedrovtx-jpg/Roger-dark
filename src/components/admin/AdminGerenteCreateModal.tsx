@@ -9,13 +9,13 @@ import {
 } from "react";
 import { Check, Search, X } from "lucide-react";
 import {
-  adminUsersMock,
   DEFAULT_GERENTE_PERMISSIONS,
   GERENTE_PERMISSION_OPTIONS,
   type AdminGerente,
   type AdminUser,
   type GerentePermission,
 } from "@/lib/mock/admin";
+import { authedFetch } from "@/lib/client/session";
 
 interface AdminGerenteCreateModalProps {
   open: boolean;
@@ -114,25 +114,61 @@ export function AdminGerenteCreateModal({
   const [permissions, setPermissions] = useState<GerentePermission[]>([
     ...DEFAULT_GERENTE_PERMISSIONS,
   ]);
+  const [results, setResults] = useState<AdminUser[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const existingSet = useMemo(
     () => new Set(existingEmails.map((e) => e.toLowerCase())),
     [existingEmails]
   );
 
-  const results = useMemo(() => {
-    if (!query.trim()) return [];
-    return adminUsersMock
-      .filter((u) => matchesQuery(u, query))
-      .filter((u) => !existingSet.has(u.email.toLowerCase()))
-      .slice(0, 8);
-  }, [query, existingSet]);
+  // Busca sellers reais no banco (nome, e-mail, CPF)
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 2 || selected) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await authedFetch(
+          `/api/v1/admin/users?search=${encodeURIComponent(q)}&pageSize=20`
+        );
+        if (!res.ok) throw new Error("Falha na busca");
+        const json = (await res.json()) as { items?: AdminUser[] };
+        if (cancelled) return;
+        const items = (json.items ?? [])
+          .filter((u) => matchesQuery(u, q) || true)
+          .filter((u) => !existingSet.has(u.email.toLowerCase()))
+          .filter((u) => u.status !== "bloqueado")
+          .slice(0, 8);
+        setResults(items);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, open, selected, existingSet]);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
       setSelected(null);
       setPermissions([...DEFAULT_GERENTE_PERMISSIONS]);
+      setResults([]);
+      setError(null);
+      setSubmitting(false);
       return;
     }
     const onKey = (e: KeyboardEvent) => {
@@ -155,30 +191,49 @@ export function AdminGerenteCreateModal({
     );
   }
 
-  function handlePromote() {
-    if (!selected || permissions.length === 0) return;
-
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const createdAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
-
-    onCreate({
-      id: `mgr_${Date.now().toString(36)}`,
-      name: selected.name,
-      email: selected.email,
-      phone: selected.phone,
-      status: "ativo",
-      sellersCount: 0,
-      volumeTotal: selected.volumeTotal,
-      createdAt,
-      userId: selected.id,
-      document: selected.document,
-      permissions: [...permissions],
-    });
-    onClose();
+  async function handlePromote() {
+    if (!selected || permissions.length === 0 || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await authedFetch("/api/v1/admin/managers", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: selected.id,
+          permissions,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as AdminGerente & {
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(json.error || "Não foi possível promover a gerente");
+        return;
+      }
+      onCreate({
+        id: json.id,
+        name: json.name || selected.name,
+        email: json.email || selected.email,
+        phone: json.phone || selected.phone || "",
+        status: (json.status as AdminGerente["status"]) || "ativo",
+        sellersCount: json.sellersCount ?? 0,
+        volumeTotal: json.volumeTotal ?? selected.volumeTotal ?? 0,
+        createdAt: json.createdAt || new Date().toISOString(),
+        userId: json.userId || selected.id,
+        document: json.document || selected.document,
+        permissions: (json.permissions as GerentePermission[]) || [
+          ...permissions,
+        ],
+      });
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro de rede");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  const canSubmit = !!selected && permissions.length > 0;
+  const canSubmit = !!selected && permissions.length > 0 && !submitting;
 
   return (
     <div
@@ -308,7 +363,17 @@ export function AdminGerenteCreateModal({
                   overflowY: "auto",
                 }}
               >
-                {results.length === 0 ? (
+                {searching ? (
+                  <p
+                    style={{
+                      ...bodyTextStyle,
+                      padding: "14px",
+                      textAlign: "center",
+                    }}
+                  >
+                    Buscando no banco…
+                  </p>
+                ) : results.length === 0 ? (
                   <p
                     style={{
                       ...bodyTextStyle,
@@ -519,38 +584,52 @@ export function AdminGerenteCreateModal({
 
         {/* Footer — mesmo padrão dos outros modais */}
         <div
-          className="flex flex-wrap items-center justify-end gap-2.5 shrink-0"
-          style={{ padding: "8px 24px 20px" }}
+          className="flex flex-col shrink-0"
+          style={{ padding: "8px 24px 20px", gap: 10 }}
         >
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
-            style={{
-              ...footerBtnBase,
-              border: "1px solid var(--border-muted)",
-              background: "var(--bg-elevated)",
-              color: "var(--text-1)",
-            }}
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handlePromote}
-            disabled={!canSubmit}
-            className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
-            style={{
-              ...footerBtnBase,
-              border: "none",
-              background: "#ffffff",
-              color: "#0a0f0c",
-              cursor: canSubmit ? "pointer" : "not-allowed",
-              opacity: canSubmit ? 1 : 0.45,
-            }}
-          >
-            Transformar em gerente
-          </button>
+          {error ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                color: "#ef4444",
+                fontWeight: 600,
+              }}
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
+              style={{
+                ...footerBtnBase,
+                border: "1px solid var(--border-muted)",
+                background: "var(--bg-elevated)",
+                color: "var(--text-1)",
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePromote()}
+              disabled={!canSubmit}
+              className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
+              style={{
+                ...footerBtnBase,
+                border: "none",
+                background: "#ffffff",
+                color: "#0a0f0c",
+                cursor: canSubmit ? "pointer" : "not-allowed",
+                opacity: canSubmit ? 1 : 0.45,
+              }}
+            >
+              {submitting ? "Salvando…" : "Transformar em gerente"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

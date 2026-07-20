@@ -1,14 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Upload } from "lucide-react";
-import { dashboardMock } from "@/lib/mock/dashboard";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { authedFetch } from "@/lib/client/session";
 
 /** Ícone Icons8 (copiar) — preto no botão branco */
 const COPY_ICON_FILTER = "brightness(0)";
 
-const ACCOUNT_ID = "cmf2sj7vn0jpckxxa3u31r7pc";
-const MAX_MB = 30;
+const MAX_MB = 2;
 const ACCEPT = "image/png,image/jpeg,image/jpg,image/webp";
 
 const fieldStyle: React.CSSProperties = {
@@ -20,6 +20,13 @@ const fieldStyle: React.CSSProperties = {
   border: "1px solid var(--border-muted)",
   borderRadius: "var(--radius-md)",
   color: "var(--text-1)",
+};
+
+const fieldStyleLocked: React.CSSProperties = {
+  ...fieldStyle,
+  color: "var(--text-2)",
+  cursor: "default",
+  opacity: 0.95,
 };
 
 function FieldLabel({
@@ -42,25 +49,99 @@ function FieldLabel({
   );
 }
 
+function formatPhoneBr(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 10) {
+    return d
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+  return d
+    .replace(/^(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Falha ao ler imagem"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function PerfilView() {
-  const user = dashboardMock.user;
+  const { user, isAdmin, refresh } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [name, setName] = useState(user.name);
+  const [accountId, setAccountId] = useState("");
+  const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("igor.rocha@darkpay.app");
-  const [phone, setPhone] = useState("(11) 98800-0000");
-  const [preview, setPreview] = useState<string | null>(user.avatarUrl);
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState<string>("pendente");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [copied, setCopied] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  // Conta staff (admin/gerente) ou já ativa = perfil “aprovado” e campos fixos
+  const accountApproved =
+    isAdmin || status === "ativo" || user?.status === "ativo";
+
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await authedFetch("/api/v1/account/profile");
+      if (!res.ok) throw new Error("Não foi possível carregar o perfil");
+      const p = (await res.json()) as {
+        id?: string;
+        name?: string;
+        displayName?: string | null;
+        email?: string;
+        phone?: string | null;
+        avatarUrl?: string | null;
+        status?: string;
+      };
+      setAccountId(p.id || user?.id || "");
+      setName(p.name || user?.name || "");
+      setDisplayName(p.displayName || p.name || user?.displayName || "");
+      setEmail(p.email || user?.email || "");
+      setPhone(formatPhoneBr(p.phone || ""));
+      setStatus(p.status || user?.status || "pendente");
+      setPreview(p.avatarUrl || user?.avatarUrl || null);
+      setAvatarFile(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao carregar");
+      // fallback auth
+      setAccountId(user?.id || "");
+      setName(user?.name || "");
+      setDisplayName(user?.displayName || user?.name || "");
+      setEmail(user?.email || "");
+      setPreview(user?.avatarUrl || null);
+      setStatus(user?.status || "pendente");
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   async function copyId() {
+    if (!accountId) return;
     try {
-      await navigator.clipboard.writeText(ACCOUNT_ID);
+      await navigator.clipboard.writeText(accountId);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // ignore
+      /* ignore */
     }
   }
 
@@ -73,14 +154,70 @@ export function PerfilView() {
       "image/webp",
     ].includes(file.type);
     if (!okType) {
-      alert("Apenas arquivos png, jpeg, jpg e webp são aceitos.");
+      setError("Apenas arquivos png, jpeg, jpg e webp são aceitos.");
       return;
     }
     if (file.size > MAX_MB * 1024 * 1024) {
-      alert(`O tamanho máximo é ${MAX_MB}MB.`);
+      setError(`O tamanho máximo é ${MAX_MB}MB.`);
       return;
     }
+    setError(null);
+    setOkMsg(null);
+    if (preview && preview.startsWith("blob:")) {
+      URL.revokeObjectURL(preview);
+    }
+    setAvatarFile(file);
     setPreview(URL.createObjectURL(file));
+  }
+
+  async function handleSavePhoto(e: React.FormEvent) {
+    e.preventDefault();
+    if (!avatarFile || saving) return;
+    setSaving(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      const dataUrl = await fileToDataUrl(avatarFile);
+      const res = await authedFetch("/api/v1/account/profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          profileOnly: true,
+          avatarUrl: dataUrl,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        avatarUrl?: string | null;
+      };
+      if (!res.ok) {
+        setError(json.error || "Falha ao salvar foto");
+        return;
+      }
+      setAvatarFile(null);
+      if (json.avatarUrl) setPreview(json.avatarUrl);
+      setOkMsg("Foto de perfil atualizada.");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const showSave = Boolean(avatarFile);
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          padding: 24,
+          color: "var(--text-3)",
+          fontSize: 13,
+        }}
+      >
+        Carregando perfil…
+      </div>
+    );
   }
 
   return (
@@ -111,11 +248,11 @@ export function PerfilView() {
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
             }}
           >
-            {ACCOUNT_ID}
+            {accountId || "—"}
           </code>
           <button
             type="button"
-            onClick={copyId}
+            onClick={() => void copyId()}
             aria-label="Copiar ID da conta"
             className="inline-flex items-center justify-center"
             style={{
@@ -150,34 +287,55 @@ export function PerfilView() {
           </button>
         </div>
 
-        <div
-          className="mb-5"
-          style={{
-            padding: "12px 14px",
-            borderRadius: "var(--radius-md)",
-            background: "rgba(239, 68, 68, 0.08)",
-            borderLeft: "3px solid #ef4444",
-          }}
-        >
-          <p
+        {accountApproved ? (
+          <div
+            className="mb-5"
             style={{
-              margin: 0,
-              fontSize: 13,
-              lineHeight: 1.45,
-              color: "#f87171",
+              padding: "12px 14px",
+              borderRadius: "var(--radius-md)",
+              background: "rgba(255,255,255,0.04)",
+              borderLeft: "3px solid var(--green-use)",
             }}
           >
-            Ao alterar os detalhes, sua conta passará por uma nova avaliação pelo
-            setor de Compliance.
-          </p>
-        </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                lineHeight: 1.45,
+                fontWeight: 600,
+                color: "var(--green-use)",
+              }}
+            >
+              {isAdmin
+                ? "Conta aprovada. Dados do perfil carregados e salvos."
+                : "Seu cadastro foi aprovado!"}
+            </p>
+          </div>
+        ) : (
+          <div
+            className="mb-5"
+            style={{
+              padding: "12px 14px",
+              borderRadius: "var(--radius-md)",
+              background: "rgba(239, 68, 68, 0.08)",
+              borderLeft: "3px solid #ef4444",
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                lineHeight: 1.45,
+                color: "#f87171",
+              }}
+            >
+              Ao alterar os detalhes, sua conta passará por uma nova avaliação
+              pelo setor de Compliance.
+            </p>
+          </div>
+        )}
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            alert("Detalhes salvos (mock).");
-          }}
-        >
+        <form onSubmit={(e) => void handleSavePhoto(e)}>
           <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] gap-5 items-start">
             <div className="flex flex-col gap-3.5 min-w-0">
               <label className="flex flex-col">
@@ -186,7 +344,8 @@ export function PerfilView() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  style={fieldStyle}
+                  readOnly={accountApproved}
+                  style={accountApproved ? fieldStyleLocked : fieldStyle}
                   required
                 />
               </label>
@@ -198,7 +357,8 @@ export function PerfilView() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Nome para exibição"
-                  style={fieldStyle}
+                  readOnly={accountApproved}
+                  style={accountApproved ? fieldStyleLocked : fieldStyle}
                 />
               </label>
 
@@ -207,8 +367,8 @@ export function PerfilView() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={fieldStyle}
+                  readOnly
+                  style={fieldStyleLocked}
                 />
               </label>
 
@@ -217,8 +377,9 @@ export function PerfilView() {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  style={fieldStyle}
+                  onChange={(e) => setPhone(formatPhoneBr(e.target.value))}
+                  readOnly={accountApproved}
+                  style={accountApproved ? fieldStyleLocked : fieldStyle}
                   required
                 />
               </label>
@@ -317,23 +478,65 @@ export function PerfilView() {
                   </>
                 )}
               </button>
+              {preview ? (
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: 11.5,
+                    color: "var(--text-3)",
+                    textAlign: "center",
+                  }}
+                >
+                  Clique na foto para trocar
+                </p>
+              ) : null}
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="w-full font-semibold text-[14px] mt-5 transition-opacity hover:opacity-90"
-            style={{
-              height: 44,
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              background: "var(--green-use)",
-              color: "var(--on-green)",
-              cursor: "pointer",
-            }}
-          >
-            Salvar
-          </button>
+          {error ? (
+            <p
+              style={{
+                margin: "14px 0 0",
+                fontSize: 13,
+                color: "#ef4444",
+                fontWeight: 600,
+              }}
+            >
+              {error}
+            </p>
+          ) : null}
+          {okMsg ? (
+            <p
+              style={{
+                margin: "14px 0 0",
+                fontSize: 13,
+                color: "var(--green-use)",
+                fontWeight: 600,
+              }}
+            >
+              {okMsg}
+            </p>
+          ) : null}
+
+          {/* Só aparece se o usuário escolheu uma nova foto */}
+          {showSave ? (
+            <button
+              type="submit"
+              disabled={saving}
+              className="w-full font-semibold text-[14px] mt-5 transition-opacity hover:opacity-90"
+              style={{
+                height: 44,
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                background: "var(--green-use)",
+                color: "var(--on-green)",
+                cursor: saving ? "wait" : "pointer",
+                opacity: saving ? 0.7 : 1,
+              }}
+            >
+              {saving ? "Salvando…" : "Salvar foto"}
+            </button>
+          ) : null}
         </form>
       </div>
     </div>

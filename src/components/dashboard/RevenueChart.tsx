@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -10,7 +11,11 @@ import {
   YAxis,
 } from "recharts";
 import type { RevenuePoint } from "@/types/dashboard";
-import { formatBRL, formatChartLabel } from "@/lib/format";
+import {
+  formatBRL,
+  formatChartDate,
+  formatChartLabel,
+} from "@/lib/format";
 import { PeriodFilter, type PeriodValue } from "./PeriodFilter";
 
 interface RevenueChartProps {
@@ -18,108 +23,308 @@ interface RevenueChartProps {
   className?: string;
   period?: PeriodValue;
   onPeriodChange?: (period: PeriodValue) => void;
-  /** Título do card (default: Faturamento) */
+  /** Padrão seller: Histórico de faturamento */
   title?: string;
-  /** Rótulo do eixo Y (default: Faturamento) */
+  subtitle?: string;
+  /** Eixo Y curto (seller: Faturamento · admin: Volume) */
   yAxisLabel?: string;
+  hidePeriodFilter?: boolean;
 }
 
+type ChartRow = {
+  amount: number;
+  label: string;
+  fullDate: string;
+  _sortKey: string;
+};
+
+const WEEK_LABELS = [
+  "1ª semana",
+  "2ª semana",
+  "3ª semana",
+  "4ª semana",
+] as const;
+
+const MONTH_LABELS = [
+  "1º mês",
+  "2º mês",
+  "3º mês",
+  "4º mês",
+  "5º mês",
+  "6º mês",
+] as const;
+
+/** Agrega pontos diários reais em N buckets (semanas ou meses) */
+function toBucketPoints(
+  data: RevenuePoint[],
+  labels: readonly string[]
+): ChartRow[] {
+  const count = labels.length;
+  const buckets = Array.from({ length: count }, () => 0);
+  const dateRanges = Array.from({ length: count }, () => "");
+
+  if (data.length === 0) {
+    return labels.map((label, i) => ({
+      amount: 0,
+      label,
+      fullDate: label,
+      _sortKey: String(i),
+    }));
+  }
+
+  const sorted = [...data].sort((a, b) =>
+    String(a.date).localeCompare(String(b.date))
+  );
+  const n = sorted.length;
+  for (let i = 0; i < n; i++) {
+    const bucket = Math.min(count - 1, Math.floor((i / n) * count));
+    buckets[bucket] += Number(sorted[i].amount) || 0;
+    const d = formatChartDate(sorted[i].date);
+    if (!dateRanges[bucket]) dateRanges[bucket] = d;
+    else if (d !== "—") {
+      dateRanges[bucket] = `${dateRanges[bucket].split(" – ")[0]} – ${d}`;
+    }
+  }
+
+  return labels.map((label, i) => ({
+    amount: Math.round(buckets[i] * 100) / 100,
+    label,
+    fullDate: dateRanges[i] || label,
+    _sortKey: String(i),
+  }));
+}
+
+function toWeeklyPoints(data: RevenuePoint[]): ChartRow[] {
+  return toBucketPoints(data, WEEK_LABELS);
+}
+
+function toMonthlyPoints(data: RevenuePoint[]): ChartRow[] {
+  return toBucketPoints(data, MONTH_LABELS);
+}
+
+/**
+ * Gráfico padrão da plataforma (seller e admin).
+ * Visual único: card, tipografia, curva, eixos, tooltip, filtro.
+ */
 export function RevenueChart({
   data,
   className,
   period,
   onPeriodChange,
-  title = "Faturamento",
+  title = "Histórico de faturamento",
+  subtitle = "Acompanhe o histórico de transações do seu negócio",
   yAxisLabel = "Faturamento",
+  hidePeriodFilter = false,
 }: RevenueChartProps) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
   const isHourly =
     period?.key === "today" ||
     period?.key === "yesterday" ||
     data.some((d) => d.grain === "hour");
 
-  const chartData = data.map((d) => ({
-    ...d,
-    label: formatChartLabel(d.date, d.grain ?? (isHourly ? "hour" : "day")),
-  }));
+  const isMonthlyWeeks = period?.key === "30d";
+  const isSixtyMonths = period?.key === "60d";
+  const isBucketed = isMonthlyWeeks || isSixtyMonths;
 
-  const amounts = data.map((d) => d.amount);
-  const minY = amounts.length
-    ? Math.max(0, Math.floor(Math.min(...amounts) / 50) * 50 - 50)
-    : 0;
-  const maxY = amounts.length
-    ? Math.ceil(Math.max(...amounts) / 50) * 50 + 50
-    : 1000;
+  const chartData = useMemo(() => {
+    if (isMonthlyWeeks) return toWeeklyPoints(data);
+    if (isSixtyMonths) return toMonthlyPoints(data);
 
-  // Altura fixa do plot — Recharts some se o pai só tem height %/auto
+    let points = data.map((d) => {
+      const grain = d.grain ?? (isHourly ? "hour" : "day");
+      let label = formatChartLabel(d.date, grain);
+      if (label === "—" || /undefined|null/i.test(label)) {
+        const m = String(d.date || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+        label = m ? `${m[3]}/${m[2]}` : "—";
+      }
+      const fullDate =
+        grain === "hour"
+          ? label
+          : formatChartDate(d.date) !== "—"
+            ? formatChartDate(d.date)
+            : label;
+      return {
+        amount: Number.isFinite(Number(d.amount)) ? Number(d.amount) : 0,
+        label,
+        fullDate,
+        _sortKey: String(d.date || "").slice(0, 10),
+      } satisfies ChartRow;
+    });
+
+    if (period?.key === "7d") {
+      points = [...points]
+        .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
+        .slice(0, 7);
+      return points.filter((d) => d.label !== "—");
+    }
+
+    if (period?.key === "15d") {
+      points = [...points]
+        .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
+        .slice(0, 15);
+      return points.filter((d) => d.label !== "—");
+    }
+
+    if (!isHourly && points.length > 1) {
+      points = [...points].sort((a, b) =>
+        b._sortKey.localeCompare(a._sortKey)
+      );
+    }
+
+    return points.filter((d) => d.label !== "—");
+  }, [data, isHourly, isMonthlyWeeks, isSixtyMonths, period?.key]);
+
+  const displayData = useMemo(() => {
+    if (chartData.length > 0) return chartData;
+    if (isMonthlyWeeks) return toWeeklyPoints([]);
+    if (isSixtyMonths) return toMonthlyPoints([]);
+    const now = new Date();
+    const rows: ChartRow[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      rows.push({
+        amount: 0,
+        label: formatChartLabel(iso, "day"),
+        fullDate: formatChartDate(iso),
+        _sortKey: iso,
+      });
+    }
+    return rows.reverse();
+  }, [chartData, isMonthlyWeeks, isSixtyMonths]);
+
+  const amounts = displayData.map((d) => d.amount);
+  const minRaw = amounts.length ? Math.min(...amounts) : 0;
+  const maxRaw = amounts.length ? Math.max(...amounts) : 0;
+  const pad = Math.max(50, (maxRaw - minRaw) * 0.12 || 100);
+  const minY =
+    maxRaw <= 0 ? 0 : Math.max(0, Math.floor((minRaw - pad) / 50) * 50);
+  const maxY =
+    maxRaw <= 0 ? 100 : Math.ceil((maxRaw + pad) / 50) * 50 || 100;
+
+  // Altura fixa do plot — igual nas duas dashboards (padrão seller)
   const plotHeight = 260;
+  const line = "var(--chart-line)";
+  const grid = "var(--chart-grid)";
+  const axis = "var(--chart-axis)";
+
+  const xAxisTitle = isHourly
+    ? "Hora"
+    : isMonthlyWeeks
+      ? "Semanas"
+      : isSixtyMonths
+        ? "Meses"
+        : "Período";
 
   return (
     <div
-      className={`surface-card flex flex-col w-full ${className ?? ""}`}
+      className={`surface-card flex flex-col w-full min-w-0 ${className ?? ""}`}
       style={{
         padding: "16px 16px 8px",
         borderRadius: "var(--radius-card)",
         height: "100%",
-        minHeight: plotHeight + 90,
+        minHeight: plotHeight + 100,
       }}
     >
-      {/* Topo: título à esquerda + filtro à direita */}
+      {/* Cabeçalho padrão: título + subtítulo | filtro */}
       <div className="mb-3 shrink-0 flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2
             className="font-semibold"
-            style={{ fontSize: 20, color: "var(--text-1)" }}
+            style={{
+              margin: 0,
+              fontSize: 16,
+              fontWeight: 600,
+              color: "#ffffff",
+              lineHeight: 1.3,
+            }}
           >
             {title}
           </h2>
+          {subtitle ? (
+            <p
+              style={{
+                margin: "6px 0 0",
+                fontSize: 12.5,
+                fontWeight: 400,
+                color: "var(--text-3)",
+                lineHeight: 1.4,
+              }}
+            >
+              {subtitle}
+            </p>
+          ) : null}
         </div>
-        <PeriodFilter value={period} onChange={onPeriodChange} />
+        {!hidePeriodFilter && period && onPeriodChange ? (
+          <PeriodFilter value={period} onChange={onPeriodChange} />
+        ) : null}
       </div>
 
-      <div className="w-full" style={{ height: plotHeight, minHeight: plotHeight }}>
+      {/* Plot — mesma altura e margens do gráfico do seller */}
+      <div
+        className="w-full min-w-0"
+        style={{ height: plotHeight, minHeight: plotHeight }}
+      >
         <ResponsiveContainer width="100%" height={plotHeight}>
           <AreaChart
-            data={chartData}
-            margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+            data={displayData}
+            margin={{ top: 8, right: 12, left: 0, bottom: 8 }}
+            onMouseMove={(state) => {
+              const idx =
+                typeof state?.activeTooltipIndex === "number"
+                  ? state.activeTooltipIndex
+                  : null;
+              setHoverIndex(idx);
+            }}
+            onMouseLeave={() => setHoverIndex(null)}
           >
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop
                   offset="0%"
-                  stopColor="var(--green-use)"
+                  stopColor="var(--chart-line)"
                   stopOpacity={0.28}
                 />
                 <stop
                   offset="100%"
-                  stopColor="var(--green-use)"
+                  stopColor="var(--chart-line)"
                   stopOpacity={0}
                 />
               </linearGradient>
             </defs>
+
             <CartesianGrid
-              stroke="var(--chart-grid)"
+              stroke={grid}
               vertical={false}
               strokeDasharray="0"
             />
+
             <XAxis
               dataKey="label"
-              tick={{ fill: "var(--chart-axis)", fontSize: isHourly ? 9 : 10 }}
+              tick={{
+                fill: axis,
+                fontSize: isBucketed ? 11 : 10,
+              }}
               axisLine={false}
               tickLine={false}
               dy={6}
-              interval={isHourly ? 2 : "preserveStartEnd"}
+              interval={isHourly ? 2 : isBucketed ? 0 : "preserveStartEnd"}
               minTickGap={isHourly ? 8 : 4}
               label={{
-                value: isHourly ? "Hora" : "Período",
+                value: xAxisTitle,
                 position: "insideBottom",
                 offset: -2,
-                fill: "var(--chart-axis)",
+                fill: axis,
                 fontSize: 10,
               }}
             />
+
             <YAxis
-              domain={[Math.max(0, minY), maxY]}
-              tick={{ fill: "var(--chart-axis)", fontSize: 10 }}
+              domain={[minY, maxY]}
+              tick={{ fill: axis, fontSize: 10 }}
               axisLine={false}
               tickLine={false}
               width={44}
@@ -128,16 +333,21 @@ export function RevenueChart({
                 angle: -90,
                 position: "insideLeft",
                 offset: 8,
-                fill: "var(--chart-axis)",
+                fill: axis,
                 fontSize: 10,
                 style: { textAnchor: "middle" },
               }}
             />
+
             <Tooltip
-              cursor={{ stroke: "var(--green-use)", strokeOpacity: 0.25 }}
+              cursor={{ stroke: line, strokeOpacity: 0.25 }}
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const value = Number(payload[0]?.value ?? 0);
+                const row = payload[0]?.payload as ChartRow;
+                const dateLine = isBucketed
+                  ? row?.label || ""
+                  : row?.fullDate || row?.label || "";
                 return (
                   <div
                     style={{
@@ -145,34 +355,70 @@ export function RevenueChart({
                       border: "1px solid var(--border-card)",
                       borderRadius: "var(--radius-md)",
                       padding: "8px 12px",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--green-use)",
                       boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
                     }}
                   >
-                    {formatBRL(value)}
+                    {dateLine ? (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: axis,
+                          marginBottom: 4,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {dateLine}
+                      </div>
+                    ) : null}
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: line,
+                      }}
+                    >
+                      {formatBRL(value)}
+                    </div>
                   </div>
                 );
               }}
             />
+
             <Area
               type="monotone"
               dataKey="amount"
-              stroke="var(--green-use)"
+              stroke={line}
               strokeWidth={2.5}
               fill="url(#revenueGradient)"
-              dot={{
-                r: 4,
-                fill: "var(--green-use)",
+              isAnimationActive
+              animationDuration={500}
+              animationEasing="ease-out"
+              activeDot={{
+                r: 5,
+                fill: "var(--chart-dot-fill)",
                 stroke: "var(--chart-dot-stroke)",
                 strokeWidth: 2,
               }}
-              activeDot={{
-                r: 5,
-                fill: "var(--green-use)",
-                stroke: "var(--chart-dot-stroke)",
-                strokeWidth: 2,
+              dot={(props) => {
+                const { cx, cy, index } = props as {
+                  cx?: number;
+                  cy?: number;
+                  index?: number;
+                };
+                if (cx == null || cy == null) return null;
+                const active = hoverIndex === index;
+                return (
+                  <circle
+                    key={`dot-${index}`}
+                    cx={cx}
+                    cy={cy}
+                    r={active ? 5 : 4}
+                    fill="var(--chart-dot-fill)"
+                    stroke="var(--chart-dot-stroke)"
+                    strokeWidth={2}
+                    style={{ cursor: "pointer" }}
+                  />
+                );
               }}
             />
           </AreaChart>

@@ -14,11 +14,8 @@ import { AdminTd, AdminActionButton } from "./AdminTable";
 import { AdminGerenteDetailModal } from "./AdminGerenteDetailModal";
 import { AdminGerenteCreateModal } from "./AdminGerenteCreateModal";
 import { formatBRL, formatChartDate } from "@/lib/format";
-import {
-  adminGerentesMock,
-  type AdminGerente,
-  type GerenteStatus,
-} from "@/lib/mock/admin";
+import { type AdminGerente, type GerenteStatus } from "@/lib/mock/admin";
+import { authedFetch } from "@/lib/client/session";
 
 const ICON = 24;
 
@@ -37,32 +34,52 @@ function formatDateTime(iso: string): string {
   return time ? `${date} ${time}` : date;
 }
 
+function mapGerente(g: AdminGerente): AdminGerente {
+  return {
+    ...g,
+    phone: g.phone ?? "",
+    document: g.document ?? "",
+    permissions: (g.permissions ?? []) as AdminGerente["permissions"],
+  };
+}
+
 export function AdminGerentesView() {
-  const [gerentes, setGerentes] =
-    useState<AdminGerente[]>(adminGerentesMock);
+  const [gerentes, setGerentes] = useState<AdminGerente[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabId>("todos");
   const [search, setSearch] = useState("");
   const [selectedGerente, setSelectedGerente] =
     useState<AdminGerente | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
+  async function loadManagers() {
+    try {
+      const res = await authedFetch("/api/v1/admin/managers");
+      if (!res.ok) throw new Error("fail");
+      const json = (await res.json()) as { items?: AdminGerente[] };
+      setGerentes((json.items ?? []).map(mapGerente));
+    } catch {
+      setGerentes([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const res = await fetch("/api/v1/admin/managers");
-        if (!res.ok) return;
+        const res = await authedFetch("/api/v1/admin/managers");
+        if (!res.ok) throw new Error("fail");
         const json = (await res.json()) as { items?: AdminGerente[] };
-        if (!cancelled && json.items?.length) {
-          setGerentes(
-            json.items.map((g) => ({
-              ...g,
-              permissions: (g.permissions ?? []) as AdminGerente["permissions"],
-            })) as AdminGerente[]
-          );
+        if (!cancelled) {
+          setGerentes((json.items ?? []).map(mapGerente));
         }
       } catch {
-        /* mock */
+        if (!cancelled) setGerentes([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -75,28 +92,30 @@ export function AdminGerentesView() {
       total: gerentes.length,
       ativo: gerentes.filter((g) => g.status === "ativo").length,
       inativo: gerentes.filter((g) => g.status === "inativo").length,
-      sellers: gerentes.reduce((a, g) => a + g.sellersCount, 0),
+      sellers: gerentes.reduce((a, g) => a + (g.sellersCount || 0), 0),
     };
   }, [gerentes]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
     return gerentes.filter((g) => {
       if (tab !== "todos" && g.status !== tab) return false;
       if (!q) return true;
-      return (
-        g.name.toLowerCase().includes(q) ||
-        g.email.toLowerCase().includes(q) ||
-        g.id.toLowerCase().includes(q)
-      );
+      if (g.name.toLowerCase().includes(q)) return true;
+      if (g.email.toLowerCase().includes(q)) return true;
+      if (g.id.toLowerCase().includes(q)) return true;
+      if (qDigits.length >= 3 && (g.document || "").replace(/\D/g, "").includes(qDigits)) {
+        return true;
+      }
+      return false;
     });
   }, [gerentes, tab, search]);
 
   async function setStatus(id: string, status: GerenteStatus) {
     try {
-      await fetch(`/api/v1/admin/managers/${encodeURIComponent(id)}`, {
+      await authedFetch(`/api/v1/admin/managers/${encodeURIComponent(id)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
     } catch {
@@ -111,9 +130,10 @@ export function AdminGerentesView() {
   }
 
   function handleCreate(gerente: AdminGerente) {
-    setGerentes((prev) => [gerente, ...prev]);
+    setGerentes((prev) => [mapGerente(gerente), ...prev]);
     setTab("todos");
     setSearch("");
+    void loadManagers();
   }
 
   return (
@@ -242,7 +262,7 @@ export function AdminGerentesView() {
           />
           <input
             type="search"
-            placeholder="Buscar por nome, e-mail ou ID…"
+            placeholder="Buscar por nome, e-mail ou CPF…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="min-w-0 flex-1 outline-none border-0 bg-transparent"
@@ -340,7 +360,11 @@ export function AdminGerentesView() {
                     className="px-4 py-10 text-center"
                     style={{ fontSize: 13, color: "var(--text-3)" }}
                   >
-                    Nenhum gerente nesta aba
+                    {loading
+                      ? "Carregando gerentes…"
+                      : gerentes.length === 0
+                        ? "Nenhum gerente no banco. Clique em Novo gerente e busque um seller por nome, e-mail ou CPF."
+                        : "Nenhum gerente nesta aba"}
                   </td>
                 </tr>
               ) : null}

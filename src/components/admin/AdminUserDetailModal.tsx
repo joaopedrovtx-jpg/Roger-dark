@@ -617,6 +617,9 @@ export function AdminUserDetailModal({
   /** Overrides de status dos docs (Ativar aprova todos) */
   const [docStatusMap, setDocStatusMap] = useState<DocStatusMap | null>(null);
   const [saqueAutomatico, setSaqueAutomatico] = useState(false);
+  /** Documentos reais do banco (enviados pelo seller) */
+  const [liveDocs, setLiveDocs] = useState<AdminUser["documents"] | null>(null);
+  const [docsLoading, setDocsLoading] = useState(false);
 
   // Reset ao abrir / trocar de seller (não ao só mudar status da conta)
   useEffect(() => {
@@ -624,6 +627,7 @@ export function AdminUserDetailModal({
       setTab("dados");
       setViewingDoc(null);
       setDocStatusMap(null);
+      setLiveDocs(null);
       setRoutingDirty(false);
       setRoutingMsg(null);
       return;
@@ -631,6 +635,7 @@ export function AdminUserDetailModal({
     setTab(initialTab);
     setViewingDoc(null);
     setDocStatusMap(null);
+    setLiveDocs(null);
     setFees({ ...DEFAULT_SELLER_FEES, ...user.fees });
     // personalizado = preferred salva; plataforma = null (UI mostra principal ligada)
     const preferred =
@@ -645,6 +650,34 @@ export function AdminUserDetailModal({
     setRoutingMsg(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só reabre por user.id
   }, [open, user?.id, initialTab]);
+
+  // Carrega documentos reais enviados pelo seller
+  useEffect(() => {
+    if (!open || !user?.id) return;
+    let cancelled = false;
+    setDocsLoading(true);
+    (async () => {
+      try {
+        const { authedFetch } = await import("@/lib/client/session");
+        const res = await authedFetch(
+          `/api/v1/admin/users/${encodeURIComponent(user.id)}?include=documents`
+        );
+        if (!res.ok) throw new Error("fail");
+        const json = (await res.json()) as {
+          documents?: NonNullable<AdminUser["documents"]>;
+        };
+        if (cancelled) return;
+        setLiveDocs(Array.isArray(json.documents) ? json.documents : []);
+      } catch {
+        if (!cancelled) setLiveDocs([]);
+      } finally {
+        if (!cancelled) setDocsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, user?.id]);
 
   // Catálogo real de adquirentes (PodPay / Velana)
   useEffect(() => {
@@ -716,13 +749,17 @@ export function AdminUserDetailModal({
 
   const docPreviews = useMemo(() => {
     if (!user) return [];
-    const base = getSellerDocPreviews(user);
+    const withDocs: AdminUser = {
+      ...user,
+      documents: liveDocs ?? user.documents,
+    };
+    const base = getSellerDocPreviews(withDocs);
     if (!docStatusMap) return base;
     return base.map((d) => ({
       ...d,
       status: docStatusMap[d.kind] ?? d.status,
     }));
-  }, [user, docStatusMap]);
+  }, [user, docStatusMap, liveDocs]);
 
   if (!open || !user) return null;
 
@@ -1188,25 +1225,56 @@ export function AdminUserDetailModal({
                   textAlign: "center",
                 }}
               >
-                {isPJ
-                  ? "Conta PJ — frente, verso, selfie e contrato social"
-                  : "Conta CPF — selfie, documento frente e verso"}
+                Documentos enviados pelo usuário para análise
               </p>
 
+              {docsLoading ? (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: "var(--text-3)",
+                    textAlign: "center",
+                    padding: 24,
+                  }}
+                >
+                  Carregando documentos…
+                </p>
+              ) : docPreviews.length === 0 ? (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13.5,
+                    color: "var(--text-2)",
+                    textAlign: "center",
+                    padding: "28px 16px",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px dashed var(--border-muted)",
+                    background: "var(--bg-elevated)",
+                  }}
+                >
+                  Nenhum documento enviado ainda.
+                </p>
+              ) : (
               <div
                 className="grid gap-3"
                 style={{
                   gridTemplateColumns:
                     docPreviews.length >= 4
                       ? "repeat(2, minmax(0, 1fr))"
-                      : "repeat(3, minmax(0, 1fr))",
+                      : "repeat(2, minmax(0, 1fr))",
                 }}
               >
                 {docPreviews.map((doc) => {
                   const badge = resolveDocBadge(user.status, doc.status);
+                  const isImagePreview =
+                    Boolean(doc.previewUrl) &&
+                    (doc.previewUrl!.startsWith("data:image/") ||
+                      doc.previewUrl!.startsWith("blob:") ||
+                      /\.(png|jpe?g|webp|gif)$/i.test(doc.previewUrl || ""));
                   return (
                     <div
-                      key={doc.kind}
+                      key={`${doc.kind}-${doc.submittedAt || ""}`}
                       className="flex flex-col min-w-0"
                       style={{
                         borderRadius: "var(--radius-card)",
@@ -1226,22 +1294,38 @@ export function AdminUserDetailModal({
                             "var(--radius-card) var(--radius-card) 0 0",
                         }}
                       >
-                        {doc.previewUrl ? (
+                        {isImagePreview ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={doc.previewUrl}
-                            alt=""
-                            aria-hidden
+                            src={doc.previewUrl!}
+                            alt={doc.typeLabel}
                             style={{
                               position: "absolute",
                               inset: 0,
                               width: "100%",
                               height: "100%",
                               objectFit: "cover",
-                              filter: "blur(8px) brightness(0.7)",
-                              transform: "scale(1.08)",
                             }}
                           />
+                        ) : doc.previewUrl ? (
+                          <div
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-2"
+                            style={{ padding: 16 }}
+                          >
+                            <DocKindIcon kind={doc.kind} size={32} />
+                            <span
+                              style={{
+                                fontSize: 11.5,
+                                color: "var(--text-3)",
+                                textAlign: "center",
+                                wordBreak: "break-all",
+                              }}
+                            >
+                              {doc.previewUrl.startsWith("uploaded:")
+                                ? doc.previewUrl.replace(/^uploaded:/, "")
+                                : "Arquivo enviado"}
+                            </span>
+                          </div>
                         ) : (
                           <DocMockSurface kind={doc.kind} />
                         )}
@@ -1252,8 +1336,7 @@ export function AdminUserDetailModal({
                             position: "absolute",
                             inset: 0,
                             background:
-                              "linear-gradient(180deg, rgba(12,14,18,0.35) 0%, rgba(12,14,18,0.55) 100%)",
-                            backdropFilter: "blur(1px)",
+                              "linear-gradient(180deg, rgba(12,14,18,0.15) 0%, rgba(12,14,18,0.45) 100%)",
                           }}
                         />
 
@@ -1314,11 +1397,23 @@ export function AdminUserDetailModal({
                         >
                           {doc.typeLabel}
                         </p>
+                        {doc.submittedAt ? (
+                          <p
+                            style={{
+                              margin: "4px 0 0",
+                              fontSize: 11.5,
+                              color: "var(--text-3)",
+                            }}
+                          >
+                            Enviado em {formatDateTime(doc.submittedAt)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   );
                 })}
               </div>
+              )}
             </div>
           ) : null}
 
@@ -1332,8 +1427,8 @@ export function AdminUserDetailModal({
                   lineHeight: 1.4,
                 }}
               >
-                Personalize as taxas desta conta. MDR na liquidação das vendas e
-                taxa cobrada em saques.
+                Personalize as taxas desta conta. Entradas (cash in) na
+                liquidação e taxa cobrada em saques.
               </p>
 
               <div>
@@ -1345,7 +1440,7 @@ export function AdminUserDetailModal({
                     color: "var(--text-3)",
                   }}
                 >
-                  MDR (vendas / Pix)
+                  Entradas (cash in)
                 </p>
                 <div
                   className="grid gap-3"
@@ -1424,7 +1519,8 @@ export function AdminUserDetailModal({
                     color: "var(--text-1)",
                   }}
                 >
-                  MDR {fees.mdrPercent.toFixed(2)}% + {formatBRL(fees.mdrFixed)}
+                  Entradas {fees.mdrPercent.toFixed(2)}% +{" "}
+                  {formatBRL(fees.mdrFixed)}
                   {" · "}
                   Saque {fees.saquePercent.toFixed(2)}% +{" "}
                   {formatBRL(fees.saqueFixed)}
@@ -1435,21 +1531,6 @@ export function AdminUserDetailModal({
 
           {tab === "adquirentes" ? (
             <div className="flex flex-col" style={{ gap: 10 }}>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12.5,
-                  color: "var(--text-3)",
-                  lineHeight: 1.45,
-                }}
-              >
-                A <strong>principal da plataforma</strong> fica com o botão{" "}
-                <strong>ligado</strong> por padrão. Ative outra (ex.: PodPay) e
-                clique em <strong>Salvar</strong> — vale{" "}
-                <strong>só para este seller</strong> (
-                {user.email}). Cobranças só mudam de adquirente se forem criadas{" "}
-                <strong>com login ou sk_ desta conta</strong>, não com a do admin.
-              </p>
               {acqList.map((acq) => {
                 const on = effectiveActiveId === acq.id;
                 const isPlatformPrimary = acq.id === platformPrimaryId;

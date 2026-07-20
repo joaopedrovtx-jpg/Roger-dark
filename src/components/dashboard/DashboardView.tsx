@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { AccountPendingBanner } from "@/components/layout/AccountPendingBanner";
+import { AccountAccessGate } from "@/components/layout/AccountAccessGate";
 import { KpiGrid } from "./KpiGrid";
 import { MetricsStack } from "./MetricsStack";
 import { PromoBanner } from "./PromoBanner";
@@ -17,6 +19,18 @@ const DEFAULT_PERIOD: PeriodValue = {
 
 /** Painel real: zeros até a API devolver vendas/saldos do banco */
 function emptyDashboard(name = "—"): DashboardData {
+  // 7 dias reais (calendário atual) com amount 0
+  const revenueHistory: DashboardData["revenueHistory"] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    revenueHistory.push({
+      date: d.toISOString().slice(0, 10),
+      amount: 0,
+      grain: "day",
+    });
+  }
   return {
     user: { name, avatarUrl: null },
     volume: { current: 0, goal: 1000 },
@@ -28,7 +42,7 @@ function emptyDashboard(name = "—"): DashboardData {
       totalOutflows: 0,
     },
     conversion: { pix: 0, boleto: 0, card: 0 },
-    revenueHistory: [],
+    revenueHistory,
   };
 }
 
@@ -83,7 +97,6 @@ function mapApiToDashboard(json: Record<string, unknown>): DashboardData {
 export function DashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
   const [data, setData] = useState<DashboardData>(() => emptyDashboard());
-  const [source, setSource] = useState<"mysql" | "live" | "error">("live");
 
   useEffect(() => {
     let cancelled = false;
@@ -94,16 +107,13 @@ export function DashboardView() {
         const res = await authedFetch(
           `/api/v1/dashboard?period=${encodeURIComponent(period.key)}`
         );
-        if (!res.ok) {
-          if (!cancelled) setSource("error");
-          return;
-        }
+        if (!res.ok) return;
         const json = (await res.json()) as Record<string, unknown>;
         if (cancelled) return;
+        // Dados reais da API (sem mock no gráfico)
         setData(mapApiToDashboard(json));
-        setSource(json.source === "mysql" ? "mysql" : "live");
       } catch {
-        if (!cancelled) setSource("error");
+        /* silencioso */
       }
     })();
 
@@ -113,59 +123,51 @@ export function DashboardView() {
   }, [period.key]);
 
   return (
-    <div
-      className="flex min-w-0 w-full flex-col"
-      style={{
-        padding: "14px 20px 24px 12px",
-        gap: "var(--main-gap)",
-      }}
-    >
-      <PageHeader name={data.user.name} avatarUrl={data.user.avatarUrl} />
-
-      <PromoBanner />
-
-      {/* Saldos — 3 cards (disponível | pendente | retido) + Sacar */}
-      <KpiGrid data={data} />
-
+    <AccountAccessGate>
       <div
-        className="grid w-full"
+        className="flex min-w-0 w-full flex-col"
         style={{
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--kpi-gap)",
-          alignItems: "stretch",
+          padding: "14px 20px 24px 12px",
+          gap: "var(--main-gap)",
         }}
       >
+        <PageHeader name={data.user.name} avatarUrl={data.user.avatarUrl} />
+
+        <AccountPendingBanner />
+
+        <PromoBanner />
+
+        {/* Saldos — 3 cards (disponível | pendente | retido) + Sacar */}
+        <KpiGrid data={data} />
+
         <div
-          className="min-w-0"
+          className="grid w-full"
           style={{
-            gridColumn: "1 / 3",
-            height: 360,
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "var(--kpi-gap)",
+            alignItems: "stretch",
           }}
         >
-          <RevenueChart
-            data={data.revenueHistory}
-            period={period}
-            onPeriodChange={setPeriod}
-          />
-        </div>
+          <div
+            className="min-w-0"
+            style={{
+              gridColumn: "1 / 3",
+              height: 360,
+            }}
+          >
+            <RevenueChart
+              data={data.revenueHistory}
+              period={period}
+              onPeriodChange={setPeriod}
+            />
+          </div>
 
-        <div className="min-w-0" style={{ gridColumn: "3 / 4", height: 360 }}>
-          <MetricsStack data={data} />
+          <div className="min-w-0" style={{ gridColumn: "3 / 4", height: 360 }}>
+            <MetricsStack data={data} />
+          </div>
         </div>
       </div>
-
-      {source === "mysql" || source === "live" ? (
-        <p
-          style={{
-            margin: 0,
-            fontSize: 11,
-            color: "var(--text-3)",
-          }}
-        >
-          Dados reais (vendas via pagamentos / PodPay)
-        </p>
-      ) : null}
-    </div>
+    </AccountAccessGate>
   );
 }
 

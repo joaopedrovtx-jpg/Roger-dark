@@ -5,7 +5,7 @@ import {
   dbSaveBranding,
   getBrandingFromDb,
 } from "@/lib/server/db/admin-branding.service";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 
 export async function GET() {
   try {
@@ -20,8 +20,9 @@ export async function GET() {
   }
 }
 
+/** PUT /api/v1/branding — staff com personalização */
 export async function PUT(req: Request) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "personalizacao");
   if (isGuardFail(gate)) return gate.error;
 
   try {

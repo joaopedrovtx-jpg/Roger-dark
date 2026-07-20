@@ -20,8 +20,6 @@ import { AdminTd } from "./AdminTable";
 import { formatBRL, formatChartDate } from "@/lib/format";
 import {
   adminMetricsMock,
-  adminVolumeHistoryMock,
-  adminLedgerMock,
   type AdminMetrics,
   type AdminTxStatus,
   type AdminLedgerTx,
@@ -32,49 +30,53 @@ const ICON_TX = 28;
 
 /** Opções do seletor “Por página” (como na referência) */
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 40] as const;
-/** Tamanho máximo do buffer em memória (escadinha: novas empurram as antigas) */
+/** Tamanho máximo do buffer em memória */
 const MAX_BUFFER = 80;
-/** Intervalo do feed “ao vivo” (ms) */
-const LIVE_INTERVAL_MS = 4500;
+/** Polling do histórico real (ms) */
+const LIVE_INTERVAL_MS = 5000;
 
 const DEFAULT_PERIOD: PeriodValue = {
   key: "7d",
   label: "Últimos 7 dias",
 };
 
-const LIVE_USERS = [
-  "Ana Souza",
-  "Bruno Lima",
-  "Carla Mendes",
-  "Diego Alves",
-  "Elena Costa",
-  "Felipe Rocha",
-  "Gabriela Nunes",
-  "Hugo Martins",
-  "Isabela Freitas",
-  "Igor Rocha",
-];
-
-const LIVE_PRODUCTS = [
-  "Curso Digital Pro",
-  "Mentoria 1:1",
-  "E-book Premium",
-  "Assinatura Mensal",
-  "Pack Templates",
-  "Workshop Live",
-  "Consultoria",
-];
-
 function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
+  if (!iso || iso === "undefined" || iso === "null") return "—";
+  try {
+    const date = formatChartDate(iso);
+    if (!date || date.includes("NaN") || date.includes("undefined")) return "—";
+    const time = iso.includes("T") ? iso.split("T")[1]?.slice(0, 5) : "";
+    if (!time || time.includes("undefined")) return date;
+    return `${date} ${time}`;
+  } catch {
+    return "—";
+  }
 }
 
-function statusLabel(status: AdminTxStatus): string {
-  const map: Record<AdminTxStatus, string> = {
+/** Nome + sobrenome em uma linha (sem undefined) */
+function formatSellerName(raw: unknown): string {
+  const s = String(raw ?? "")
+    .replace(/\b(undefined|null)\b/gi, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!s) return "Seller";
+  const parts = s.split(" ").filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
+function formatMethod(raw: unknown): string {
+  const s = String(raw ?? "PIX")
+    .replace(/\b(undefined|null)\b/gi, "")
+    .trim()
+    .toUpperCase();
+  if (!s) return "PIX";
+  return s;
+}
+
+function statusLabel(status: AdminTxStatus | string): string {
+  const map: Record<string, string> = {
     pendente: "Pendente",
-    // Pagamento aprovado e saque aprovado usam o mesmo rótulo
     aprovada: "Aprovado",
     recusada: "Recusada",
     reembolsada: "Reembolso",
@@ -82,7 +84,7 @@ function statusLabel(status: AdminTxStatus): string {
     processando: "Pendente",
     recusado: "Recusado",
   };
-  return map[status];
+  return map[String(status || "pendente")] || "Pendente";
 }
 
 function statusTone(
@@ -152,130 +154,127 @@ function formatAmount(tx: AdminLedgerTx): { text: string; color: string } {
   };
 }
 
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function nowIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
-
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function randomAmount(min: number, max: number): number {
-  const n = min + Math.random() * (max - min);
-  return Math.round(n * 100) / 100;
-}
-
-/** Gera uma transação nova (venda ou saque) para o feed ao vivo */
-function createLiveTx(seq: number): AdminLedgerTx {
-  // Mix equilibrado: pagamentos (aprovações) + saques (pendente e aprovado)
-  const roll = Math.random();
-  const userName = randomItem(LIVE_USERS);
-
-  // ~35% saque (pendente ou aprovado), ~65% pagamento
-  if (roll < 0.35) {
-    // Metade pendente, metade aprovado — não só saque pendente
-    const saqueStatus: AdminTxStatus =
-      Math.random() < 0.5 ? "processando" : "pago";
-    return {
-      id: `SQ-L${String(seq).padStart(5, "0")}`,
-      date: nowIso(),
-      userName,
-      kind: "saque",
-      direction: "saida",
-      description: "Saque",
-      method: "PIX",
-      amount: randomAmount(500, 18_000),
-      status: saqueStatus,
-    };
-  }
-
-  // Pagamentos: maioria aprovada + pendente/recusada
-  const statuses: AdminTxStatus[] = [
-    "aprovada",
-    "aprovada",
-    "aprovada",
-    "aprovada",
-    "pendente",
-    "recusada",
-  ];
-  return {
-    id: `TX-L${String(seq).padStart(5, "0")}`,
-    date: nowIso(),
-    userName,
-    kind: "venda",
-    direction: "entrada",
-    description: randomItem(LIVE_PRODUCTS),
-    method: "PIX",
-    amount: randomAmount(29.9, 2_500),
-    status: randomItem(statuses),
-  };
-}
-
 /**
  * Layout espelhado da Dashboard de usuário:
  * 1) 3 indicadores no topo
  * 2) gráfico (2 cols) + 4 métricas empilhadas (1 col)
- * 3) histórico paginado (10) com feed ao vivo (escadinha)
+ * 3) histórico real (API de pagamento / PIX) com polling — sem fake
  */
 export function AdminDashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
   const [m, setMetrics] = useState<AdminMetrics>(adminMetricsMock);
-  const [chartData, setChartData] = useState(adminVolumeHistoryMock);
+  const [chartData, setChartData] = useState<
+    Array<{ date: string; amount: number; grain?: "hour" | "day" }>
+  >(() => {
+    // 7 dias reais com 0 até a API carregar
+    const rows: Array<{ date: string; amount: number; grain: "day" }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      rows.push({
+        date: d.toISOString().slice(0, 10),
+        amount: 0,
+        grain: "day",
+      });
+    }
+    return rows;
+  });
   const [dataSource, setDataSource] = useState<"mysql" | "mock">("mock");
 
-  /** Buffer em memória — novas no topo; quando passa de MAX_BUFFER, cai a mais antiga */
-  const [ledger, setLedger] = useState<AdminLedgerTx[]>(() =>
-    adminLedgerMock.slice(0, MAX_BUFFER)
-  );
+  /** Só TXs reais do banco */
+  const [ledger, setLedger] = useState<AdminLedgerTx[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(40);
   const [pageSizeOpen, setPageSizeOpen] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const seqRef = useRef(1);
+  const knownIdsRef = useRef<Set<string>>(new Set());
   const pageSizeRootRef = useRef<HTMLDivElement>(null);
   const pageSizeMenuId = useId();
 
-  /** Carrega metrics + gráfico + histórico do backend (banco real) */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { authedFetch } = await import("@/lib/client/session");
-        const res = await authedFetch("/api/v1/admin/dashboard");
-        if (!res.ok) return;
-        const json = (await res.json()) as {
-          source?: "mysql" | "mock" | "database";
-          metrics?: AdminMetrics;
-          volumeHistory?: typeof adminVolumeHistoryMock;
-          ledger?: AdminLedgerTx[];
-        };
-        if (cancelled) return;
-        if (json.metrics) setMetrics(json.metrics);
-        // Aceita histórico/ledger reais mesmo vazios parciais
-        if (json.volumeHistory) setChartData(json.volumeHistory);
-        if (json.ledger) {
-          setLedger(json.ledger.slice(0, MAX_BUFFER));
-        }
-        if (
-          json.source === "mysql" ||
-          json.source === "database" ||
-          json.source === "mock"
-        ) {
-          setDataSource(json.source === "database" ? "mysql" : json.source);
-        }
-      } catch {
-        /* mantém mock local */
+  const loadDashboard = useCallback(async (opts?: { silent?: boolean }) => {
+    try {
+      const { authedFetch } = await import("@/lib/client/session");
+      const res = await authedFetch(
+        `/api/v1/admin/dashboard?period=${encodeURIComponent(period.key)}`
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        source?: "mysql" | "mock" | "database";
+        metrics?: AdminMetrics;
+        volumeHistory?: Array<{
+          date?: string;
+          amount?: number;
+          grain?: "hour" | "day";
+        }>;
+        ledger?: AdminLedgerTx[];
+      };
+      if (json.metrics) setMetrics(json.metrics);
+      // Gráfico real (volume da API) — sem métricas fictícias
+      if (Array.isArray(json.volumeHistory)) {
+        const cleaned = json.volumeHistory
+          .map((p: { date?: string; amount?: number; grain?: "hour" | "day" }) => {
+            const raw = p?.date != null ? String(p.date) : "";
+            const m = raw.match(/(\d{4}-\d{2}-\d{2})/);
+            return {
+              date: m ? m[1] : "",
+              amount: Number.isFinite(Number(p?.amount))
+                ? Number(p.amount)
+                : 0,
+              grain: p.grain ?? ("day" as const),
+            };
+          })
+          .filter((p: { date: string }) => /^\d{4}-\d{2}-\d{2}$/.test(p.date));
+        setChartData(cleaned);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+
+      const rows: AdminLedgerTx[] = (json.ledger ?? [])
+        .slice(0, MAX_BUFFER)
+        .map((tx) => ({
+          ...tx,
+          userName: formatSellerName(tx.userName),
+          method: formatMethod(tx.method) as AdminLedgerTx["method"],
+          description:
+            String(tx.description || "Pagamento PIX")
+              .replace(/\b(undefined|null)\b/gi, "")
+              .trim() || "Pagamento PIX",
+          status: (tx.status || "pendente") as AdminTxStatus,
+        }));
+
+      if (opts?.silent && rows.length > 0) {
+        const top = rows[0];
+        if (top?.id && !knownIdsRef.current.has(top.id)) {
+          setFlashId(top.id);
+          window.setTimeout(() => {
+            setFlashId((cur) => (cur === top.id ? null : cur));
+          }, 1200);
+        }
+      }
+      knownIdsRef.current = new Set(rows.map((r) => r.id));
+      setLedger(rows);
+
+      if (
+        json.source === "mysql" ||
+        json.source === "database" ||
+        json.source === "mock"
+      ) {
+        setDataSource(json.source === "database" ? "mysql" : json.source);
+      }
+    } catch {
+      /* silencioso */
+    }
   }, [period.key]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void loadDashboard({ silent: true });
+    }, LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [loadDashboard]);
 
   const totalPages = Math.max(1, Math.ceil(ledger.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
@@ -306,26 +305,6 @@ export function AdminDashboardView() {
       document.removeEventListener("keydown", onKey);
     };
   }, [pageSizeOpen]);
-
-  /** Nova entra no topo; se estourar o buffer, remove a última (escadinha) */
-  const pushLiveTx = useCallback(() => {
-    const tx = createLiveTx(seqRef.current++);
-    setLedger((prev) => {
-      const next = [tx, ...prev];
-      if (next.length > MAX_BUFFER) next.length = MAX_BUFFER;
-      return next;
-    });
-    // Se o admin estiver na 1ª página, a nova aparece no topo; senão mantém a página
-    setFlashId(tx.id);
-    window.setTimeout(() => {
-      setFlashId((cur) => (cur === tx.id ? null : cur));
-    }, 1200);
-  }, []);
-
-  useEffect(() => {
-    const id = window.setInterval(pushLiveTx, LIVE_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [pushLiveTx]);
 
   // Se o buffer encolher e a página atual sumir, volta uma página
   useEffect(() => {
@@ -379,7 +358,8 @@ export function AdminDashboardView() {
             data={chartData}
             period={period}
             onPeriodChange={setPeriod}
-            title="Volume"
+            title="Histórico de volume processado"
+            subtitle="Acompanhe o histórico de pagamentos da plataforma"
             yAxisLabel="Volume"
           />
         </div>
@@ -491,15 +471,38 @@ export function AdminDashboardView() {
                     }}
                   >
                     <AdminTd nowrap>{formatDateTime(tx.date)}</AdminTd>
-                    <AdminTd>
+                    <AdminTd nowrap>
                       <span
                         className="font-medium"
-                        style={{ color: "var(--text-1)" }}
+                        style={{
+                          color: "var(--text-1)",
+                          whiteSpace: "nowrap",
+                          display: "inline-block",
+                          maxWidth: 200,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          verticalAlign: "bottom",
+                        }}
+                        title={formatSellerName(tx.userName)}
                       >
-                        {tx.userName}
+                        {formatSellerName(tx.userName)}
                       </span>
                     </AdminTd>
-                    <AdminTd>{tx.description}</AdminTd>
+                    <AdminTd>
+                      <span
+                        style={{
+                          whiteSpace: "nowrap",
+                          display: "inline-block",
+                          maxWidth: 220,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {String(tx.description || "Pagamento PIX")
+                          .replace(/\b(undefined|null)\b/gi, "")
+                          .trim() || "Pagamento PIX"}
+                      </span>
+                    </AdminTd>
                     <AdminTd>
                       <div className="flex items-center justify-center">
                         <span
@@ -510,6 +513,8 @@ export function AdminDashboardView() {
                             borderRadius: "var(--radius-sm)",
                             background: tone.iconBg,
                           }}
+                          title={formatMethod(tx.method)}
+                          aria-label={formatMethod(tx.method)}
                         >
                           <IconPixFilled size={14} tone={tone.iconTone} />
                         </span>
@@ -540,7 +545,7 @@ export function AdminDashboardView() {
                     className="px-4 py-10 text-center"
                     style={{ fontSize: 13, color: "var(--text-3)" }}
                   >
-                    Nenhuma transação no momento
+                    Nenhuma venda via API de pagamento ainda
                   </td>
                 </tr>
               ) : null}

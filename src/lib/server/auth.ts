@@ -61,8 +61,9 @@ function toAuthUser(
   };
 }
 
-/** Enriquece AuthUser com flags 2FA (policy admin). */
+/** Enriquece AuthUser com flags 2FA (policy admin) + KYC + permissões de gerente. */
 export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
+  let next: AuthUser = { ...user };
   try {
     const {
       userHas2faEnabled,
@@ -70,10 +71,55 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
     } = await import("@/lib/server/admin-2fa-policy");
     const twoFactorEnabled = await userHas2faEnabled(user.id);
     const mustSetup2fa = await adminMustSetup2fa(user.id, user.roles);
-    return { ...user, twoFactorEnabled, mustSetup2fa };
+    next = { ...next, twoFactorEnabled, mustSetup2fa };
   } catch {
-    return user;
+    /* policy best-effort */
   }
+
+  try {
+    const { buildKyc } = await import("@/lib/kyc");
+    const docs = await prisma.document.findMany({
+      where: { userId: user.id },
+      select: { kind: true, status: true },
+    });
+    next = {
+      ...next,
+      kyc: buildKyc(user.status, docs),
+    };
+  } catch {
+    const { buildKyc } = await import("@/lib/kyc");
+    next = { ...next, kyc: buildKyc(user.status, []) };
+  }
+
+  // Gerente: carrega permissões do registro Manager
+  try {
+    if (user.roles.includes("manager") && !user.roles.includes("admin")) {
+      const mgr = await prisma.manager.findFirst({
+        where: {
+          OR: [{ originUserId: user.id }, { email: user.email.toLowerCase() }],
+        },
+        select: { permissions: true, status: true },
+      });
+      if (mgr) {
+        const perms = Array.isArray(mgr.permissions)
+          ? (mgr.permissions as string[])
+          : [];
+        next = { ...next, permissions: perms };
+        // Gerente inativo perde acesso staff (sem role na sessão — checado no guard)
+        if (mgr.status === "inativo") {
+          next = {
+            ...next,
+            roles: next.roles.filter((r) => r !== "manager"),
+            permissions: [],
+          };
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return next;
 }
 
 function newId(prefix: string) {

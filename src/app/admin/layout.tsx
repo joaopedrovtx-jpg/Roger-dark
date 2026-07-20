@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/server/auth";
+import { isStaff } from "@/lib/staff";
 
 /**
  * Proteção server-side do painel admin.
- * Seller logado NÃO entra em /admin só digitando a URL — precisa role admin.
+ * Super-admin (admin) ou gerente (manager).
+ * Permissões por página: AdminShell + APIs.
  */
 export default async function AdminLayout({
   children,
@@ -16,8 +18,7 @@ export default async function AdminLayout({
     redirect("/login?next=/admin");
   }
 
-  if (!user.roles.includes("admin")) {
-    // Conta de seller/usuário comum: volta pro painel seller
+  if (!isStaff(user)) {
     redirect("/?error=admin_required");
   }
 

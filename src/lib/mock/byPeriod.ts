@@ -35,9 +35,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** âncora de demo: 23/12/2025 */
-function anchorDate(daysOffset = 0): Date {
-  const d = new Date(2025, 11, 23);
+/** Hoje local (meia-noite) menos N dias — série real “últimos X dias” */
+function calendarDaysAgo(daysOffset = 0): Date {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() - daysOffset);
   return d;
 }
@@ -50,7 +51,7 @@ function toISODate(d: Date): string {
 }
 
 function isoDaysAgo(n: number): string {
-  return toISODate(anchorDate(n));
+  return toISODate(calendarDaysAgo(n));
 }
 
 /** curva base normalizada (0–1) para série diária */
@@ -72,9 +73,8 @@ const HOUR_PROFILE = [
  * date: YYYY-MM-DDTHH:00
  */
 function buildHourlyHistory(key: "today" | "yesterday"): RevenuePoint[] {
-  // hoje = âncora (23/12); ontem = 22/12
   const dayOffset = key === "today" ? 0 : 1;
-  const day = anchorDate(dayOffset);
+  const day = calendarDaysAgo(dayOffset);
   const dayIso = toISODate(day);
   const bias = periodBias(key);
 
@@ -98,16 +98,27 @@ function buildHourlyHistory(key: "today" | "yesterday"): RevenuePoint[] {
   return history;
 }
 
-/** Série por dia — 7/15/30/60 dias */
+/** Série por dia — exatamente N dias corridos (7 = últimos 7 dias, etc.) */
 function buildDailyHistory(key: PeriodKey): RevenuePoint[] {
   const days = PERIOD_DAYS[key];
-  const points = Math.min(Math.max(days, 1), 30);
+  // 7d → 7 pontos; 15d → 15; 30d → 28 (4 semanas); 60d → 60 (6 meses)
+  const points =
+    key === "7d"
+      ? 7
+      : key === "15d"
+        ? 15
+        : key === "30d"
+          ? 28
+          : key === "60d"
+            ? 60
+            : Math.min(Math.max(days, 1), 30);
   const min = 5800;
   const max = 7600;
   const range = max - min;
   const bias = periodBias(key);
 
   const history: RevenuePoint[] = [];
+  // i=0 = hoje, i=6 = 6 dias atrás → últimos 7 dias
   for (let i = 0; i < points; i++) {
     const wave = WAVE[i % WAVE.length];
     const wobble = ((i * 17) % 10) / 100;

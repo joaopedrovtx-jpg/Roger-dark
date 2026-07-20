@@ -20,7 +20,7 @@ export function AdminShell({ children, title }: AdminShellProps) {
   const avatarUrl = user?.avatarUrl ?? null;
   const mustSetup2fa = !!user?.mustSetup2fa;
 
-  // Client guard (layout server já bloqueia; isto evita flash / bypass de UI)
+  // Client guard: super-admin ou gerente
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -29,7 +29,18 @@ export function AdminShell({ children, title }: AdminShellProps) {
     }
     if (!isAdmin) {
       router.replace("/?error=admin_required");
+      return;
     }
+    // Redireciona se a página atual não for permitida ao gerente
+    const path = window.location.pathname;
+    import("@/lib/staff").then(
+      ({ hasStaffPermission, permissionForAdminPath, firstAllowedAdminPath }) => {
+        const need = permissionForAdminPath(path);
+        if (need && !hasStaffPermission(user, need)) {
+          router.replace(firstAllowedAdminPath(user));
+        }
+      }
+    );
   }, [loading, user, isAdmin, router]);
 
   if (loading) {
@@ -49,7 +60,7 @@ export function AdminShell({ children, title }: AdminShellProps) {
         className="min-h-screen flex items-center justify-center"
         style={{ background: "var(--bg-app)", color: "var(--text-2)" }}
       >
-        Acesso restrito a administradores.
+        Acesso restrito a administradores e gerentes.
       </div>
     );
   }

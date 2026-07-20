@@ -24,7 +24,12 @@ interface AuthContextValue {
   register: (input: RegisterInput) => Promise<Session>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** Super-admin ou gerente (acesso ao painel /admin) */
   isAdmin: boolean;
+  /** Apenas role admin (super-admin) */
+  isSuperAdmin: boolean;
+  /** Role manager */
+  isManager: boolean;
   isSeller: boolean;
 }
 
@@ -124,7 +129,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       logout,
       refresh,
-      isAdmin: !!user?.roles.includes("admin"),
+      isAdmin:
+        !!user?.roles.includes("admin") ||
+        !!user?.roles.includes("manager"),
+      isSuperAdmin: !!user?.roles.includes("admin"),
+      isManager: !!user?.roles.includes("manager"),
       isSeller: !!user?.roles.includes("seller") || !!user,
     }),
     [user, loading, login, register, logout, refresh]
@@ -150,6 +159,8 @@ export function useAuth(): AuthContextValue {
       logout: async () => {},
       refresh: async () => {},
       isAdmin: false,
+      isSuperAdmin: false,
+      isManager: false,
       isSeller: false,
     };
   }

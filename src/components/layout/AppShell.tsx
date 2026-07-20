@@ -2,18 +2,46 @@
 
 import { Sidebar } from "./Sidebar";
 import { UserMenu } from "./UserMenu";
+import { AccountPendingBanner } from "./AccountPendingBanner";
+import { AccountAccessGate } from "./AccountAccessGate";
 import { SaleNotificationsProvider } from "@/components/notifications/SaleNotificationsProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AppShellProps {
   children: React.ReactNode;
   title?: string;
+  /** Não redireciona páginas KYC (ex.: documentos). Default: true */
+  enforceKyc?: boolean;
 }
 
-export function AppShell({ children, title }: AppShellProps) {
+export function AppShell({
+  children,
+  title,
+  enforceKyc = true,
+}: AppShellProps) {
   const { user, loading } = useAuth();
   const displayName = user?.name ?? (loading ? "…" : "Usuário");
   const avatarUrl = user?.avatarUrl ?? null;
+
+  const body = (
+    <>
+      <AccountPendingBanner />
+      <div className="flex items-center justify-between gap-4 mb-4">
+        {title ? (
+          <h1
+            className="font-bold"
+            style={{ fontSize: 24, color: "var(--text-1)" }}
+          >
+            {title}
+          </h1>
+        ) : (
+          <div />
+        )}
+        <UserMenu name={displayName} avatarUrl={avatarUrl} />
+      </div>
+      {children}
+    </>
+  );
 
   return (
     <SaleNotificationsProvider>
@@ -36,20 +64,11 @@ export function AppShell({ children, title }: AppShellProps) {
             padding: "14px 20px 24px 12px",
           }}
         >
-          <div className="flex items-center justify-between gap-4 mb-4">
-            {title ? (
-              <h1
-                className="font-bold"
-                style={{ fontSize: 24, color: "var(--text-1)" }}
-              >
-                {title}
-              </h1>
-            ) : (
-              <div />
-            )}
-            <UserMenu name={displayName} avatarUrl={avatarUrl} />
-          </div>
-          {children}
+          {enforceKyc ? (
+            <AccountAccessGate>{body}</AccountAccessGate>
+          ) : (
+            body
+          )}
         </main>
       </div>
     </SaleNotificationsProvider>

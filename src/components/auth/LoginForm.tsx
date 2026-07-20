@@ -2,9 +2,10 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Lock, Mail, Shield } from "lucide-react";
+import { Lock, Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
 import { AuthInput, authButtonStyle } from "./AuthInput";
+import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
 
 export function LoginForm() {
@@ -17,7 +18,8 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
 
   function goAfterLogin(roles: string[]) {
-    const isAdmin = roles.includes("admin");
+    const isStaff =
+      roles.includes("admin") || roles.includes("manager");
     const next =
       typeof window !== "undefined"
         ? new URLSearchParams(window.location.search).get("next")
@@ -25,10 +27,10 @@ export function LoginForm() {
     const safeNext =
       next && next.startsWith("/") && !next.startsWith("//") ? next : null;
 
-    let dest = isAdmin ? "/admin" : "/";
+    // Admin principal e gerentes → painel Admin
+    let dest = isStaff ? "/admin" : "/";
     if (safeNext) {
-      if (isAdmin) {
-        // Admin: só segue next se for área admin ou configurações (ex.: 2FA)
+      if (isStaff) {
         if (
           safeNext.startsWith("/admin") ||
           safeNext.startsWith("/configuracoes")
@@ -229,7 +231,7 @@ export function LoginForm() {
             placeholder="000000"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
-            icon={<Shield size={18} strokeWidth={1.8} />}
+            icon={<Icon2FAFilled size={18} tone="white" />}
           />
         )}
 

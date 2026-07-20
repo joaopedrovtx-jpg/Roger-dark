@@ -59,7 +59,7 @@
   --icon-on-green: var(--on-green);
   --star-amber: #f5a623;
 
-  /* Chart */
+  /* Chart — acompanha o acento da UI (como antes) */
   --chart-line: var(--green-use);
   --chart-dot-fill: var(--green-use);
   --chart-dot-stroke: #0c0e12;

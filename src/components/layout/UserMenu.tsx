@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -12,35 +11,28 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ name, avatarUrl }: UserMenuProps) {
-  const router = useRouter();
-  const pathname = usePathname();
   const { logout, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  const onAdminPanel = pathname.startsWith("/admin");
-
   const links = useMemo(() => {
-    const base: { label: string; href: string }[] = [
-      { label: "Perfil", href: "/configuracoes/perfil" },
+    // Admin e gerentes: só Meu perfil + Segurança (sem dash de usuário)
+    if (isAdmin) {
+      return [
+        { label: "Meu perfil", href: "/configuracoes/perfil" },
+        { label: "Segurança", href: "/configuracoes/seguranca" },
+      ];
+    }
+    return [
+      { label: "Meu perfil", href: "/configuracoes/perfil" },
       { label: "Notificações", href: "/configuracoes/notificacoes" },
       { label: "Configuração", href: "/configuracoes" },
       { label: "Documentação de API", href: "/docs" },
       { label: "Meus documentos", href: "/configuracoes/documentos" },
     ];
-    if (isAdmin) {
-      if (onAdminPanel) {
-        // No admin: atalho para a dash de usuário (seller)
-        base.push({ label: "Minha Dash", href: "/dash" });
-      } else {
-        // No painel seller: atalho de volta ao admin
-        base.push({ label: "Painel Admin", href: "/admin" });
-      }
-    }
-    return base;
-  }, [isAdmin, onAdminPanel]);
+  }, [isAdmin]);
 
   const initials = name
     .split(" ")

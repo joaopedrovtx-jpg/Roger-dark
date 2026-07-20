@@ -6,12 +6,19 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActiveGreenAccent } from "@/components/layout/ActiveGreenAccent";
 import { useBranding } from "@/components/branding/BrandingProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  ADMIN_NAV_PERMISSION,
+  hasStaffPermission,
+  type StaffPermission,
+} from "@/lib/staff";
 
 interface NavItem {
   label: string;
   href: string;
   icon?: LucideIcon;
   iconSrc?: string;
+  permission: StaffPermission;
 }
 
 const NAV: NavItem[] = [
@@ -19,36 +26,37 @@ const NAV: NavItem[] = [
     label: "Dashboard",
     href: "/admin",
     iconSrc: "/icons/casa.png",
+    permission: "dashboard",
   },
   {
     label: "Usuários",
     href: "/admin/usuarios",
     iconSrc: "/icons/usuarios.png",
+    permission: "usuarios",
   },
   {
     label: "Gerentes",
     href: "/admin/gerentes",
-    // Flaticon #2047262 — CEO
-    // https://www.flaticon.com/br/icone-gratis/ceo_2047262
     iconSrc: "/icons/gerente.png",
+    permission: "gerentes",
   },
   {
     label: "Saques",
     href: "/admin/saques",
-    // Flaticon #2769213 — retirada de dinheiro
     iconSrc: "/icons/saque.png",
+    permission: "saques",
   },
   {
     label: "Adquirentes",
     href: "/admin/adquirentes",
-    // Flaticon #1015070 — banco
-    // https://www.flaticon.com/br/icone-gratis/banco_1015070
     iconSrc: "/icons/banco.png",
+    permission: "adquirentes",
   },
   {
     label: "Personalização",
     href: "/admin/personalizacao",
     iconSrc: "/icons/editar.png",
+    permission: "personalizacao",
   },
 ];
 
@@ -96,6 +104,22 @@ function isActive(href: string, pathname: string): boolean {
 export function AdminSidebar() {
   const pathname = usePathname();
   const { branding } = useBranding();
+  const { user, isSuperAdmin } = useAuth();
+
+  const navItems = NAV.filter((item) => {
+    // Super-admin vê tudo
+    if (isSuperAdmin) return true;
+    // documentos libera Usuários se tiver só documentos
+    if (item.permission === "usuarios") {
+      return (
+        hasStaffPermission(user, "usuarios") ||
+        hasStaffPermission(user, "documentos")
+      );
+    }
+    return hasStaffPermission(user, item.permission);
+  });
+
+  const homeHref = navItems[0]?.href ?? "/admin";
 
   return (
     <aside
@@ -109,7 +133,7 @@ export function AdminSidebar() {
     >
       <div className="mb-5 px-1 shrink-0">
         <Link
-          href="/admin"
+          href={homeHref}
           className="flex items-center select-none"
           style={{ textDecoration: "none" }}
           aria-label="Dark Pay Admin — início"
@@ -132,7 +156,7 @@ export function AdminSidebar() {
       </div>
 
       <nav className="flex flex-col gap-0.5 shrink-0">
-        {NAV.map((item) => {
+        {navItems.map((item) => {
           const active = isActive(item.href, pathname);
           const Icon = item.icon;
 
@@ -186,7 +210,9 @@ export function AdminSidebar() {
           );
         })}
       </nav>
-
     </aside>
   );
 }
+
+// re-export for callers that might want the map
+void ADMIN_NAV_PERMISSION;

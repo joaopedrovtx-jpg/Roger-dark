@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Shield, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import {
+  Icon2FAFilled,
   IconBellFilled,
   IconDocumentosFilled,
   IconUserProfileFilled,
@@ -35,14 +36,16 @@ const ITEMS: ConfigItem[] = [
   {
     href: "/configuracoes/notificacoes",
     title: "Notificações",
-    description: "Venda gerada e venda aprovada no navegador (com favicon).",
+    description:
+      "Venda gerada e aprovada no celular (Android/iOS) e no computador (Mac/Windows).",
     customIcon: <IconBellFilled size={22} tone="white" />,
   },
   {
     href: "/configuracoes/seguranca",
     title: "Segurança",
     description: "Verificação em duas etapas (2FA) com app autenticador.",
-    lucide: Shield,
+    // Mesmo ícone da página Segurança (2FA / escudo)
+    customIcon: <Icon2FAFilled size={22} tone="white" />,
   },
 ];
 

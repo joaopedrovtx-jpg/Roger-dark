@@ -13,6 +13,7 @@ export {
   dbUpdateUserFees,
   dbUpdateUserRouting,
   dbSetUserDocumentsStatus,
+  listUserDocuments,
 } from "./admin-users.service";
 
 export {
@@ -41,4 +42,5 @@ export {
 export {
   listAdminManagers,
   dbUpdateManagerStatus,
+  dbCreateManagerFromUser,
 } from "./admin-managers.service";

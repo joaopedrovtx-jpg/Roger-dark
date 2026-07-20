@@ -9,7 +9,11 @@ import { getSessionUser } from "@/lib/server/auth";
  */
 export default async function DashboardPage() {
   const user = await getSessionUser();
-  if (user?.roles.includes("admin")) {
+  // Super-admin e gerentes vão direto pro painel Admin
+  if (
+    user?.roles.includes("admin") ||
+    user?.roles.includes("manager")
+  ) {
     redirect("/admin");
   }
 

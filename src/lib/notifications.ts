@@ -1,7 +1,8 @@
 /**
  * Preferências e helpers de notificação do navegador (seller).
- * Notification API → Central de Notificações do macOS (Safari / Chrome).
- * Venda gerada + venda aprovada (paga) — sem pendente.
+ * Web Notification API — funciona em:
+ * Android (Chrome), iOS (Safari 16.4+ PWA/home), macOS, Windows e Linux.
+ * Venda gerada + venda aprovada (paga).
  */
 
 export const NOTIFICATIONS_STORAGE_KEY = "darkpay.notifications.v1";
@@ -77,18 +78,35 @@ export function getNotificationPermission(): NotificationPermission | "unsupport
   return Notification.permission;
 }
 
+/** Ambiente aproximado para mensagens de ajuda */
+export function getNotificationPlatformHint(): string {
+  if (typeof navigator === "undefined") return "neste dispositivo";
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return "no Android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "no iPhone/iPad";
+  if (/Macintosh|Mac OS X/i.test(ua)) return "no Mac";
+  if (/Windows/i.test(ua)) return "no Windows";
+  if (/Linux/i.test(ua)) return "no Linux";
+  return "neste dispositivo";
+}
+
 /**
- * Pede permissão. No Safari, precisa ser no gesto do clique
- * e a notificação idealmente logo em seguida no mesmo fluxo.
+ * Pede permissão do navegador (prompt nativo do SO/browser).
+ * Deve ser chamado a partir de um clique (gesto do usuário).
+ *
+ * - granted → já autorizado, não reabre prompt
+ * - default → abre o diálogo “Permitir / Bloquear”
+ * - denied → browser não reabre o diálogo (limitação do Chrome/Safari);
+ *   ainda assim chama requestPermission() para manter o fluxo consistente
  */
 export async function requestNotificationPermission(): Promise<
   NotificationPermission | "unsupported"
 > {
   if (!isNotificationApiSupported()) return "unsupported";
   if (Notification.permission === "granted") return "granted";
-  if (Notification.permission === "denied") return "denied";
 
   try {
+    // Chama sempre que ainda não está granted — é o que abre o popup do browser
     const result = Notification.requestPermission();
     if (
       result &&
@@ -166,23 +184,28 @@ export function buildSaleNotificationCopy(payload: SaleNotifyPayload): {
 }
 
 /**
- * Notificação limpa no macOS: só título + valor.
- * Sem icon/badge (evita logo roxo e ruído visual); o SO pode ainda
- * mostrar o domínio do site (ex.: localhost em dev — some no domínio real).
+ * Notificação nativa do SO via Web Notifications:
+ * Android, iOS (Safari), macOS, Windows e Linux (Chrome/Edge/Firefox/Safari).
  */
 function createSystemNotification(
   title: string,
   body: string,
   tag: string
 ): Notification {
-  return new Notification(title, {
+  const icon = resolveNotificationIcon();
+  const opts: NotificationOptions = {
     body,
     tag,
-  });
+    // Ícone ajuda no Android / Windows / Chrome
+    ...(icon ? { icon } : {}),
+    // Silent false = com som padrão do SO quando permitido
+    silent: false,
+  };
+  return new Notification(title, opts);
 }
 
 /**
- * Notificação nativa do SO (macOS Notification Center).
+ * Notificação nativa do dispositivo (qualquer SO suportado pelo browser).
  * @param options.force — ignora prefs (botão Testar)
  */
 export function showSaleBrowserNotification(
@@ -192,7 +215,7 @@ export function showSaleBrowserNotification(
 ): NotifyResult {
   if (!options?.force) {
     if (!prefs.browserEnabled) {
-      return { ok: false, reason: "Notificações do navegador desativadas." };
+      return { ok: false, reason: "Notificações desativadas." };
     }
     if (payload.kind === "gerada" && !prefs.vendaGerada) {
       return { ok: false, reason: "Alerta de venda gerada desativado." };
@@ -203,7 +226,11 @@ export function showSaleBrowserNotification(
   }
 
   if (!isNotificationApiSupported()) {
-    return { ok: false, reason: "Este navegador não suporta notificações." };
+    return {
+      ok: false,
+      reason:
+        "Este navegador não suporta notificações. Use Chrome, Edge, Firefox ou Safari atualizado.",
+    };
   }
 
   if (Notification.permission !== "granted") {
@@ -211,8 +238,8 @@ export function showSaleBrowserNotification(
       ok: false,
       reason:
         Notification.permission === "denied"
-          ? "Permissão bloqueada no Safari."
-          : "Permissão ainda não concedida.",
+          ? "Ative no navegador: cadeado da URL → Notificações → Permitir."
+          : "Permita as notificações quando o navegador pedir.",
     };
   }
 
@@ -244,7 +271,7 @@ export function showSaleBrowserNotification(
       }
     };
 
-    // NÃO fechar por timer — deixa o macOS / Central de Notificações gerenciar
+    // Deixa o SO gerenciar (Android / iOS / Windows / macOS)
     return { ok: true };
   } catch (err) {
     const msg =

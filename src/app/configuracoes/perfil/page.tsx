@@ -1,10 +1,10 @@
-import { AppShell } from "@/components/layout/AppShell";
+import { ConfigShell } from "@/components/layout/ConfigShell";
 import { PerfilView } from "@/components/configuracoes/PerfilView";
 
 export default function MeuPerfilPage() {
   return (
-    <AppShell>
+    <ConfigShell>
       <PerfilView />
-    </AppShell>
+    </ConfigShell>
   );
 }

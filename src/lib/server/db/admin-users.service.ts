@@ -43,6 +43,35 @@ async function audit(
   } catch { /* ignore audit failures */ }
 }
 
+/** Roles do user (JSON SQLite/MySQL) */
+function parseUserRoles(raw: unknown): string[] {
+  try {
+    let value: unknown = raw;
+    if (typeof raw === "string") {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        value = raw.split(",").map((s) => s.trim());
+      }
+    }
+    if (Array.isArray(value)) {
+      return value.map((r) => String(r).toLowerCase());
+    }
+  } catch {
+    /* ignore */
+  }
+  return ["seller"];
+}
+
+/** Super-admin da plataforma — não entra na lista de sellers */
+function isPlatformSuperAdmin(rolesRaw: unknown, email?: string | null): boolean {
+  const roles = parseUserRoles(rolesRaw);
+  if (roles.includes("admin")) return true;
+  const e = (email || "").toLowerCase();
+  if (e === "admin@darkpay.app") return true;
+  return false;
+}
+
 export async function getAdminUsersPageMetrics() {
   if (!(await dbAvailable())) return null;
 
@@ -50,16 +79,24 @@ export async function getAdminUsersPageMetrics() {
   startOfToday.setHours(0, 0, 0, 0);
   const sevenDaysAgo = new Date(Date.now() - 7 * 864e5);
 
-  const [total, ativo, pendente, bloqueado, hoje, novos] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { status: "ativo" } }),
-    prisma.user.count({ where: { status: "pendente" } }),
-    prisma.user.count({ where: { status: "bloqueado" } }),
-    prisma.user.count({ where: { createdAt: { gte: startOfToday } } }),
-    prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-  ]);
+  const all = await prisma.user.findMany({
+    select: {
+      status: true,
+      createdAt: true,
+      roles: true,
+      email: true,
+    },
+  });
+  const sellers = all.filter((u) => !isPlatformSuperAdmin(u.roles, u.email));
 
-  return { total, ativo, pendente, bloqueado, hoje, novos };
+  return {
+    total: sellers.length,
+    ativo: sellers.filter((u) => u.status === "ativo").length,
+    pendente: sellers.filter((u) => u.status === "pendente").length,
+    bloqueado: sellers.filter((u) => u.status === "bloqueado").length,
+    hoje: sellers.filter((u) => u.createdAt >= startOfToday).length,
+    novos: sellers.filter((u) => u.createdAt >= sevenDaysAgo).length,
+  };
 }
 
 export async function listAdminUsers(opts?: {
@@ -246,6 +283,39 @@ export async function dbSetUserDocumentsStatus(
       reviewedAt: new Date(),
     },
   });
+  if (status === "aprovado") {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "ativo" },
+    });
+  } else if (status === "rejeitado") {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "pendente" },
+    });
+  }
   await audit("documents.bulk", "user", userId, { status });
   return { ok: true };
+}
+
+/** Documentos enviados pelo seller (compliance) */
+export async function listUserDocuments(userId: string) {
+  if (!(await dbAvailable())) return null;
+  const docs = await prisma.document.findMany({
+    where: { userId },
+    orderBy: { submittedAt: "desc" },
+  });
+  return docs.map((d) => ({
+    id: d.id,
+    userId: d.userId,
+    userName: d.userName,
+    userEmail: d.userEmail,
+    kind: d.kind,
+    type: d.kind,
+    typeLabel: d.typeLabel,
+    submittedAt: d.submittedAt.toISOString(),
+    status: d.status,
+    previewUrl: d.previewUrl,
+    notes: d.notes,
+  }));
 }

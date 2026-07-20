@@ -1,10 +1,10 @@
-import { AppShell } from "@/components/layout/AppShell";
+import { ConfigShell } from "@/components/layout/ConfigShell";
 import { SegurancaView } from "@/components/configuracoes/SegurancaView";
 
 export default function SegurancaPage() {
   return (
-    <AppShell>
+    <ConfigShell>
       <SegurancaView />
-    </AppShell>
+    </ConfigShell>
   );
 }

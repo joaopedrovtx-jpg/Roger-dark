@@ -66,6 +66,35 @@ export async function requireAuth(
  * IMPORTANTE: se vier Bearer sk_*, a conta da API key manda — NÃO a sessão admin.
  * Assim a rota personalizada do seller (PodPay/Velana) é a do dono da sk_.
  */
+/**
+ * Conta seller precisa estar ativa para operar o gateway (pagamentos, saques, API).
+ * Admin em sessão de painel não é bloqueado por status pendente do próprio user.
+ */
+export function accountNotActiveResponse(user: AuthUser): GuardFail | null {
+  if (user.roles.includes("admin")) return null;
+  if (user.status === "ativo") return null;
+  if (user.status === "bloqueado") {
+    return {
+      error: NextResponse.json(
+        { error: "Conta bloqueada", code: "account_blocked" },
+        { status: 403 }
+      ),
+    };
+  }
+  return {
+    error: NextResponse.json(
+      {
+        error:
+          "Conta pendente de aprovação. Envie os documentos e aguarde a liberação do gateway.",
+        code: "account_pending",
+        hint: "Acesse Configurações → Meus documentos (RG frente/verso, selfie e contrato social).",
+        setupPath: "/configuracoes/documentos",
+      },
+      { status: 403 }
+    ),
+  };
+}
+
 export async function requireSellerAuth(
   req: Request,
   opts?: { permission?: ApiPermission }
@@ -103,14 +132,8 @@ export async function requireSellerAuth(
           ),
         };
       }
-      if (u.status === "bloqueado") {
-        return {
-          error: NextResponse.json(
-            { error: "Conta bloqueada" },
-            { status: 403 }
-          ),
-        };
-      }
+      const blocked = accountNotActiveResponse(u);
+      if (blocked) return blocked;
       return { user: u, apiAuth, authVia: "api_key" };
     }
     const failure =
@@ -138,12 +161,16 @@ export async function requireSellerAuth(
   if (sessionToken && !sessionToken.startsWith("sk_")) {
     const user = await getUserBySessionToken(sessionToken);
     if (user) {
+      const blocked = accountNotActiveResponse(user);
+      if (blocked) return blocked;
       return { user, authVia: "session" };
     }
   }
 
   const cookieUser = await getSessionUser(req);
   if (cookieUser) {
+    const blocked = accountNotActiveResponse(cookieUser);
+    if (blocked) return blocked;
     return { user: cookieUser, authVia: "session" };
   }
 
@@ -198,21 +225,27 @@ async function loadUser(userId: string): Promise<AuthUser | null> {
   }
 }
 
+/**
+ * Painel Admin: super-admin (role admin) ou gerente (role manager).
+ * Use requireStaffPermission para restringir por página.
+ */
 export async function requireAdmin(
   req?: Request
 ): Promise<GuardOk | GuardFail> {
   const r = await requireAuth(req);
   if ("error" in r) return r;
-  if (!r.user.roles.includes("admin")) {
+
+  const { rolesIncludeStaff } = await import("@/lib/staff");
+  if (!rolesIncludeStaff(r.user.roles)) {
     return {
       error: NextResponse.json(
-        { error: "Acesso restrito a administradores" },
+        { error: "Acesso restrito a administradores e gerentes" },
         { status: 403 }
       ),
     };
   }
 
-  // Policy: admin sem 2FA não acessa painel admin (exceto setup em /auth/2fa)
+  // Policy: super-admin sem 2FA (quando exigido)
   try {
     const { adminMustSetup2fa } = await import(
       "@/lib/server/admin-2fa-policy"
@@ -235,6 +268,29 @@ export async function requireAdmin(
     /* policy best-effort */
   }
 
+  return r;
+}
+
+/** Exige staff + permissão (gerentes limitados; super-admin passa). */
+export async function requireStaffPermission(
+  req: Request | undefined,
+  permission: import("@/lib/staff").StaffPermission
+): Promise<GuardOk | GuardFail> {
+  const r = await requireAdmin(req);
+  if ("error" in r) return r;
+  const { hasStaffPermission } = await import("@/lib/staff");
+  if (!hasStaffPermission(r.user, permission)) {
+    return {
+      error: NextResponse.json(
+        {
+          error: "Sem permissão para este recurso",
+          code: "forbidden_permission",
+          required: permission,
+        },
+        { status: 403 }
+      ),
+    };
+  }
   return r;
 }
 

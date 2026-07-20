@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, X } from "lucide-react";
 import { IconBellFilled } from "@/components/dashboard/KpiIcons";
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -70,7 +69,7 @@ function Switch({
   );
 }
 
-/** Card simples: só o nome + switch (sem preview / sticky com valor) */
+/** Card simples: só o nome + switch */
 function OptionCard({
   id,
   title,
@@ -141,105 +140,108 @@ export function NotificacoesView() {
   >("default");
   const [supported, setSupported] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [toast, setToast] = useState<{
-    text: string;
-    error?: boolean;
-  } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const refreshPermission = useCallback(() => {
     setPermission(getNotificationPermission());
   }, []);
 
   useEffect(() => {
-    setPrefs(loadNotificationPrefs());
-    setSupported(isNotificationApiSupported());
-    refreshPermission();
-    setHydrated(true);
-  }, [refreshPermission]);
+    const loaded = loadNotificationPrefs();
+    const perm = getNotificationPermission();
+    const apiOk = isNotificationApiSupported();
 
-  function flash(text: string, error = false) {
-    setToast({ text, error });
-    window.setTimeout(() => setToast(null), 2800);
-  }
+    // Se o browser ainda não autorizou, não mantém “ligado” no storage
+    if (perm !== "granted" && loaded.browserEnabled) {
+      loaded.browserEnabled = false;
+      saveNotificationPrefs(loaded);
+    }
+
+    setPrefs(loaded);
+    setSupported(apiOk);
+    setPermission(perm);
+    setHydrated(true);
+  }, []);
+
+  // Atualiza se o usuário mudar a permissão nas configs do browser e voltar
+  useEffect(() => {
+    function onVis() {
+      if (document.visibilityState === "visible") {
+        refreshPermission();
+        const perm = getNotificationPermission();
+        if (perm !== "granted") {
+          setPrefs((prev) => {
+            if (!prev.browserEnabled) return prev;
+            const next = { ...prev, browserEnabled: false };
+            saveNotificationPrefs(next);
+            return next;
+          });
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, [refreshPermission]);
 
   function persist(next: NotificationPrefs) {
     setPrefs(next);
     saveNotificationPrefs(next);
   }
 
-  async function handleMaster(next: boolean) {
-    if (!next) {
+  /**
+   * Liga/desliga. Ao ligar, SEMPRE aciona o pedido nativo do navegador
+   * (Notification.requestPermission) a partir do clique do usuário.
+   */
+  async function handleMaster(wantOn: boolean) {
+    if (busy) return;
+
+    // Desligar: só preferência local
+    if (!wantOn) {
       persist({ ...prefs, browserEnabled: false });
-      flash("Notificações desligadas");
       return;
     }
 
     if (!isNotificationApiSupported()) {
-      flash("Navegador sem suporte a notificações", true);
-      return;
-    }
-
-    let perm = getNotificationPermission();
-    if (perm === "default") {
-      perm = await requestNotificationPermission();
-      setPermission(perm);
-    } else {
-      setPermission(perm);
-    }
-
-    if (perm !== "granted") {
-      flash(
-        perm === "denied"
-          ? "Permissão bloqueada no navegador"
-          : "Permita as notificações quando o Safari pedir",
-        true
-      );
       persist({ ...prefs, browserEnabled: false });
+      setPermission("unsupported");
       return;
     }
 
-    persist({ ...prefs, browserEnabled: true });
-    flash("Notificações ativas no Mac");
+    setBusy(true);
+    try {
+      // 1) Chama o browser AGORA (gesto do clique) → popup Permitir / Bloquear
+      const perm = await requestNotificationPermission();
+      setPermission(perm);
+
+      // 2) Só fica Ativo se o usuário/navegador autorizou
+      if (perm === "granted") {
+        persist({ ...prefs, browserEnabled: true });
+      } else {
+        persist({ ...prefs, browserEnabled: false });
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleType(
     key: "vendaGerada" | "vendaAprovada",
     next: boolean
   ) {
-    if (!prefs.browserEnabled) return;
+    if (!prefs.browserEnabled || permission !== "granted") return;
     persist({ ...prefs, [key]: next });
   }
 
+  // Ligado de verdade = preferência + permissão do browser
   const masterOn = prefs.browserEnabled && permission === "granted";
-  const typesLocked = !prefs.browserEnabled || !supported;
-
-  /** Badge no mesmo estilo do status do seller (Admin → foto + Ativo/Aprovado) */
-  let statusLabel = "Desligado";
-  let badgeBg = "var(--bg-elevated)";
-  let badgeColor = "var(--text-2)";
-  if (!hydrated) {
-    statusLabel = "…";
-  } else if (!supported) {
-    statusLabel = "Indisponível";
-    badgeBg = "#ef4444";
-    badgeColor = "#ffffff";
-  } else if (permission === "denied") {
-    statusLabel = "Bloqueado";
-    badgeBg = "#ef4444";
-    badgeColor = "#ffffff";
-  } else if (masterOn) {
-    statusLabel = "Ativo";
-    badgeBg = "#ffffff";
-    badgeColor = "#0a0f0c";
-  } else if (prefs.browserEnabled) {
-    statusLabel = "Aguardando";
-    badgeBg = "#eab308";
-    badgeColor = "#0a0f0c";
-  }
+  const typesLocked = !masterOn || !supported;
 
   return (
     <div className="flex flex-col" style={{ gap: 16, maxWidth: 520 }}>
-      {/* Cabeçalho enxuto */}
       <div className="flex items-center justify-between gap-3">
         <h1
           className="font-bold"
@@ -247,40 +249,42 @@ export function NotificacoesView() {
         >
           Notificações
         </h1>
-        <span
-          className="inline-flex items-center justify-center font-semibold shrink-0"
-          style={{
-            height: 24,
-            padding: "0 9px",
-            borderRadius: 8,
-            background: badgeBg,
-            color: badgeColor,
-            fontSize: 11,
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-            whiteSpace: "nowrap",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-          }}
-          suppressHydrationWarning
-        >
-          {statusLabel}
-        </span>
+        {hydrated && masterOn ? (
+          <span
+            className="inline-flex items-center justify-center font-semibold shrink-0"
+            style={{
+              height: 24,
+              padding: "0 9px",
+              borderRadius: 8,
+              background: "#ffffff",
+              color: "#0a0f0c",
+              fontSize: 11,
+              lineHeight: 1,
+              letterSpacing: "0.01em",
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+            }}
+          >
+            Ativo
+          </span>
+        ) : null}
       </div>
 
-      {/* Master — card grande e interativo */}
+      {/* Clique no card ou no switch → pede autorização nativa do navegador */}
       <div
         role="button"
-        tabIndex={!supported && hydrated ? -1 : 0}
-        aria-pressed={prefs.browserEnabled}
+        tabIndex={busy || (!supported && hydrated) ? -1 : 0}
+        aria-pressed={masterOn}
+        aria-disabled={busy || (!supported && hydrated) || undefined}
         onClick={() => {
-          if (!supported && hydrated) return;
-          void handleMaster(!prefs.browserEnabled);
+          if (busy || (!supported && hydrated)) return;
+          void handleMaster(!masterOn);
         }}
         onKeyDown={(e) => {
-          if (!supported && hydrated) return;
+          if (busy || (!supported && hydrated)) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            void handleMaster(!prefs.browserEnabled);
+            void handleMaster(!masterOn);
           }
         }}
         className="w-full text-left"
@@ -292,8 +296,10 @@ export function NotificacoesView() {
           borderRadius: "var(--radius-card)",
           border: "1px solid var(--border-card)",
           background: "var(--bg-card)",
-          cursor: !supported && hydrated ? "not-allowed" : "pointer",
+          cursor:
+            busy || (!supported && hydrated) ? "not-allowed" : "pointer",
           boxSizing: "border-box",
+          opacity: busy ? 0.75 : 1,
         }}
       >
         <span
@@ -312,86 +318,54 @@ export function NotificacoesView() {
             className="font-semibold"
             style={{ fontSize: 15.5, color: "var(--text-1)" }}
           >
-            Alertas no Mac
+            Receba notificação de venda
           </div>
           <div
             style={{
               fontSize: 12.5,
               color: "var(--text-3)",
               marginTop: 3,
+              lineHeight: 1.4,
             }}
           >
-            {masterOn
-              ? "Ligado — toque para desligar"
-              : "Desligado — toque para ligar"}
+            {masterOn ? "Toque para desligar" : "Toque para ativar"}
           </div>
         </div>
         <Switch
           id="notif-master"
-          aria-label="Alertas no Mac"
-          checked={prefs.browserEnabled}
-          disabled={!supported && hydrated}
+          aria-label="Receba notificação de venda"
+          checked={masterOn}
+          disabled={busy || (!supported && hydrated)}
           onChange={(v) => void handleMaster(v)}
         />
       </div>
 
-      {/* Tipos — só o nome (sem preview de valor) */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--text-3)",
+            fontWeight: 500,
+          }}
+        >
+          Tipos de notificação
+        </p>
         <OptionCard
           id="notif-aprovada"
           title="Venda aprovada"
-          checked={prefs.vendaAprovada && prefs.browserEnabled}
+          checked={prefs.vendaAprovada && masterOn}
           disabled={typesLocked}
           onChange={(v) => handleType("vendaAprovada", v)}
         />
         <OptionCard
           id="notif-gerada"
           title="Venda gerada"
-          checked={prefs.vendaGerada && prefs.browserEnabled}
+          checked={prefs.vendaGerada && masterOn}
           disabled={typesLocked}
           onChange={(v) => handleType("vendaGerada", v)}
         />
       </div>
-
-      {/* Feedback curto */}
-      {toast ? (
-        <div
-          role="status"
-          className="flex items-center gap-2"
-          style={{
-            padding: "11px 14px",
-            borderRadius: "var(--radius-md)",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-card)",
-            fontSize: 13,
-            color: toast.error ? "#f87171" : "var(--text-1)",
-          }}
-        >
-          {toast.error ? (
-            <X size={15} strokeWidth={2.25} style={{ color: "#f87171" }} />
-          ) : (
-            <Check
-              size={15}
-              strokeWidth={2.25}
-              style={{ color: "var(--green-use)" }}
-            />
-          )}
-          {toast.text}
-        </div>
-      ) : null}
-
-      {hydrated && permission === "denied" ? (
-        <p
-          style={{
-            margin: 0,
-            fontSize: 12.5,
-            color: "#f87171",
-            lineHeight: 1.4,
-          }}
-        >
-          Bloqueado no Safari. Cadeado da URL → Notificações → Permitir.
-        </p>
-      ) : null}
     </div>
   );
 }

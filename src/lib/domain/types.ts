@@ -36,6 +36,19 @@ export type PeriodKey =
 
 // ─── Auth ───────────────────────────────────────────────
 
+/** Estado de KYC / documentos da conta seller */
+export interface AuthKyc {
+  /** Conta ainda não está ativa (precisa aprovação) */
+  needsApproval: boolean;
+  /** Já enviou o pacote mínimo de documentos */
+  docsSubmitted: boolean;
+  /** Quantos docs enviados vs exigidos */
+  docsCount: number;
+  requiredCount: number;
+  /** Algum doc rejeitado */
+  hasRejected: boolean;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -51,6 +64,13 @@ export interface AuthUser {
    * UI deve redirecionar para Configurações → Segurança.
    */
   mustSetup2fa?: boolean;
+  /** Compliance / liberação do gateway */
+  kyc?: AuthKyc;
+  /**
+   * Permissões do painel Admin (gerente).
+   * Super-admin (role admin) ignora e tem acesso total.
+   */
+  permissions?: string[];
 }
 
 export interface Session {

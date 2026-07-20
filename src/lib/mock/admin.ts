@@ -85,6 +85,8 @@ export interface AdminUser {
   customAdquirentes?: SellerCustomAdquirente[];
   /** Saque automático liberado para o seller */
   saqueAutomatico?: boolean;
+  /** Documentos enviados pelo seller (quando carregados da API) */
+  documents?: AdminDocument[];
 }
 
 export interface AdminDocument {
@@ -103,27 +105,19 @@ export interface AdminDocument {
   previewUrl?: string | null;
 }
 
-/** Documentos exigidos por tipo de conta */
+/** Documentos exigidos para liberar o gateway (sempre os 4 tipos). */
 export function requiredDocsForPersonType(
-  personType: PersonType
+  _personType: PersonType
 ): Array<{ kind: SellerDocKind; typeLabel: string }> {
-  if (personType === "pj") {
-    return [
-      { kind: "doc_frente", typeLabel: "Documento (frente)" },
-      { kind: "doc_verso", typeLabel: "Documento (verso)" },
-      { kind: "selfie", typeLabel: "Selfie com documento" },
-      { kind: "contrato_social", typeLabel: "Contrato social" },
-    ];
-  }
-  // PF (CPF)
   return [
-    { kind: "selfie", typeLabel: "Selfie" },
-    { kind: "doc_frente", typeLabel: "Documento (frente)" },
-    { kind: "doc_verso", typeLabel: "Documento (verso)" },
+    { kind: "doc_frente", typeLabel: "RG / documento (frente)" },
+    { kind: "doc_verso", typeLabel: "RG / documento (verso)" },
+    { kind: "selfie", typeLabel: "Selfie com documento" },
+    { kind: "contrato_social", typeLabel: "Contrato social" },
   ];
 }
 
-/** Monta previews de documentos do seller (mock com placeholders) */
+/** Monta previews de documentos do seller (API real ou mock) */
 export function getSellerDocPreviews(user: AdminUser): Array<{
   kind: SellerDocKind;
   typeLabel: string;
@@ -131,15 +125,39 @@ export function getSellerDocPreviews(user: AdminUser): Array<{
   submittedAt?: string;
   previewUrl: string | null;
   notes?: string;
+  /** true se o seller enviou este arquivo */
+  submitted?: boolean;
 }> {
   const required = requiredDocsForPersonType(user.personType);
-  const existing = adminDocumentsMock.filter((d) => d.userId === user.id);
+  const fromUser = user.documents ?? [];
+  const fromMock = adminDocumentsMock.filter((d) => d.userId === user.id);
+  const existing = fromUser.length ? fromUser : fromMock;
+  const onlySubmitted = fromUser.length > 0;
+
+  // Com docs reais da API: mostra só o que foi enviado (análise)
+  if (onlySubmitted) {
+    return existing.map((found) => {
+      const kind = (found.kind || found.type || "doc_frente") as SellerDocKind;
+      const label =
+        found.typeLabel ||
+        required.find((r) => r.kind === kind)?.typeLabel ||
+        kind;
+      return {
+        kind,
+        typeLabel: label,
+        status: found.status as DocReviewStatus,
+        submittedAt: found.submittedAt,
+        previewUrl: found.previewUrl ?? null,
+        notes: found.notes,
+        submitted: true,
+      };
+    });
+  }
 
   return required.map((req) => {
     const found = existing.find(
       (d) => d.kind === req.kind || d.type === req.kind
     );
-    // Conta ativa → todos os docs aprovados (não deixa nenhum em análise)
     let status: DocReviewStatus =
       found?.status ?? (user.status === "ativo" ? "aprovado" : "pendente");
     if (user.status === "ativo") {
@@ -154,6 +172,7 @@ export function getSellerDocPreviews(user: AdminUser): Array<{
       submittedAt: found?.submittedAt,
       previewUrl: found?.previewUrl ?? null,
       notes: found?.notes,
+      submitted: Boolean(found),
     };
   });
 }
@@ -403,22 +422,25 @@ export const adminMetricsMock: AdminMetrics = {
   conversionRate: 91.4,
 };
 
-/** Série do gráfico de movimentação (mesmo formato do faturamento do usuário) */
+/**
+ * Série fictícia do gráfico — valores da SPEC / referência visual
+ * (ordem L→R no chart: mais recente → mais antigo)
+ */
 export const adminVolumeHistoryMock: Array<{
   date: string;
   amount: number;
   grain?: "hour" | "day";
 }> = [
-  { date: "2025-12-23", amount: 186_400 },
-  { date: "2025-12-22", amount: 212_800 },
-  { date: "2025-12-21", amount: 168_200 },
-  { date: "2025-12-20", amount: 241_500 },
-  { date: "2025-12-19", amount: 198_900 },
-  { date: "2025-12-18", amount: 175_600 },
-  { date: "2025-12-17", amount: 159_300 },
-  { date: "2025-12-16", amount: 204_100 },
-  { date: "2025-12-15", amount: 171_750 },
-  { date: "2025-12-14", amount: 188_920 },
+  { date: "2025-12-23", amount: 6360, grain: "day" },
+  { date: "2025-12-22", amount: 7100, grain: "day" },
+  { date: "2025-12-21", amount: 6160, grain: "day" },
+  { date: "2025-12-20", amount: 7080, grain: "day" },
+  { date: "2025-12-19", amount: 7260, grain: "day" },
+  { date: "2025-12-18", amount: 6460, grain: "day" },
+  { date: "2025-12-17", amount: 6280, grain: "day" },
+  { date: "2025-12-16", amount: 6840, grain: "day" },
+  { date: "2025-12-15", amount: 6250, grain: "day" },
+  { date: "2025-12-14", amount: 6430, grain: "day" },
 ];
 
 /** Tipo unificado: vendas (entrada) + saques (saída) */
