@@ -224,8 +224,13 @@ export async function authenticateApiKeyDetailed(req: Request): Promise<{
       return { auth: null, failure: "blocked" };
     }
 
-    // Secret correta manda public key opcional (não derruba auth se divergir)
-    // (antes: mismatch de pk_ após rotacionar gerava “expirada” falso)
+    // Se enviou x-public-key, deve bater com o par da secret (estilo VizzionPay)
+    if (publicKeyHeader?.trim()) {
+      const pk = publicKeyHeader.trim();
+      if (pk !== row.publicKey) {
+        return { auth: null, failure: "public_mismatch" };
+      }
+    }
 
     const meta = parsePermissions(row.permissions);
     if (isExpired(meta.expiresAt)) {

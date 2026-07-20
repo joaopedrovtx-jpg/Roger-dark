@@ -93,7 +93,12 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const token = req.cookies.get(COOKIE)?.value;
 
-  if (pathname.startsWith("/api/v1/") || pathname.startsWith("/api/health")) {
+  // /api/v1 (raiz) e /api/v1/* — auth nos handlers (session | x-public-key + x-secret-key)
+  if (
+    pathname === "/api/v1" ||
+    pathname.startsWith("/api/v1/") ||
+    pathname.startsWith("/api/health")
+  ) {
     return NextResponse.next();
   }
 

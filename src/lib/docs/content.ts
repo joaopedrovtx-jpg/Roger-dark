@@ -253,48 +253,98 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
     id: "autenticacao",
     category: "Informações da API",
     title: "Autenticação",
-    subtitle: "Bearer sk_ ou sessão do painel",
+    subtitle: "x-public-key + x-secret-key (padrão VizzionPay)",
     lead: [
-      "Gere as chaves em Integrações → API. Use a secret (sk_) no backend do seu sistema.",
+      "Gere as chaves em Integrações → API. Use pk_ e sk_ no backend do seu sistema.",
       "O gateway autentica a sua conta Dark Pay; a adquirente fica só no servidor Dark Pay.",
     ],
     headings: [
       {
-        title: "Header obrigatório (API key)",
+        title: "Padrão recomendado (igual VizzionPay)",
         paragraphs: [
-          "Substitua sk_live_xxxxxxxx pela secret completa da conta. Em teste use sk_test_ se a credencial for de ambiente test.",
+          "Valide o par de chaves com GET na raiz da API:",
         ],
         codes: [
           {
+            language: "javascript",
+            title: "Axios — validar credenciais",
+            code: `import axios from "axios";
+
+const res = await axios.get("${DOCS_BASE}", {
+  headers: {
+    "x-public-key": "pk_live_xxxxxxxx",
+    "x-secret-key": "sk_live_xxxxxxxx",
+  },
+});
+
+// res.data.ok === true → credenciais válidas
+console.log(res.data.account, res.data.endpoints);`,
+          },
+          {
             language: "bash",
-            title: "Criar cobrança Pix",
+            title: "cURL — validar credenciais",
+            code: `curl ${DOCS_BASE} \\
+  -H "x-public-key: pk_live_xxxxxxxx" \\
+  -H "x-secret-key: sk_live_xxxxxxxx"`,
+          },
+        ],
+      },
+      {
+        title: "Criar cobrança Pix com as mesmas chaves",
+        paragraphs: [
+          "Use os mesmos headers em todas as rotas autenticadas.",
+        ],
+        codes: [
+          {
+            language: "javascript",
+            title: "Axios — criar Pix",
+            code: `await axios.post(
+  "${DOCS_BASE}/payments",
+  {
+    amount: 97.0,
+    description: "Pedido #1001",
+    customerName: "Cliente Final",
+    customerDocument: "52998224725",
+  },
+  {
+    headers: {
+      "x-public-key": "pk_live_xxxxxxxx",
+      "x-secret-key": "sk_live_xxxxxxxx",
+      "Content-Type": "application/json",
+    },
+  }
+);`,
+          },
+          {
+            language: "bash",
+            title: "cURL — criar Pix",
             code: `curl -X POST ${DOCS_BASE}/payments \\
-  -H "Authorization: Bearer sk_live_xxxxxxxx" \\
+  -H "x-public-key: pk_live_xxxxxxxx" \\
+  -H "x-secret-key: sk_live_xxxxxxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
     "amount": 97.00,
     "description": "Pedido #1001",
     "customerName": "Cliente Final",
-    "customerDocument": "52998224725",
-    "customerEmail": "cliente@email.com"
+    "customerDocument": "52998224725"
   }'`,
           },
         ],
       },
       {
-        title: "Formas aceitas",
+        title: "Outras formas aceitas",
         paragraphs: [
-          "Authorization: Bearer sk_live_… (recomendado)",
+          "Authorization: Bearer sk_live_…",
           "X-Api-Key: sk_live_…",
           "Basic base64(pk_live_…:sk_live_…)",
-          "Sessão do painel (cookie) — útil em testes logado no darkpays.online",
+          "Sessão do painel (cookie) — testes logado no darkpays.online",
         ],
       },
       {
         title: "Chave pública vs secreta",
         paragraphs: [
-          "pk_live_ / pk_test_ — Client ID (identificação da credencial).",
-          "sk_live_ / sk_test_ — Client Secret. Somente no backend. Nunca no app do cliente final.",
+          "pk_live_ / pk_test_ — Client ID (header x-public-key).",
+          "sk_live_ / sk_test_ — Client Secret (header x-secret-key). Só no backend.",
         ],
       },
     ],
@@ -635,7 +685,8 @@ export const DOCS_SECTIONS: Record<DocSectionId, DocSection> = {
             language: "bash",
             title: "cURL",
             code: `curl -X POST ${DOCS_BASE}/payments \\
-  -H "Authorization: Bearer sk_live_xxxxxxxx" \\
+  -H "x-public-key: pk_live_xxxxxxxx" \\
+  -H "x-secret-key: sk_live_xxxxxxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
     "amount": 97.00,

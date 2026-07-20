@@ -95,19 +95,29 @@ export function accountNotActiveResponse(user: AuthUser): GuardFail | null {
   };
 }
 
+function requestHasApiKey(req: Request): boolean {
+  const authHdr =
+    req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  if (authHdr.toLowerCase().startsWith("bearer ")) {
+    const t = authHdr.slice(7).trim();
+    if (t.startsWith("sk_")) return true;
+  }
+  if (authHdr.toLowerCase().startsWith("basic ")) return true;
+  const xSecret =
+    req.headers.get("x-secret-key") ||
+    req.headers.get("x-api-key") ||
+    req.headers.get("x-darkpay-secret");
+  if (xSecret?.trim().startsWith("sk_")) return true;
+  return false;
+}
+
 export async function requireSellerAuth(
   req: Request,
   opts?: { permission?: ApiPermission }
 ): Promise<GuardOk | GuardFail> {
-  const authHdr =
-    req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  const bearer = authHdr.toLowerCase().startsWith("bearer ")
-    ? authHdr.slice(7).trim()
-    : "";
-
-  // ── 1) SEMPRE preferir API key (sk_) quando presente ─────────────────
+  // ── 1) API key: Bearer sk_ · x-secret-key · x-public-key (estilo VizzionPay)
   // Mesmo com cookie de admin: cobrança usa o seller dono da sk_ e a rota dele.
-  if (bearer.startsWith("sk_")) {
+  if (requestHasApiKey(req)) {
     const detailed = await authenticateApiKeyDetailed(req);
     if (detailed.auth) {
       const apiAuth = detailed.auth;
@@ -136,17 +146,15 @@ export async function requireSellerAuth(
       if (blocked) return blocked;
       return { user: u, apiAuth, authVia: "api_key" };
     }
-    const failure =
-      detailed.failure ||
-      (bearer.includes("…") || bearer.includes("•") || bearer.length < 20
-        ? "masked"
-        : "invalid");
+    const failure = detailed.failure || "invalid";
     return {
       error: NextResponse.json(
         {
           error: messageForApiKeyFailure(failure),
           code: `api_key_${failure}`,
-          hint: "A secret completa só aparece ao criar ou rotacionar em Integrações → API. Cole a sk_ do seller cuja rota personalizada você configurou.",
+          hint:
+            "Use headers x-public-key + x-secret-key (ou Authorization: Bearer sk_…). " +
+            "A secret completa está em Integrações → API (copiar).",
         },
         { status: 401 }
       ),
