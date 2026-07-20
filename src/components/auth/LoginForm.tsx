@@ -155,27 +155,6 @@ export function LoginForm() {
             : "Faça login na sua conta real (MySQL)."}
         </p>
 
-        {!challenge && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: "10px 14px",
-              background: "var(--bg-2, #f5f5f5)",
-              borderRadius: 8,
-              fontSize: 12,
-              lineHeight: 1.6,
-              color: "var(--text-2, #666)",
-              textAlign: "left",
-              border: "1px solid var(--border, #e0e0e0)",
-            }}
-          >
-            <strong style={{ display: "block", marginBottom: 4, color: "var(--text-1, #333)" }}>
-              Ambiente de desenvolvimento
-            </strong>
-            admin@darkpay.app / DarkPay@123 (admin)<br />
-            igor@darkpay.app / DarkPay@123 (seller)
-          </div>
-        )}
       </div>
 
       <form
