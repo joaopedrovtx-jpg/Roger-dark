@@ -20,15 +20,37 @@ export async function POST(
     const { id } = await ctx.params;
 
     let provider: string | null = null;
+    let chargeRow: { id: string; sellerId: string; provider: string | null } | null = null;
     if (isDatabaseConfigured()) {
-      const row = await prisma.paymentCharge.findFirst({
+      chargeRow = await prisma.paymentCharge.findFirst({
         where: {
           OR: [{ id }, { providerId: id }, { transactionId: id }],
-          sellerId: gate.user.id,
         },
+        select: { id: true, sellerId: true, provider: true },
       });
-      provider = row?.provider ?? null;
     }
+
+    const ownerId = chargeRow?.sellerId;
+    if (ownerId && ownerId !== gate.user.id && !gate.user.roles.includes("admin")) {
+      return NextResponse.json(
+        { error: { code: "forbidden", message: "Cobrança de outro seller" } },
+        { status: 403 }
+      );
+    }
+
+    if (!chargeRow || !ownerId) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "not_found",
+            message: "Cobrança não encontrada para este seller",
+          },
+        },
+        { status: 404 }
+      );
+    }
+
+    provider = chargeRow.provider ?? null;
 
     const charge =
       provider === "velana" || id.startsWith("vl_") || id.startsWith("TX-VL-")
@@ -36,13 +58,6 @@ export async function POST(
         : provider === "podpay" || id.startsWith("pp_") || id.startsWith("TX-PP-")
           ? await syncChargeFromPodPay(id, gate.user.id)
           : await syncChargeAuto(id, gate.user.id);
-
-    if (charge.sellerId !== gate.user.id && !gate.user.roles.includes("admin")) {
-      return NextResponse.json(
-        { error: { code: "forbidden", message: "Cobrança de outro seller" } },
-        { status: 403 }
-      );
-    }
 
     return NextResponse.json({
       id: charge.id,

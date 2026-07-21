@@ -73,9 +73,15 @@ export async function logoutAction() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE_NAME)?.value;
   await logoutByToken(token);
+  // Espelha as flags do cookie original pra sobrescrever de fato
+  // (sem secure, o browser ignora maxAge=0 quando o cookie foi setado Secure).
+  const isHttps =
+    process.env.COOKIE_SECURE === "1" || !!process.env.VERCEL;
   jar.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
+    sameSite: "lax",
     path: "/",
+    secure: isHttps,
     maxAge: 0,
   });
   return { ok: true };

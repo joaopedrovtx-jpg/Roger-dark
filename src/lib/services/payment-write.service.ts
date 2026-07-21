@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { Transaction } from "@/lib/domain/types";
 import {
   adjustBalance,
@@ -31,14 +32,10 @@ export interface CreateChargeInput {
 }
 
 function shortId() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require("crypto") as typeof import("crypto");
   return `pay_${randomBytes(12).toString("base64url")}`;
 }
 
 function txId() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require("crypto") as typeof import("crypto");
   return `TX-${randomBytes(6).toString("hex")}`;
 }
 
@@ -73,7 +70,7 @@ export async function createPixCharge(
     throw new Error("Valor mínimo: R$ 1,00");
   }
 
-  try {
+  {
     const { prisma, isDatabaseConfigured } = await import("@/lib/server/prisma");
     const { assertSellerCanTransact } = await import("@/lib/server/mock-check");
     if (isDatabaseConfigured()) {
@@ -81,10 +78,11 @@ export async function createPixCharge(
         where: { id: input.sellerId },
         select: { status: true },
       });
-      if (u) assertSellerCanTransact(u.status);
+      if (!u) {
+        throw new Error("Conta não encontrada");
+      }
+      assertSellerCanTransact(u.status);
     }
-  } catch (e) {
-    if (e instanceof Error && (e.message.includes("pendente") || e.message.includes("bloqueada"))) throw e;
   }
 
   const active = await resolveAcquirerForSeller(input.sellerId);
@@ -226,8 +224,10 @@ export function markChargePaid(chargeId: string): PaymentCharge {
   charge.status = "paid";
   charge.paidAt = new Date().toISOString();
 
-  const mdr = charge.amount * 0.03 + 0.15;
-  const net = Math.max(0, round2(charge.amount - mdr));
+  const feePercent = Number(process.env.PLATFORM_FEE_PERCENT) || 3;
+  const feeFixed = Number(process.env.PLATFORM_FEE_FIXED) || 0.15;
+  const fee = round2(charge.amount * (feePercent / 100) + feeFixed);
+  const net = Math.max(0, round2(charge.amount - fee));
 
   adjustBalance(charge.sellerId, {
     pending: -charge.amount,

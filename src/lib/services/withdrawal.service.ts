@@ -3,6 +3,8 @@ import {
   adjustBalance,
   getSellerBalance,
   getStore,
+  pushTransaction,
+  pushWithdrawal,
 } from "@/lib/server/memory-store";
 import { adminUsersMock } from "@/lib/mock/admin";
 import {
@@ -22,6 +24,34 @@ import {
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Validação leve de chave PIX: aceita
+ *  - email (texto@texto)
+ *  - telefone BR (10 ou 11 dígitos, com DDD)
+ *  - CPF (11 dígitos) / CNPJ (14 dígitos)
+ *  - EVP / chave aleatória (UUID v4 com 32 hex)
+ * Rejeita caracteres de controle, espaços nas pontas e tamanhos absurdos.
+ * A adquirente ainda valida definitivamente.
+ */
+export function isValidPixKey(key: string): boolean {
+  const k = key.trim();
+  if (!k || k.length > 140) return false;
+  // Caracteres perigosos / injetáveis
+  if (/[<>"'`;\\]/.test(k)) return false;
+  if (k.includes("@")) {
+    // email básico
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(k) && k.length <= 254;
+  }
+  const digits = k.replace(/\D/g, "");
+  if (digits === k) {
+    if (digits.length === 11) return /^[1-9]\d{9}$/.test(digits) || /^[1-9]{2}9?\d{8}$/.test(digits);
+    if (digits.length === 14) return /^\d{14}$/.test(digits);
+    if (digits.length === 10 || digits.length === 11) return true; // telefone
+    if (digits.length === 32) return /^[a-fA-F0-9]{32}$/.test(digits); // EVP hex
+  }
+  return false;
 }
 
 export function listWithdrawals(opts?: {
@@ -112,8 +142,41 @@ export async function createWithdrawal(
   feePercentIn?: number,
   feeFixedIn?: number
 ): Promise<Withdrawal> {
+  if (typeof input.amount !== "number" || !Number.isFinite(input.amount)) {
+    throw new Error("Valor inválido");
+  }
   if (input.amount < 5) throw new Error("Saque mínimo: R$ 5,00");
-  if (!input.pixKey?.trim()) throw new Error("Chave PIX obrigatória");
+  // Cap razoável: R$ 100.000,00 por saque. Configurável via env se precisar.
+  const WITHDRAWAL_MAX = Number(process.env.WITHDRAWAL_MAX_AMOUNT) || 100000;
+  if (input.amount > WITHDRAWAL_MAX) {
+    throw new Error(`Saque máximo: R$ ${WITHDRAWAL_MAX.toFixed(2)}`);
+  }
+  const pixKey = input.pixKey?.trim() ?? "";
+  if (!pixKey) throw new Error("Chave PIX obrigatória");
+  if (!isValidPixKey(pixKey)) {
+    throw new Error(
+      "Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (DDD+número) ou chave aleatória (UUID)."
+    );
+  }
+
+  // Bloqueia seller inativo/bloqueado aqui (não dependa de loadSellerFees).
+  try {
+    const { prisma, isDatabaseConfigured } = await import(
+      "@/lib/server/prisma"
+    );
+    if (isDatabaseConfigured()) {
+      const { assertSellerCanTransact } = await import("@/lib/server/mock-check");
+      const u = await prisma.user.findUnique({
+        where: { id: sellerId },
+        select: { status: true },
+      });
+      if (!u) throw new Error("Conta não encontrada");
+      assertSellerCanTransact(u.status);
+    }
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error("Não foi possível validar a conta");
+  }
 
   const fees = await loadSellerFees(sellerId);
   const feePercent = feePercentIn ?? fees.feePercent;
@@ -246,7 +309,7 @@ export async function createWithdrawal(
       provider: "internal",
       providerId: id,
     });
-    getStore().withdrawals.unshift(w);
+    pushWithdrawal(w);
     return w;
   }
 
@@ -284,9 +347,9 @@ function createWithdrawalMock(
   if (!alreadyDebited) {
     adjustBalance(sellerId, { available: -w.amount });
   }
-  getStore().withdrawals.unshift(w);
+  pushWithdrawal(w);
 
-  getStore().transactions.unshift({
+  pushTransaction({
     id: w.id,
     date: w.date,
     sellerId,

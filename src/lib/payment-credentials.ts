@@ -17,6 +17,7 @@ import {
 import { adquirentesMock } from "@/lib/mock/admin";
 
 const STORAGE_KEY = "darkpay.admin.payment-credentials.v1";
+let _cache: PaymentCredentialsStore | null = null;
 
 export type AcquirerEnv = "sandbox" | "live";
 
@@ -139,25 +140,32 @@ function mergeWithCatalog(
 }
 
 export function loadPaymentCredentials(): PaymentCredentialsStore {
-  if (typeof window === "undefined") return emptyStore();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return mergeWithCatalog(null);
-    const parsed = JSON.parse(raw) as PaymentCredentialsStore;
-    return mergeWithCatalog(parsed);
-  } catch {
-    return emptyStore();
+  if (_cache) return _cache;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PaymentCredentialsStore;
+        _cache = mergeWithCatalog(parsed);
+        return _cache;
+      }
+    } catch {
+      /* ignore */
+    }
   }
+  _cache = mergeWithCatalog(null);
+  return _cache;
 }
 
 export function savePaymentCredentials(
   store: PaymentCredentialsStore
 ): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  window.dispatchEvent(
-    new CustomEvent("darkpay:payment-credentials", { detail: store })
-  );
+  _cache = store;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("darkpay:payment-credentials", { detail: store })
+    );
+  }
 }
 
 export function listAcquirerCredentials(): AcquirerCredential[] {

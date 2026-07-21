@@ -7,6 +7,7 @@ import {
   dbUpdateUserStatus,
   listUserDocuments,
 } from "@/lib/server/db/admin-users.service";
+import { z } from "zod";
 
 /**
  * GET /api/v1/admin/users/:id
@@ -59,20 +60,21 @@ export async function PATCH(
 
   try {
     const { id } = await ctx.params;
-    const body = (await req.json()) as {
-      status?: "ativo" | "pendente" | "bloqueado";
-      fees?: {
-        mdrPercent: number;
-        mdrFixed: number;
-        saquePercent: number;
-        saqueFixed: number;
-      };
-      saqueAutomatico?: boolean;
-      routingMode?: string;
-      preferredAdquirenteId?: string | null;
-      adquirenteIds?: string[];
-      documentsStatus?: "aprovado" | "pendente" | "rejeitado";
-    };
+    const raw = await req.json();
+    const body = z.object({
+      status: z.enum(["ativo", "pendente", "bloqueado"]).optional(),
+      fees: z.object({
+        mdrPercent: z.number().min(0),
+        mdrFixed: z.number().min(0),
+        saquePercent: z.number().min(0),
+        saqueFixed: z.number().min(0),
+      }).optional(),
+      saqueAutomatico: z.boolean().optional(),
+      routingMode: z.string().optional(),
+      preferredAdquirenteId: z.string().nullable().optional(),
+      adquirenteIds: z.array(z.string()).optional(),
+      documentsStatus: z.enum(["aprovado", "pendente", "rejeitado"]).optional(),
+    }).parse(raw);
 
     if (body.status) {
       const r = await dbUpdateUserStatus(id, body.status);

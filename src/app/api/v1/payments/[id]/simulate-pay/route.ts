@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { markChargePaid } from "@/lib/services/payment-write.service";
+import { getChargeAsync } from "@/lib/services/payment-read.service";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
 import { securityHeaders } from "@/lib/server/security";
 
@@ -23,9 +24,17 @@ export async function POST(
 
   try {
     const { id } = await ctx.params;
-    const charge = markChargePaid(id);
+    // Carrega ANTES de mutar para checar seller e evitar leak de dados
+    // entre sellers que conheçam o ID da cobrança.
+    const existing = await getChargeAsync(id, gate.user.id);
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Cobrança não encontrada" },
+        { status: 404, headers: securityHeaders() }
+      );
+    }
     if (
-      charge.sellerId !== gate.user.id &&
+      existing.sellerId !== gate.user.id &&
       !gate.user.roles.includes("admin")
     ) {
       return NextResponse.json(
@@ -33,6 +42,7 @@ export async function POST(
         { status: 403, headers: securityHeaders() }
       );
     }
+    const charge = markChargePaid(id);
     return NextResponse.json(
       {
         id: charge.id,

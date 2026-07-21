@@ -40,10 +40,29 @@ export class PodPayError extends Error {
 }
 
 function randomIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    if (typeof crypto.getRandomValues === "function") {
+      const a = new Uint32Array(4);
+      crypto.getRandomValues(a);
+      return Array.from(a).map((n) => n.toString(16).padStart(8, "0")).join("");
+    }
   }
-  return `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+  // Fallback server-side (Node): usa randomBytes síncrono via require
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { randomBytes: rb } = require("crypto") as typeof import("crypto");
+    return `idem_${rb(16).toString("hex")}`;
+  } catch {
+    return `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+  }
+}
+
+/** Timeout padrão para chamadas a adquirentes (ms). Configurável por env. */
+function fetchTimeoutMs(): number {
+  const v = Number(process.env.ACQUIRER_FETCH_TIMEOUT_MS);
+  if (Number.isFinite(v) && v >= 1000) return v;
+  return 15_000;
 }
 
 async function podpayFetch<T>(
@@ -72,11 +91,32 @@ async function podpayFetch<T>(
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
-  const res = await fetch(url, {
-    ...init,
-    headers,
-  });
 
+  // AbortController para evitar que um request pendurado trave a request
+  // do usuário (e o slot do worker Next) indefinidamente.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs());
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return await parsePodpayResponse<T>(res);
+  } catch (e) {
+    clearTimeout(timeout);
+    if (controller.signal.aborted) {
+      throw new PodPayError(
+        `PodPay timeout após ${fetchTimeoutMs()}ms`,
+        { code: "PODPAY_TIMEOUT", status: 504 }
+      );
+    }
+    throw e;
+  }
+}
+
+async function parsePodpayResponse<T>(res: Response): Promise<T> {
   let body: PodPayApiResponse<T> | null = null;
   try {
     body = (await res.json()) as PodPayApiResponse<T>;

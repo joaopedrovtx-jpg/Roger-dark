@@ -3,9 +3,9 @@
  * Smoke de segurança — rode com o servidor no ar:
  *   npm run dev
  *   node scripts/smoke-security.mjs
- *
- * Exit 0 se todos os checks passarem.
  */
+import crypto from "crypto";
+
 const BASE = process.env.SMOKE_BASE_URL || "http://127.0.0.1:3000";
 
 let failed = 0;
@@ -33,31 +33,24 @@ async function req(path, opts = {}) {
   } catch {
     body = null;
   }
-  return { res, body, status: res.status };
+  return { res, body, status: res.status, headers: res.headers };
 }
 
 async function main() {
   console.log(`\nDarkPay smoke security @ ${BASE}\n`);
 
-  // 1) PodPay BFF sem auth
   {
     const { status } = await req("/api/v1/acquirers/podpay/balance");
     ok("PodPay balance sem auth → 401/403", status === 401 || status === 403, `status=${status}`);
   }
-
-  // 2) Velana BFF sem auth
   {
     const { status } = await req("/api/v1/acquirers/velana/status");
     ok("Velana status sem auth → 401/403", status === 401 || status === 403, `status=${status}`);
   }
-
-  // 3) Admin acquirers sem auth
   {
     const { status } = await req("/api/v1/admin/acquirers");
     ok("Admin acquirers sem auth → 401/403", status === 401 || status === 403, `status=${status}`);
   }
-
-  // 4) Login inválido
   {
     const { status, body } = await req("/api/v1/auth/login", {
       method: "POST",
@@ -66,34 +59,46 @@ async function main() {
     ok("Login inválido → 401", status === 401, body?.error || `status=${status}`);
   }
 
-  // 5) Webhook podpay sem assinatura (em prod falha; em dev pode aceitar se secret ausente)
+  // Webhooks SEM assinatura devem falhar (fail-closed)
   {
     const { status, body } = await req("/api/v1/webhooks/podpay", {
       method: "POST",
       body: JSON.stringify({ event: "transaction.completed", data: { id: "x" } }),
     });
-    // Aceita 401 (HMAC fail) ou 200 (dev sem secret) ou 400
     ok(
-      "Webhook podpay responde",
-      status === 401 || status === 200 || status === 400,
-      `status=${status} reason=${body?.reason || body?.error || "ok"}`
+      "Webhook podpay sem HMAC → 401",
+      status === 401,
+      `status=${status} reason=${body?.reason || body?.error || "?"}`
     );
   }
-
-  // 5b) Webhook velana
   {
     const { status, body } = await req("/api/v1/webhooks/velana", {
       method: "POST",
-      body: JSON.stringify({ type: "transaction", data: { id: "x", status: "waiting_payment" } }),
+      body: JSON.stringify({ type: "transaction", data: { id: "x", status: "paid" } }),
     });
     ok(
-      "Webhook velana responde",
-      status === 401 || status === 200 || status === 400,
-      `status=${status} reason=${body?.reason || body?.error || "ok"}`
+      "Webhook velana sem HMAC → 401",
+      status === 401,
+      `status=${status} reason=${body?.reason || body?.error || "?"}`
     );
   }
 
-  // 5c) simulate-pay sem auth
+  // Webhook com HMAC válido (se secret no env do smoke)
+  const ppSecret = process.env.PODPAY_WEBHOOK_SECRET;
+  if (ppSecret) {
+    const raw = JSON.stringify({
+      event: "transaction.pending",
+      data: { id: "smoke_" + Date.now() },
+    });
+    const sig = crypto.createHmac("sha256", ppSecret).update(raw, "utf8").digest("hex");
+    const { status } = await req("/api/v1/webhooks/podpay", {
+      method: "POST",
+      headers: { "x-podpay-signature": sig },
+      body: raw,
+    });
+    ok("Webhook podpay com HMAC válido → 200", status === 200, `status=${status}`);
+  }
+
   {
     const { status } = await req("/api/v1/payments/fake/simulate-pay", {
       method: "POST",
@@ -105,15 +110,16 @@ async function main() {
     );
   }
 
-  // 6) Health
   {
-    const { status } = await req("/api/health").catch(() =>
-      req("/api/v1/auth/me")
+    const { status, body } = await req("/api/health");
+    ok("GET /api/health → 200/503", status === 200 || status === 503, `status=${status}`);
+    ok(
+      "health NÃO expõe security posture pública",
+      !body?.security,
+      body?.security ? "security presente" : "ok minimal"
     );
-    ok("Rota pública/health responde", status > 0 && status < 500, `status=${status}`);
   }
 
-  // 7) 2FA challenge endpoint shape (sem challenge válido)
   {
     const { status } = await req("/api/v1/auth/login/2fa", {
       method: "POST",
@@ -122,24 +128,13 @@ async function main() {
     ok("Login 2FA sem challenge → 401/400/503", [400, 401, 503].includes(status), `status=${status}`);
   }
 
-  // 8) Página de login acessível
   {
     const res = await fetch(`${BASE}/login`, { redirect: "manual" });
     ok("GET /login → 200", res.status === 200, `status=${res.status}`);
+    const csp = res.headers.get("content-security-policy");
+    ok("CSP header presente", !!csp && csp.includes("default-src"), csp?.slice(0, 40) || "missing");
   }
 
-  // 9) Health com posture de segurança
-  {
-    const { status, body } = await req("/api/health");
-    ok("GET /api/health → 200/503", status === 200 || status === 503, `status=${status}`);
-    ok(
-      "health.security presente",
-      body?.security && typeof body.security.admin2faRequired === "boolean",
-      `keys=${body?.security ? Object.keys(body.security).join(",") : "none"}`
-    );
-  }
-
-  // 10) Finance/admin sem auth
   {
     const { status } = await req("/api/v1/finance");
     ok("Finance sem auth → 401/403", status === 401 || status === 403, `status=${status}`);
@@ -149,18 +144,48 @@ async function main() {
     ok("Admin dashboard sem auth → 401/403", status === 401 || status === 403, `status=${status}`);
   }
 
-  // 11) CSRF: mutação sem origin em prod seria 403; em dev (sem CSRF_STRICT) passa no gate de auth
+  // CSRF: origin evil em mutação (sem sessão → 401; com sessão seria 403)
   {
     const { status } = await req("/api/v1/withdrawals", {
       method: "POST",
       body: JSON.stringify({ amount: 10, pixKey: "x@x.com" }),
       headers: { origin: "https://evil.example" },
     });
-    // sem sessão: 401; com CSRF_STRICT + sessão: 403 — sem sessão 401 é ok
     ok(
       "Withdrawals POST sem sessão → 401/403",
       status === 401 || status === 403,
       `status=${status}`
+    );
+  }
+
+  // Cookie legado opaco
+  {
+    const res = await fetch(`${BASE}/dash`, {
+      headers: { cookie: "darkpay_session=" + "A".repeat(32) },
+      redirect: "manual",
+    });
+    ok(
+      "Cookie legado opaco → redirect login",
+      res.status === 307 || res.status === 302,
+      `status=${res.status}`
+    );
+  }
+
+  // XSS name rejected/sanitized
+  {
+    const { status, body } = await req("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        name: '<img src=x onerror=alert(1)>',
+        email: `smoke${Date.now()}@test.com`,
+        password: "SmokeTest@12345",
+      }),
+    });
+    const name = body?.user?.name || "";
+    ok(
+      "Register sanitiza XSS no nome",
+      status === 400 || (status === 201 && !name.includes("<") && !name.includes(">")),
+      `status=${status} name=${name}`
     );
   }
 

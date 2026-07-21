@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
 
 function n(v: unknown): number {
@@ -10,7 +11,7 @@ function n(v: unknown): number {
 }
 
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 }
 
 async function dbAvailable(): Promise<boolean> {

@@ -22,10 +22,13 @@ import { verifyVelanaWebhook } from "@/lib/server/hmac";
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
-    const signature =
-      req.headers.get("x-velana-signature") ||
-      req.headers.get("x-signature") ||
-      req.headers.get("x-hub-signature-256");
+    const signature = req.headers.get("x-velana-signature");
+    if (!signature) {
+      return NextResponse.json(
+        { error: "Assinatura ausente", reason: "missing_signature" },
+        { status: 401 }
+      );
+    }
     const sigCheck = verifyVelanaWebhook(
       rawBody,
       signature,
@@ -56,13 +59,38 @@ export async function POST(req: Request) {
 
     const result = applyVelanaWebhook(payload);
 
+    const vData = (payload.data || {}) as Record<string, unknown>;
+    const vRemoteId = String(vData.id ?? payload.objectId ?? "").trim();
+    const { recordInbox, markInbox } = await import("@/lib/server/webhook-inbox");
+    const inbox = await recordInbox({
+      provider: "velana",
+      eventId: undefined,
+      eventName: String(payload.type || ""),
+      remoteId: vRemoteId || undefined,
+      payload,
+    });
+
     if (isDatabaseConfigured()) {
-      const { enqueueWebhookJob } = await import(
-        "@/lib/server/webhook-queue"
-      );
-      enqueueWebhookJob("velana", async () => {
-        await applyWebhookToMysql(payload);
-      });
+      try {
+        const { enqueueWebhookJob } = await import(
+          "@/lib/server/webhook-queue"
+        );
+        // Await é obrigatório: sem ele a resposta 200 volta à adquirente
+        // ANTES do apply rodar, e um restart nesse meio tempo perde o evento.
+        await enqueueWebhookJob("velana", async () => {
+          await applyWebhookToMysql(payload);
+        });
+        if (inbox.created) await markInbox(inbox.inboxId, "applied");
+      } catch (applyErr) {
+        if (inbox.created) {
+          await markInbox(
+            inbox.inboxId,
+            "failed",
+            applyErr instanceof Error ? applyErr.message : String(applyErr)
+          );
+        }
+        throw applyErr;
+      }
     }
 
     const { log } = await import("@/lib/server/logger");
@@ -194,14 +222,5 @@ async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
 }
 
 export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    provider: "velana",
-    path: "/api/v1/webhooks/velana",
-    docs: "https://velana.readme.io/reference/formato-dos-postbacks",
-    auth: "Basic base64(secretKey:x)",
-    events: ["transaction", "checkout", "transfer"],
-    configurePostback:
-      "Defina NEXT_PUBLIC_APP_URL ou VELANA_POSTBACK_BASE_URL (URL pública). Em localhost use sync em /api/v1/payments/:id/sync.",
-  });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

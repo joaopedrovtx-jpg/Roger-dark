@@ -1,9 +1,15 @@
 /**
  * Operações de saldo atômicas e crédito idempotente.
- * Fonte da verdade: MySQL/SQLite via Prisma.
+ * Fonte da verdade: MySQL/SQLite via Prisma ($transaction).
  */
 
+import { randomBytes } from "crypto";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
+import { roundMoney } from "@/lib/server/security";
+
+function newLedgerId(): string {
+  return `led_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
+}
 
 /**
  * Debita saldo disponível de forma atômica.
@@ -16,40 +22,59 @@ export async function debitAvailableBalance(
   if (!isDatabaseConfigured()) {
     return { ok: false, reason: "database_unavailable" };
   }
-  if (amount <= 0) {
+  const amt = roundMoney(amount);
+  if (amt <= 0) {
     return { ok: false, reason: "invalid_amount" };
   }
 
-  // updateMany com condição evita race (dois saques simultâneos)
-  const result = await prisma.user.updateMany({
-    where: {
-      id: sellerId,
-      balanceAvailable: { gte: amount },
-    },
-    data: {
-      balanceAvailable: { decrement: amount },
-    },
-  });
+  try {
+    const newBalance = await prisma.$transaction(async (tx) => {
+      const result = await tx.user.updateMany({
+        where: {
+          id: sellerId,
+          balanceAvailable: { gte: amt },
+        },
+        data: {
+          balanceAvailable: { decrement: amt },
+        },
+      });
 
-  if (result.count === 0) {
-    return { ok: false, reason: "insufficient_balance" };
+      if (result.count === 0) {
+        return null;
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: sellerId },
+        select: { balanceAvailable: true },
+      });
+
+      await tx.balanceLedger.create({
+        data: {
+          id: newLedgerId(),
+          userId: sellerId,
+          type: "debit_available",
+          amount: -amt,
+          bucket: "available",
+          balanceAfter: Number(user?.balanceAvailable ?? 0),
+          referenceType: "withdrawal",
+          description: "Débito saldo disponível",
+        },
+      });
+
+      return Number(user?.balanceAvailable ?? 0);
+    });
+
+    if (newBalance === null) {
+      return { ok: false, reason: "insufficient_balance" };
+    }
+    return { ok: true, newBalance };
+  } catch {
+    return { ok: false, reason: "debit_failed" };
   }
-
-  const user = await prisma.user.findUnique({
-    where: { id: sellerId },
-    select: { balanceAvailable: true },
-  });
-
-  return {
-    ok: true,
-    newBalance: Number(user?.balanceAvailable ?? 0),
-  };
 }
 
 /**
- * Credita venda paga de forma idempotente:
- * só move pending → available se a TX ainda estiver "pendente".
- * Retorna se o crédito foi aplicado nesta chamada.
+ * Credita venda paga de forma idempotente dentro de uma única transaction.
  */
 export async function creditPaidSaleIdempotent(opts: {
   transactionId?: string | null;
@@ -61,71 +86,101 @@ export async function creditPaidSaleIdempotent(opts: {
 }): Promise<{ credited: boolean }> {
   if (!isDatabaseConfigured()) return { credited: false };
 
-  const amount = opts.amount;
-  const fee = opts.feeAmount;
-  const net = Math.max(0, Math.round((amount - fee) * 100) / 100);
+  const amount = roundMoney(opts.amount);
+  const fee = roundMoney(opts.feeAmount);
+  const net = Math.max(0, roundMoney(amount - fee));
 
-  // 1) Atualiza transaction pendente → aprovada (só 1x)
-  let updated = 0;
-  if (opts.transactionId) {
-    const r = await prisma.transaction.updateMany({
-      where: {
-        id: opts.transactionId,
-        status: "pendente",
-      },
-      data: {
-        status: "aprovada",
-        paidAt: new Date(),
-      },
-    });
-    updated = r.count;
-  } else if (opts.providerId) {
-    const r = await prisma.transaction.updateMany({
-      where: {
-        providerId: opts.providerId,
-        ...(opts.provider ? { provider: opts.provider } : {}),
-        status: "pendente",
-      },
-      data: {
-        status: "aprovada",
-        paidAt: new Date(),
-      },
-    });
-    updated = r.count;
-  }
+  try {
+    return await prisma.$transaction(async (tx) => {
+      let updated = 0;
+      let txId: string | null = opts.transactionId ?? null;
 
-  if (updated === 0) {
-    // Já processada ou não encontrada
+      if (opts.transactionId) {
+        const r = await tx.transaction.updateMany({
+          where: {
+            id: opts.transactionId,
+            status: "pendente",
+          },
+          data: {
+            status: "aprovada",
+            paidAt: new Date(),
+          },
+        });
+        updated = r.count;
+      } else if (opts.providerId) {
+        const r = await tx.transaction.updateMany({
+          where: {
+            providerId: opts.providerId,
+            ...(opts.provider ? { provider: opts.provider } : {}),
+            status: "pendente",
+          },
+          data: {
+            status: "aprovada",
+            paidAt: new Date(),
+          },
+        });
+        updated = r.count;
+        if (updated > 0) {
+          const found = await tx.transaction.findFirst({
+            where: {
+              providerId: opts.providerId,
+              ...(opts.provider ? { provider: opts.provider } : {}),
+              status: "aprovada",
+            },
+            select: { id: true },
+          });
+          txId = found?.id ?? null;
+        }
+      }
+
+      if (updated === 0) {
+        return { credited: false };
+      }
+
+      if (opts.providerId) {
+        await tx.paymentCharge.updateMany({
+          where: {
+            OR: [
+              { providerId: opts.providerId },
+              { id: `vl_${opts.providerId}` },
+              { id: `pp_${opts.providerId}` },
+            ],
+            status: "waiting_payment",
+          },
+          data: {
+            status: "paid",
+            paidAt: new Date(),
+          },
+        });
+      }
+
+      const user = await tx.user.update({
+        where: { id: opts.sellerId },
+        data: {
+          balancePending: { decrement: amount },
+          balanceAvailable: { increment: net },
+          volumeTotal: { increment: amount },
+        },
+        select: { balanceAvailable: true },
+      });
+
+      await tx.balanceLedger.create({
+        data: {
+          id: newLedgerId(),
+          userId: opts.sellerId,
+          type: "credit_sale",
+          amount: net,
+          bucket: "available",
+          balanceAfter: Number(user.balanceAvailable),
+          referenceType: "transaction",
+          referenceId: txId,
+          description: "Crédito venda paga",
+        },
+      });
+
+      return { credited: true };
+    });
+  } catch {
     return { credited: false };
   }
-
-  // 2) Charge → paid
-  if (opts.providerId) {
-    await prisma.paymentCharge.updateMany({
-      where: {
-        OR: [
-          { providerId: opts.providerId },
-          { id: `vl_${opts.providerId}` },
-          { id: `pp_${opts.providerId}` },
-        ],
-        status: "waiting_payment",
-      },
-      data: {
-        status: "paid",
-        paidAt: new Date(),
-      },
-    });
-  }
-
-  // 3) Saldo: pending → available + volume
-  await prisma.user.update({
-    where: { id: opts.sellerId },
-    data: {
-      balancePending: { decrement: amount },
-      balanceAvailable: { increment: net },
-      volumeTotal: { increment: amount },
-    },
-  });
-
-  return { credited: true };
 }

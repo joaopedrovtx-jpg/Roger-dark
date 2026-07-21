@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
 import { AuthInput, authButtonStyle } from "./AuthInput";
@@ -10,14 +9,13 @@ import { AuthInput, authButtonStyle } from "./AuthInput";
 const RESET_EMAIL_KEY = "darkpay.auth.resetEmail";
 
 export function ForgotPasswordForm() {
-  const router = useRouter();
   const { branding } = useBranding();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
@@ -33,21 +31,30 @@ export function ForgotPasswordForm() {
     }
 
     setLoading(true);
-    // Fluxo local (sem e-mail): só segue para a tela de nova senha
-    window.setTimeout(() => {
+    try {
+      const res = await fetch("/api/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error || "Falha ao solicitar redefinição.");
+      }
       try {
         window.sessionStorage.setItem(RESET_EMAIL_KEY, trimmed);
       } catch {
         /* ignore */
       }
-      setLoading(false);
       setSuccess(true);
-      window.setTimeout(() => {
-        router.push(
-          `/redefinir-senha?email=${encodeURIComponent(trimmed)}`
-        );
-      }, 900);
-    }, 650);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao solicitar redefinição.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -154,7 +161,7 @@ export function ForgotPasswordForm() {
                 color: "var(--text-1)",
               }}
             >
-              Sucesso! Continue para criar a nova senha.
+              Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha em alguns minutos.
             </span>
           </div>
         ) : null}

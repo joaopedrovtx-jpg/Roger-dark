@@ -12,10 +12,13 @@ import { creditPaidSaleIdempotent } from "@/lib/server/balance";
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
-    const signature =
-      req.headers.get("x-podpay-signature") ||
-      req.headers.get("x-signature") ||
-      req.headers.get("x-hub-signature-256");
+    const signature = req.headers.get("x-podpay-signature");
+    if (!signature) {
+      return NextResponse.json(
+        { error: "Assinatura ausente", reason: "missing_signature" },
+        { status: 401 }
+      );
+    }
 
     const check = verifyPodPaySignature(
       rawBody,
@@ -38,16 +41,46 @@ export async function POST(req: Request) {
       );
     }
 
-    // Memória síncrona leve; MySQL em fila (não trava a adquirente)
+    // Memória síncrona leve; MySQL em fila inline (atômico com a resposta).
     const result = applyPodPayWebhook(payload);
 
+    // Outbox: grava o evento bruto antes de aplicar. Se o apply falhar,
+    // o evento fica registrado em audit_logs (status=pending) e pode
+    // ser reprocessado manualmente.
+    const data = payload.data as Record<string, unknown>;
+    const remoteId = String(data.id ?? data.transactionId ?? "");
+    const { recordInbox, markInbox } = await import("@/lib/server/webhook-inbox");
+    const inbox = await recordInbox({
+      provider: "podpay",
+      eventId: payload.eventId,
+      eventName: String(payload.event || ""),
+      remoteId: remoteId || undefined,
+      payload,
+    });
+
     if (isDatabaseConfigured()) {
-      const { enqueueWebhookJob } = await import(
-        "@/lib/server/webhook-queue"
-      );
-      enqueueWebhookJob("podpay", async () => {
-        await applyWebhookToMysql(payload);
-      });
+      try {
+        const { enqueueWebhookJob } = await import(
+          "@/lib/server/webhook-queue"
+        );
+        // O worker atual roda inline no mesmo processo. Await é obrigatório:
+        // sem ele a resposta 200 volta à adquirente ANTES do apply rodar,
+        // e um restart nesse meio tempo perde o evento. Em produção, trocar
+        // por worker durável (Redis/SQS + outbox).
+        await enqueueWebhookJob("podpay", async () => {
+          await applyWebhookToMysql(payload);
+        });
+        if (inbox.created) await markInbox(inbox.inboxId, "applied");
+      } catch (applyErr) {
+        if (inbox.created) {
+          await markInbox(
+            inbox.inboxId,
+            "failed",
+            applyErr instanceof Error ? applyErr.message : String(applyErr)
+          );
+        }
+        throw applyErr;
+      }
     }
 
     const { log } = await import("@/lib/server/logger");
@@ -145,19 +178,5 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
 }
 
 export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    provider: "podpay",
-    path: "/api/v1/webhooks/podpay",
-    hmac: !!process.env.PODPAY_WEBHOOK_SECRET,
-    events: [
-      "transaction.completed",
-      "transaction.failed",
-      "transaction.pending",
-      "transaction.refunded",
-      "withdrawal.completed",
-      "withdrawal.failed",
-      "withdrawal.canceled",
-    ],
-  });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

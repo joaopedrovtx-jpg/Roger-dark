@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { emitSaleEvent } from "@/lib/notifications";
 import {
   clearPodPayConfigClient,
   detectPixKeyType,
@@ -278,6 +279,7 @@ export function PodPayView() {
       setPayResult(JSON.stringify(json.data, null, 2));
       const id = (json.data as { id?: string })?.id;
       if (id) setTxId(id);
+      emitSaleEvent({ kind: "gerada", amount, customer: payName, id });
       setMsg("Cobrança PIX criada (POST /v1/transactions).");
     });
   }

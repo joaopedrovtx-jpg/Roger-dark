@@ -2,14 +2,15 @@
  * Seed REAL — garante usuários com senha bcrypt no MySQL.
  * Uso: npm run db:seed
  *
- * Contas:
- *   admin@darkpay.app / DarkPay@123  (admin)
- *   igor@darkpay.app  / DarkPay@123  (seller ativo)
+ * Contas (DEV only — bloqueado em NODE_ENV=production):
+ *   admin@darkpay.app / $SEED_PASSWORD
+ *   igor@darkpay.app  / $SEED_PASSWORD
  */
 import { createRequire } from "module";
 import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { randomBytes } from "crypto";
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,11 +28,25 @@ if (existsSync(envPath)) {
   }
 }
 
+if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "1") {
+  console.error("Seed bloqueado em production. Use ALLOW_PROD_SEED=1 só se souber o risco.");
+  process.exit(1);
+}
+
 const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
-const PASSWORD = process.env.SEED_PASSWORD || "DarkPay@123";
+const defaultWeak = "DarkPay@123";
+let PASSWORD = process.env.SEED_PASSWORD || defaultWeak;
+if (!process.env.SEED_PASSWORD || PASSWORD === defaultWeak) {
+  if (process.env.NODE_ENV === "production") {
+    PASSWORD = randomBytes(18).toString("base64url") + "Aa1";
+    console.warn("⚠ SEED_PASSWORD não definido — gerada senha aleatória (anote):", PASSWORD);
+  } else {
+    console.warn("⚠ Usando senha seed padrão de DEV. Defina SEED_PASSWORD em staging/prod.");
+  }
+}
 
 async function upsertUser(data) {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);

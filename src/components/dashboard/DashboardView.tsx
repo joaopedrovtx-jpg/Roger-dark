@@ -94,23 +94,27 @@ function mapApiToDashboard(json: Record<string, unknown>): DashboardData {
 export function DashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
   const [data, setData] = useState<DashboardData>(() => emptyDashboard());
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setData((prev) => emptyDashboard(prev.user.name));
+    setFetchError(false);
 
     (async () => {
       try {
         const res = await authedFetch(
           `/api/v1/dashboard?period=${encodeURIComponent(period.key)}`
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setFetchError(true);
+          return;
+        }
         const json = (await res.json()) as Record<string, unknown>;
         if (cancelled) return;
-        // Dados reais da API (sem mock no gráfico)
         setData(mapApiToDashboard(json));
       } catch {
-        /* silencioso */
+        if (!cancelled) setFetchError(true);
       }
     })();
 
@@ -121,6 +125,20 @@ export function DashboardView() {
 
   return (
     <div className="flex min-w-0 w-full flex-col stack-gap">
+      {fetchError ? (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderRadius: 8,
+            background: "rgba(239,68,68,0.12)",
+            color: "#ef4444",
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          Não foi possível carregar os dados do dashboard.
+        </div>
+      ) : null}
       <PromoBanner />
 
       {/* Saldos 3 cards (disponível | pendente | retido) + Sacar */}

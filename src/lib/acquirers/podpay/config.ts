@@ -31,51 +31,32 @@ export function getPodPayConfigFromEnv(): PodPayConfig | null {
   };
 }
 
-/** Config salva no browser (painel admin / integrações) */
+let _clientPodPayCache: PodPayConfig | null = null;
+
 export function loadPodPayConfigClient(): PodPayConfig | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PodPayConfig>;
-    if (!parsed.apiKey?.trim()) return null;
-    const env: PodPayEnv =
-      parsed.env === "sandbox" || parsed.apiKey.includes("test")
-        ? "sandbox"
-        : "live";
-    return {
-      apiKey: parsed.apiKey.trim(),
-      env,
-      baseUrl: parsed.baseUrl || getPodPayBaseUrl(env),
-      webhookSecret: parsed.webhookSecret,
-      postbackBaseUrl: parsed.postbackBaseUrl,
-    };
-  } catch {
-    return null;
-  }
+  return _clientPodPayCache;
 }
 
 export function savePodPayConfigClient(
   config: Omit<PodPayConfig, "baseUrl"> & { baseUrl?: string }
 ): void {
-  if (typeof window === "undefined") return;
   const env = config.env || "sandbox";
-  const full: PodPayConfig = {
+  _clientPodPayCache = {
     apiKey: config.apiKey.trim(),
     env,
     baseUrl: config.baseUrl || getPodPayBaseUrl(env),
     webhookSecret: config.webhookSecret,
     postbackBaseUrl: config.postbackBaseUrl,
   };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(full));
-  window.dispatchEvent(
-    new CustomEvent("darkpay:podpay-config", { detail: full })
-  );
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("darkpay:podpay-config", { detail: _clientPodPayCache })
+    );
+  }
 }
 
 export function clearPodPayConfigClient(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_KEY);
+  _clientPodPayCache = null;
 }
 
 /** Resolve config: env server primeiro, senão client storage */
@@ -174,6 +155,18 @@ export function resolvePodPayConfigFromRequest(
 
 export function isPodPayEnabledFromRequest(req: Request): boolean {
   return !!resolvePodPayConfigFromRequest(req)?.apiKey;
+}
+
+const PODPAY_SELLER_FEE_PERCENT = Number(process.env.PODPAY_SELLER_FEE_PERCENT) || 3;
+const PODPAY_SELLER_FEE_FIXED = Number(process.env.PODPAY_SELLER_FEE_FIXED) || 0.15;
+
+export function computePodPaySellerFee(
+  amountReais: number,
+  opts?: { percent?: number; fixed?: number }
+): number {
+  const percent = opts?.percent ?? PODPAY_SELLER_FEE_PERCENT;
+  const fixed = opts?.fixed ?? PODPAY_SELLER_FEE_FIXED;
+  return Math.round((amountReais * (percent / 100) + fixed) * 100) / 100;
 }
 
 export { STORAGE_KEY as PODPAY_CONFIG_STORAGE_KEY };

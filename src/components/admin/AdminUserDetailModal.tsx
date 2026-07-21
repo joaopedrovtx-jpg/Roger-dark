@@ -94,7 +94,7 @@ const inputStyle: CSSProperties = {
 
 function formatDateTime(iso: string): string {
   const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
+  const time = iso.includes("T") ? (iso.split("T")[1] || "").slice(0, 5) : "";
   return time ? `${date} ${time}` : date;
 }
 
@@ -1262,11 +1262,12 @@ export function AdminUserDetailModal({
               >
                 {docPreviews.map((doc) => {
                   const badge = resolveDocBadge(user.status, doc.status);
+                  const previewUrl = doc.previewUrl;
                   const isImagePreview =
-                    Boolean(doc.previewUrl) &&
-                    (doc.previewUrl!.startsWith("data:image/") ||
-                      doc.previewUrl!.startsWith("blob:") ||
-                      /\.(png|jpe?g|webp|gif)$/i.test(doc.previewUrl || ""));
+                    previewUrl != null &&
+                    (previewUrl.startsWith("data:image/") ||
+                      previewUrl.startsWith("blob:") ||
+                      /\.(png|jpe?g|webp|gif)$/i.test(previewUrl));
                   return (
                     <div
                       key={`${doc.kind}-${doc.submittedAt || ""}`}

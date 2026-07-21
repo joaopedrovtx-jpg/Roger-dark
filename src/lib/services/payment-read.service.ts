@@ -1,15 +1,29 @@
 import type { PaymentCharge } from "@/lib/server/memory-store";
 import { getStore } from "@/lib/server/memory-store";
 
-export function getCharge(id: string): PaymentCharge | null {
-  return getStore().charges.find((c) => c.id === id) ?? null;
+/**
+ * Busca uma cobrança em memória. Se `sellerId` for fornecido, restringe a
+ * busca ao seller — evita que um seller que saiba o ID de cobrança de outro
+ * consiga vê-la (a fonte canônica continua sendo o DB via getChargeAsync).
+ */
+export function getCharge(
+  id: string,
+  sellerId?: string
+): PaymentCharge | null {
+  const all = getStore().charges;
+  const found = all.find((c) => c.id === id);
+  if (!found) return null;
+  if (sellerId && found.sellerId !== sellerId) return null;
+  return found;
 }
 
 export async function getChargeAsync(
   id: string,
   sellerId?: string
 ): Promise<PaymentCharge | null> {
-  const local = getCharge(id);
+  // Memória: filtra por sellerId (se passado) para evitar leak entre sellers
+  // que porventura conheçam o ID de cobrança de outro.
+  const local = getCharge(id, sellerId);
   if (local) return local;
 
   try {

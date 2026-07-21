@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
-import { isAdmin2faRequired } from "@/lib/server/admin-2fa-policy";
-import { isProduction, isMockAllowed } from "@/lib/server/security";
-import { webhookQueueSize } from "@/lib/server/webhook-queue";
+import { isProduction } from "@/lib/server/security";
 
-/** GET /api/health healthcheck + posture de segurança (sem secrets) */
-export async function GET() {
+/** GET /api/health — liveness mínimo (sem posture detalhada pública) */
+export async function GET(req: Request) {
   const { warnWeakSecrets } = await import("@/lib/server/security");
   warnWeakSecrets();
 
@@ -20,9 +18,33 @@ export async function GET() {
   }
 
   const ok = db !== "down";
+
+  // Posture detalhada só com header interno ou query secret
+  const detailKey = process.env.HEALTH_DETAIL_KEY?.trim();
+  const wantDetail =
+    detailKey &&
+    (req.headers.get("x-health-key") === detailKey ||
+      new URL(req.url).searchParams.get("key") === detailKey);
+
+  if (!wantDetail) {
+    return NextResponse.json(
+      {
+        ok,
+        service: "darkpay",
+        time: new Date().toISOString(),
+        database: db === "ok" ? "ok" : db,
+      },
+      { status: ok ? 200 : 503 }
+    );
+  }
+
+  const { isAdmin2faRequired } = await import("@/lib/server/admin-2fa-policy");
+  const { isMockAllowed } = await import("@/lib/server/security");
+  const { webhookQueueSize } = await import("@/lib/server/webhook-queue");
+
   const sessionSecretOk =
-    (process.env.SESSION_SECRET?.trim().length ?? 0) >= 16 ||
-    (process.env.NEXTAUTH_SECRET?.trim().length ?? 0) >= 16;
+    (process.env.SESSION_SECRET?.trim().length ?? 0) >= 32 ||
+    (process.env.NEXTAUTH_SECRET?.trim().length ?? 0) >= 32;
 
   return NextResponse.json(
     {
@@ -39,9 +61,9 @@ export async function GET() {
         podpayWebhookHmac: !!process.env.PODPAY_WEBHOOK_SECRET,
         velanaWebhookHmac: !!process.env.VELANA_WEBHOOK_SECRET,
         velanaAllowUnsigned:
+          !isProduction() &&
           process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "1",
-        csrfStrict:
-          process.env.CSRF_STRICT === "1" || process.env.NODE_ENV === "production",
+        csrfStrict: process.env.CSRF_STRICT !== "0",
         webhookQueueSize: webhookQueueSize(),
       },
       features: {

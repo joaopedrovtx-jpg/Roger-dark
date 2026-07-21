@@ -3,8 +3,8 @@ import { isGuardFail, requireAdmin } from "@/lib/server/guards";
 import { mockAdapter } from "@/lib/api/adapters/mock";
 import { getAdminDashboardMetrics } from "@/lib/server/db/admin-metrics.service";
 
-export async function GET() {
-  const gate = await requireAdmin();
+export async function GET(req: Request) {
+  const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
   try {
     const fromDb = await getAdminDashboardMetrics();

@@ -133,7 +133,10 @@ export async function getSellerDashboard(
       held: n(user.balanceHeld),
     },
     metrics: {
-      netProfit: sellerProfit || n(user.platformProfit),
+      // Lucro líquido do seller (soma de netAmount das vendas aprovadas).
+      // Se não houver vendas no período, retorna 0 (não cai no
+      // platformProfit, que é receita da plataforma e pertence ao admin).
+      netProfit: sellerProfit,
       transactionCount: totalCount,
       averageTicket: paidCount ? volume / paidCount : 0,
       totalOut,

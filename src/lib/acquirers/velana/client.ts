@@ -71,6 +71,12 @@ function humanizeVelanaError(message: string, code: string): string {
   return message.startsWith("Velana:") ? message : `Velana: ${message}`;
 }
 
+function velanaTimeoutMs(): number {
+  const v = Number(process.env.ACQUIRER_FETCH_TIMEOUT_MS);
+  if (Number.isFinite(v) && v >= 1000) return v;
+  return 15_000;
+}
+
 async function velanaFetch<T>(
   path: string,
   init?: RequestInit & { config?: VelanaConfig | null }
@@ -94,10 +100,26 @@ async function velanaFetch<T>(
   const base = config.baseUrl.replace(/\/$/, "");
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
 
-  const res = await fetch(url, {
-    ...init,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), velanaTimeoutMs());
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+  } catch (e) {
+    clearTimeout(timeout);
+    if (controller.signal.aborted) {
+      throw new VelanaError(
+        `Velana timeout após ${velanaTimeoutMs()}ms`,
+        { code: "VELANA_TIMEOUT", status: 504 }
+      );
+    }
+    throw e;
+  }
 
   let body: unknown = null;
   const text = await res.text();

@@ -5,6 +5,8 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
 import { prisma } from "@/lib/server/prisma";
+import { sanitizeDisplayName } from "@/lib/server/security";
+import { validateAssetUrl } from "@/lib/server/asset-url";
 
 function onlyDigits(v: string): string {
   return v.replace(/\D/g, "");
@@ -135,16 +137,16 @@ export async function PATCH(req: Request) {
           { status: 400 }
         );
       }
-      if (
-        body.avatarUrl &&
-        !body.avatarUrl.startsWith("data:image/") &&
-        !body.avatarUrl.startsWith("http")
-      ) {
+      // Aceita data:image/* ou https:// (com validação anti-SSRF);
+      // rejeita http://, javascript:, e hosts privados.
+      const v = validateAssetUrl(body.avatarUrl);
+      if (!v.ok) {
         return NextResponse.json(
-          { error: "Formato de imagem inválido" },
+          { error: `Avatar: ${v.reason}` },
           { status: 400 }
         );
       }
+      body.avatarUrl = v.url;
     }
     const data: {
       avatarUrl?: string | null;
@@ -154,10 +156,16 @@ export async function PATCH(req: Request) {
     } = {};
     if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
     if (typeof body.displayName === "string" && isStaff) {
-      data.displayName = body.displayName.trim() || undefined;
+      const cleaned = sanitizeDisplayName(body.displayName);
+      if (cleaned.length >= 2) {
+        data.displayName = cleaned;
+      }
     }
-    if (typeof body.name === "string" && isStaff && body.name.trim().length >= 2) {
-      data.name = body.name.trim();
+    if (typeof body.name === "string" && isStaff) {
+      const cleaned = sanitizeDisplayName(body.name);
+      if (cleaned.length >= 2) {
+        data.name = cleaned;
+      }
     }
     if (typeof body.phone === "string" && isStaff) {
       data.phone = onlyDigits(body.phone) || null;
@@ -209,17 +217,17 @@ export async function PATCH(req: Request) {
       where: { id: auth.user.id },
       data: {
         personType: "pj",
-        company,
+        company: sanitizeDisplayName(company, 120),
         cnpj,
         // documento principal da conta PJ = CNPJ
         document: cnpj,
-        name: (body.name || company).trim() || company,
+        name: sanitizeDisplayName(body.name || company) || company,
         displayName:
-          (body.displayName || "").trim() || company,
+          sanitizeDisplayName(body.displayName || "") || company,
         phone: body.phone ? onlyDigits(body.phone) : undefined,
-        address: body.address?.trim() || null,
-        city: body.city?.trim() || null,
-        state: body.state?.trim() || null,
+        address: body.address?.trim().slice(0, 200) || null,
+        city: body.city?.trim().slice(0, 80) || null,
+        state: body.state?.trim().slice(0, 2) || null,
         zip: body.zip ? onlyDigits(body.zip) : null,
       },
     });
@@ -259,7 +267,7 @@ export async function PATCH(req: Request) {
   if (!isValidCpf(cpf)) {
     return NextResponse.json({ error: "CPF inválido." }, { status: 400 });
   }
-  const name = (body.name || "").trim();
+  const name = sanitizeDisplayName(body.name || "");
   if (name.length < 2) {
     return NextResponse.json({ error: "Informe o nome completo." }, { status: 400 });
   }
@@ -272,11 +280,11 @@ export async function PATCH(req: Request) {
       cnpj: null,
       company: null,
       name,
-      displayName: (body.displayName || name).trim() || name,
+      displayName: sanitizeDisplayName(body.displayName || name) || name,
       phone: body.phone ? onlyDigits(body.phone) : undefined,
-      address: body.address?.trim() || null,
-      city: body.city?.trim() || null,
-      state: body.state?.trim() || null,
+      address: body.address?.trim().slice(0, 200) || null,
+      city: body.city?.trim().slice(0, 80) || null,
+      state: body.state?.trim().slice(0, 2) || null,
       zip: body.zip ? onlyDigits(body.zip) : null,
     },
   });

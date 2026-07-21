@@ -14,10 +14,19 @@ export interface ImpersonateSeller {
   at: string;
 }
 
-export function getImpersonateSeller(): ImpersonateSeller | null {
-  if (typeof window === "undefined") return null;
+function storage(): Storage | null {
   try {
-    const raw = window.localStorage.getItem(IMPERSONATE_STORAGE_KEY);
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getImpersonateSeller(): ImpersonateSeller | null {
+  const s = storage();
+  if (!s) return null;
+  try {
+    const raw = s.getItem(IMPERSONATE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ImpersonateSeller>;
     if (!parsed?.id || !parsed?.name) return null;
@@ -37,22 +46,24 @@ export function setImpersonateSeller(input: {
   name: string;
   email?: string;
 }): void {
-  if (typeof window === "undefined") return;
+  const s = storage();
+  if (!s) return;
   const payload: ImpersonateSeller = {
     id: input.id,
     name: input.name,
     email: input.email,
     at: new Date().toISOString(),
   };
-  window.localStorage.setItem(IMPERSONATE_STORAGE_KEY, JSON.stringify(payload));
+  s.setItem(IMPERSONATE_STORAGE_KEY, JSON.stringify(payload));
   window.dispatchEvent(
     new CustomEvent("darkpay:impersonate", { detail: payload })
   );
 }
 
 export function clearImpersonateSeller(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(IMPERSONATE_STORAGE_KEY);
+  const s = storage();
+  if (!s) return;
+  s.removeItem(IMPERSONATE_STORAGE_KEY);
   window.dispatchEvent(
     new CustomEvent("darkpay:impersonate", { detail: null })
   );

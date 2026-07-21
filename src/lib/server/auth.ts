@@ -3,6 +3,7 @@
  */
 
 import { cookies } from "next/headers";
+import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import type {
@@ -123,9 +124,6 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
 }
 
 function newId(prefix: string) {
-  // crypto forte (não Date/Math.random)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require("crypto") as typeof import("crypto");
   return `${prefix}_${randomBytes(24).toString("base64url")}`;
 }
 
@@ -188,7 +186,7 @@ export async function createSessionForUser(
 
   // Cookie assinado: middleware valida exp+HMAC; API valida token no DB
   const { packSessionCookie } = await import("@/lib/server/signed-token");
-  const cookieToken = packSessionCookie(token, expiresAt);
+  const cookieToken = packSessionCookie(token, expiresAt, user.status);
 
   const base = toAuthUser(user);
   const enriched = await enrichAuthUser(base);
@@ -241,12 +239,16 @@ export async function registerWithPassword(
   const exists = await prisma.user.findUnique({ where: { email } });
   if (exists) throw new Error("Este e-mail já está cadastrado.");
 
+  const { sanitizeDisplayName } = await import("@/lib/server/security");
+  const safeName = sanitizeDisplayName(input.name);
+  if (safeName.length < 2) throw new Error("Nome inválido.");
+
   const id = newId("usr");
   const passwordHash = await hashPassword(input.password);
   await prisma.user.create({
     data: {
       id,
-      name: input.name.trim(),
+      name: safeName,
       email,
       phone: input.phone?.replace(/\D/g, "") || null,
       passwordHash,
@@ -265,7 +267,7 @@ export async function registerWithPassword(
   const { session } = await createSessionForUser(id, meta);
   try {
     const { sendWelcomeEmail } = await import("@/lib/server/email");
-    await sendWelcomeEmail(email, input.name.trim());
+    await sendWelcomeEmail(email, safeName);
   } catch {
     /* ignore */
   }
@@ -366,27 +368,19 @@ export async function getSessionUser(
 
 /**
  * Cookie de sessão.
- * secure só em HTTPS real (evita falha em localhost com npm start / production).
+ * Secure ON quando a request é HTTPS (ou prod em hosts como Vercel).
+ * Em localhost http o Secure fica OFF (browser descartaria o cookie).
  */
 export function sessionCookieOptions(token: string, req?: Request) {
-  const proto =
-    req?.headers.get("x-forwarded-proto") ||
-    (typeof process !== "undefined" && process.env.COOKIE_SECURE === "1"
-      ? "https"
-      : "");
-  const secure =
-    process.env.COOKIE_SECURE === "1" ||
-    proto === "https" ||
-    (process.env.NODE_ENV === "production" &&
-      process.env.FORCE_INSECURE_COOKIE !== "1" &&
-      !!process.env.VERCEL);
+  const forwardedProto = req?.headers.get("x-forwarded-proto")?.toLowerCase();
+  const isHttps =
+    forwardedProto === "https" ||
+    (process.env.COOKIE_SECURE === "1" && process.env.NODE_ENV === "production");
 
-  // Em local (http://localhost) NUNCA usar Secure, senão o browser descarta o cookie
-  const isLocalDev =
-    !proto ||
-    proto === "http" ||
-    process.env.NODE_ENV !== "production" ||
-    process.env.FORCE_INSECURE_COOKIE === "1";
+  const forceInsecure = process.env.FORCE_INSECURE_COOKIE === "1";
+  const isProd = process.env.NODE_ENV === "production";
+
+  const secure = !forceInsecure && (isHttps || (isProd && !!process.env.VERCEL));
 
   return {
     name: COOKIE,
@@ -394,7 +388,7 @@ export function sessionCookieOptions(token: string, req?: Request) {
     httpOnly: true,
     sameSite: "lax" as const,
     path: "/",
-    secure: isLocalDev ? false : secure,
+    secure,
     maxAge: SESSION_DAYS * 24 * 60 * 60,
   };
 }

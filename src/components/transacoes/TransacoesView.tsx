@@ -81,7 +81,7 @@ function toneForStatus(status: VendaStatus): {
 
 function formatDateTime(iso: string): string {
   const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
+  const time = iso.includes("T") ? (iso.split("T")[1] || "").slice(0, 5) : "";
   return time ? `${date} ${time}` : date;
 }
 

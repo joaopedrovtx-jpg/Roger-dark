@@ -69,43 +69,31 @@ function configFromSecret(
   };
 }
 
-/** Config salva no browser (cache admin) */
+let _clientVelanaCache: VelanaConfig | null = null;
+
 export function loadVelanaConfigClient(): VelanaConfig | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<VelanaConfig>;
-    if (!parsed.secretKey?.trim()) return null;
-    return configFromSecret(
-      parsed.secretKey,
-      parsed.env,
-      parsed.publicKey
-    );
-  } catch {
-    return null;
-  }
+  return _clientVelanaCache;
 }
 
 export function saveVelanaConfigClient(
   config: Omit<VelanaConfig, "baseUrl"> & { baseUrl?: string }
 ): void {
-  if (typeof window === "undefined") return;
   const full = configFromSecret(
     config.secretKey,
     config.env,
     config.publicKey
   );
   if (config.baseUrl) full.baseUrl = config.baseUrl;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(full));
-  window.dispatchEvent(
-    new CustomEvent("darkpay:velana-config", { detail: full })
-  );
+  _clientVelanaCache = full;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("darkpay:velana-config", { detail: full })
+    );
+  }
 }
 
 export function clearVelanaConfigClient(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_KEY);
+  _clientVelanaCache = null;
 }
 
 export function resolveVelanaConfig(): VelanaConfig | null {

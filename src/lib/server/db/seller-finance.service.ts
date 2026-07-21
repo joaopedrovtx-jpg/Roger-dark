@@ -102,7 +102,7 @@ export async function createSellerWithdrawalDb(
     throw new Error("Taxa de saque maior ou igual ao valor");
   }
   const netAmount = Math.round((amount - feeAmount) * 100) / 100;
-  const id = `SQ-${Date.now().toString().slice(-8)}`;
+  const id = newId("sq");
 
   const created = await prisma.$transaction(async (tx) => {
     const debited = await tx.user.updateMany({

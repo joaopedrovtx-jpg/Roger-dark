@@ -6,6 +6,7 @@
  * Taxa seller padrão: 2,99% + R$ 1,00
  */
 
+import { randomBytes } from "crypto";
 import {
   adjustBalance,
   getStore,
@@ -172,12 +173,7 @@ export async function createChargeViaVelana(
     paymentMethod: dto.paymentMethod,
     customer: {
       name: dto.customer.name,
-      email: dto.customer.email,
-      phone: dto.customer.phone,
-      document: dto.customer.document,
     },
-    items: dto.items,
-    pix: dto.pix,
     hasPostback: !!dto.postbackUrl,
   });
 
@@ -345,7 +341,7 @@ async function persistChargeToMysql(
   const chargeDbId =
     providerId.length <= 60
       ? `vl_${providerId}`
-      : `pay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      : `pay_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 
   await prisma.paymentCharge.create({
     data: {
@@ -584,7 +580,7 @@ export async function syncChargeFromVelana(
     throw new VelanaError("Cobrança não encontrada", { code: "NOT_FOUND" });
   }
 
-  const remoteId = String(providerId || local!.id).replace(/^vl_/, "");
+  const remoteId = String(providerId || local?.id || chargeOrProviderId).replace(/^vl_/, "");
   const remote = await velanaClient.getTransaction(remoteId, config);
   const mapped = mapVelanaTxStatus(remote.status);
   const now = new Date().toISOString();
@@ -613,7 +609,7 @@ export async function syncChargeFromVelana(
       }
     }
     if (local.transactionId) {
-      const tx = store.transactions.find((t) => t.id === local!.transactionId);
+      const tx = local.transactionId ? store.transactions.find((t) => t.id === local.transactionId) : undefined;
       if (tx) {
         tx.status =
           mapped === "aprovada"
@@ -625,7 +621,7 @@ export async function syncChargeFromVelana(
                 : "pendente";
       }
     }
-    if (!store.charges.some((c) => c.id === local!.id)) {
+    if (local && !store.charges.some((c) => c.id === local.id)) {
       store.charges.unshift(local);
     }
   }
@@ -761,19 +757,9 @@ export function applyVelanaWebhook(payload: VelanaPostbackPayload): {
         const wasWaiting = charge.status === "waiting_payment";
         charge.status = "paid";
         charge.paidAt = new Date().toISOString();
-        const fee = computeVelanaSellerFee(charge.amount);
-        const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
-        if (wasWaiting) {
-          adjustBalance(charge.sellerId, {
-            pending: -charge.amount,
-            available: net,
-          });
-        } else {
-          adjustBalance(charge.sellerId, { available: net });
-        }
+        void wasWaiting;
       } else if (mapped === "recusada" && charge.status === "waiting_payment") {
         charge.status = "cancelled";
-        adjustBalance(charge.sellerId, { pending: -charge.amount });
       } else if (mapped === "reembolsada") {
         charge.status = "refunded";
       }

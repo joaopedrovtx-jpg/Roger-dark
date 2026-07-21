@@ -6,6 +6,7 @@ import {
   getBrandingFromDb,
 } from "@/lib/server/db/admin-branding.service";
 import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
+import { validateAssetUrl } from "@/lib/server/asset-url";
 
 export async function GET() {
   try {
@@ -34,17 +35,71 @@ export async function PUT(req: Request) {
       );
     }
 
-    const banners = (body.banners ?? []).map((b) => ({
-      id: b.id,
-      imageUrl: b.imageUrl,
-      name: b.name ?? "",
-      linkUrl: b.linkUrl ?? "",
-    }));
+    // DP-V3-08: validar todas as URLs externas (mitiga SSRF latente)
+    const checkUrl = (field: string, value: unknown): string | null => {
+      const v = validateAssetUrl(value);
+      if (!v.ok) {
+        return `URL inválida em ${field}: ${v.reason}`;
+      }
+      return v.url;
+    };
+
+    const logoUrl = checkUrl("logoUrl", body.logoUrl);
+    if (!logoUrl) {
+      return NextResponse.json({ error: "URL inválida em logoUrl" }, { status: 400 });
+    }
+    const authImageUrl = checkUrl("authImageUrl", body.authImageUrl);
+    if (!authImageUrl) {
+      return NextResponse.json({ error: "URL inválida em authImageUrl" }, { status: 400 });
+    }
+    const faviconUrl = body.faviconUrl
+      ? checkUrl("faviconUrl", body.faviconUrl)
+      : logoUrl;
+    if (body.faviconUrl && !faviconUrl) {
+      return NextResponse.json({ error: "URL inválida em faviconUrl" }, { status: 400 });
+    }
+
+    const banners: Array<{
+      id: string;
+      imageUrl: string;
+      name: string;
+      linkUrl: string;
+    }> = [];
+    if (Array.isArray(body.banners)) {
+      for (let i = 0; i < body.banners.length; i++) {
+        const b = body.banners[i];
+        if (!b?.imageUrl) continue;
+        const img = checkUrl(`banners[${i}].imageUrl`, b.imageUrl);
+        if (!img) {
+          return NextResponse.json(
+            { error: `URL inválida em banners[${i}].imageUrl` },
+            { status: 400 }
+          );
+        }
+        let link = "";
+        if (b.linkUrl) {
+          const l = checkUrl(`banners[${i}].linkUrl`, b.linkUrl);
+          if (!l) {
+            return NextResponse.json(
+              { error: `URL inválida em banners[${i}].linkUrl` },
+              { status: 400 }
+            );
+          }
+          link = l;
+        }
+        banners.push({
+          id: String(b.id ?? ""),
+          imageUrl: img,
+          name: (b.name ?? "").slice(0, 80),
+          linkUrl: link,
+        });
+      }
+    }
 
     const fromDb = await dbSaveBranding({
-      logoUrl: body.logoUrl,
-      faviconUrl: body.faviconUrl || body.logoUrl,
-      authImageUrl: body.authImageUrl,
+      logoUrl,
+      faviconUrl: faviconUrl || logoUrl,
+      authImageUrl,
       banners,
     });
 

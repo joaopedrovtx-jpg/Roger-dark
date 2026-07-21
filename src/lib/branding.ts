@@ -31,7 +31,23 @@ export interface PlatformBranding {
 }
 
 export function createBannerId(): string {
-  return `bn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  // Client-side: usa crypto.getRandomValues (disponível em browsers e Node 19+).
+  // Fallback Math.random só se nada estiver disponível (raríssimo).
+  let rand: string;
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") {
+      rand = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+    } else if (typeof crypto.getRandomValues === "function") {
+      const a = new Uint32Array(2);
+      crypto.getRandomValues(a);
+      rand = a[0].toString(36) + a[1].toString(36);
+    } else {
+      rand = Math.random().toString(36).slice(2, 12);
+    }
+  } else {
+    rand = Math.random().toString(36).slice(2, 12);
+  }
+  return `bn_${Date.now().toString(36)}_${rand}`;
 }
 
 export function createBanner(

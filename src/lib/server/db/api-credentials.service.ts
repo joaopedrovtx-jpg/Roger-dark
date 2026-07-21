@@ -66,7 +66,7 @@ export type ApiCredentialAuth = {
 };
 
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
+  return `${prefix}_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 }
 
 /**
@@ -92,9 +92,16 @@ export function secretHint(secret: string): string {
 
 function secretEncKey(): Buffer {
   const raw =
+    process.env.API_SECRET_ENCRYPTION_KEY?.trim() ||
     process.env.SESSION_SECRET?.trim() ||
     process.env.NEXTAUTH_SECRET?.trim() ||
-    "darkpay-dev-secret-key-change-me!!";
+    "";
+  if (!raw || raw.length < 16) {
+    throw new Error(
+      "API_SECRET_ENCRYPTION_KEY obrigatório (mín. 16 chars). " +
+      "Caso não exista, defina como: $(openssl rand -hex 32)"
+    );
+  }
   return createHash("sha256").update(raw).digest();
 }
 
@@ -269,6 +276,9 @@ function parsePermissions(raw: unknown): ApiCredentialMeta {
     skEnc: null,
   };
   if (Array.isArray(raw)) {
+    // Formato legado (array de scopes). expiresAt/env/skEnc ficam null.
+    // Se a chave já passou antes do upgrade e não tem expiresAt, não há o
+    // que checar — não é "expirada" por falta do campo.
     return {
       ...defaults,
       scopes: raw.filter((x): x is ApiPermission =>
@@ -413,15 +423,22 @@ function toPublic(
     createdAt: Date;
     updatedAt: Date;
   },
-  secretKey: string | null = null
+  secretKey: string | null = null,
+  opts?: { includeSecret?: boolean }
 ): ApiCredentialPublic {
   const meta = parsePermissions(row.permissions);
-  const resolved = resolveOwnerSecret(row, secretKey);
+  const includeSecret = opts?.includeSecret === true;
+  const resolved = includeSecret
+    ? resolveOwnerSecret(row, secretKey)
+    : secretKey && isValidApiSecretFormat(secretKey)
+      ? secretKey
+      : null;
   return {
     id: row.id,
     name: row.name,
     publicKey: row.publicKey,
-    secretKey: resolved,
+    // Nunca devolver secret no list/update — só create/rotate/reveal
+    secretKey: includeSecret ? resolved : null,
     secretKeyHint: row.secretKeyHint,
     permissions: meta.scopes,
     requireManualSaqueApproval: meta.requireManualSaqueApproval,
@@ -434,9 +451,14 @@ function toPublic(
   };
 }
 
+function defaultApiKeyEnv(): ApiKeyEnv {
+  if (process.env.NODE_ENV === "production") return "live";
+  if (process.env.API_KEYS_LIVE === "1") return "live";
+  return "test";
+}
+
 function generateKeyPair(env: ApiKeyEnv) {
   const prefix = env === "test" ? "test" : "live";
-  // public: 18 bytes hex = 36 chars · secret: 32 bytes hex = 64 chars (estável)
   const publicKey = `pk_${prefix}_${randomKeyPart(18)}`;
   const secretKey = `sk_${prefix}_${randomKeyPart(32)}`;
   return { publicKey, secretKey };
@@ -457,8 +479,41 @@ export async function listApiCredentials(
     where: { userId },
     orderBy: { createdAt: "desc" },
   });
-  // Retorna secret decifrada ao dono (ver/copiar no painel sem regenerar)
-  return rows.map((r) => toPublic(r, null));
+  // Lista NUNCA inclui secret completa (só hint)
+  return rows.map((r) => toPublic(r, null, { includeSecret: false }));
+}
+
+/** Reveal one-shot da secret (dono autenticado). */
+export async function revealApiCredentialSecret(
+  userId: string,
+  id: string
+): Promise<ApiCredentialPublic> {
+  await assertDb();
+  const row = await prisma.apiCredential.findFirst({
+    where: { id, userId },
+  });
+  if (!row) throw new Error("Credencial não encontrada");
+  if (!row.active) throw new Error("Credencial inativa");
+  return toPublic(row, null, { includeSecret: true });
+}
+
+function sanitizePermissions(
+  raw: ApiPermission[] | undefined
+): ApiPermission[] {
+  if (!Array.isArray(raw) || raw.length === 0) return ["transacoes"];
+  const allowed: ApiPermission[] = [
+    "transacoes",
+    "saques",
+    "checkouts",
+    "conta",
+  ];
+  const seen = new Set<ApiPermission>();
+  for (const p of raw) {
+    if (typeof p !== "string") continue;
+    if (!allowed.includes(p as ApiPermission)) continue;
+    seen.add(p as ApiPermission);
+  }
+  return seen.size ? [...seen] : ["transacoes"];
 }
 
 export async function createApiCredential(
@@ -472,11 +527,14 @@ export async function createApiCredential(
   }
 ): Promise<ApiCredentialPublic> {
   await assertDb();
-  const env: ApiKeyEnv = input.env === "test" ? "test" : "live";
+  const env: ApiKeyEnv =
+    input.env === "live" || input.env === "test"
+      ? input.env
+      : defaultApiKeyEnv();
   const { publicKey, secretKey } = generateKeyPair(env);
   const secretEnc = encryptApiSecret(secretKey);
   const meta: ApiCredentialMeta = {
-    scopes: input.permissions?.length ? input.permissions : ["transacoes"],
+    scopes: sanitizePermissions(input.permissions),
     requireManualSaqueApproval: !!input.requireManualSaqueApproval,
     expiresAt: input.expiresAt || null,
     env,
@@ -494,7 +552,8 @@ export async function createApiCredential(
     permissions: permissionsJson(meta),
   });
 
-  return toPublic(row, secretKey);
+  // Create: devolve secret UMA vez
+  return toPublic(row, secretKey, { includeSecret: true });
 }
 
 export async function updateApiCredential(
@@ -517,7 +576,7 @@ export async function updateApiCredential(
   const prev = parsePermissions(existing.permissions);
   // Preserva skEnc ao editar nome/perms (não apaga a secret do painel)
   const meta: ApiCredentialMeta = {
-    scopes: input.permissions ?? prev.scopes,
+    scopes: input.permissions ? sanitizePermissions(input.permissions) : prev.scopes,
     requireManualSaqueApproval:
       input.requireManualSaqueApproval ?? prev.requireManualSaqueApproval,
     expiresAt:
@@ -534,7 +593,7 @@ export async function updateApiCredential(
       active: input.active ?? existing.active,
     },
   });
-  return toPublic(row, null);
+  return toPublic(row, null, { includeSecret: false });
 }
 
 export async function rotateApiCredential(
@@ -562,7 +621,8 @@ export async function rotateApiCredential(
     secretEnc,
     permissions: permissionsJson(meta),
   });
-  return toPublic(row, secretKey);
+  // Rotate: devolve secret UMA vez
+  return toPublic(row, secretKey, { includeSecret: true });
 }
 
 export async function deleteApiCredential(
@@ -579,7 +639,11 @@ export async function deleteApiCredential(
 
 function isExpired(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
-  return new Date(expiresAt).getTime() < Date.now();
+  const t = new Date(expiresAt).getTime();
+  // Datas inválidas (NaN) tratamos como expiradas por fail-closed: não
+  // queremos aceitar uma chave cujo expiresAt esteja corrompido.
+  if (!Number.isFinite(t)) return true;
+  return t < Date.now();
 }
 
 /**

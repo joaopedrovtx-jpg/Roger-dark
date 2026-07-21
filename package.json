@@ -25,6 +25,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "@tanstack/react-query": "^5.101.2",
+    "@uploadthing/shared": "^7.1.10",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
     "envalid": "^8.2.0",
@@ -39,6 +40,10 @@
     "uploadthing": "^7.7.4",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "effect": "^3.20.0",
+    "postcss": "^8.5.10"
+  },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^26.1.1",
@@ -49,7 +54,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.1.0",
     "playwright": "^1.61.1",
-    "postcss": "^8.5.16",
+    "postcss": "^8.5.10",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.19",
     "typescript": "^6.0.3"

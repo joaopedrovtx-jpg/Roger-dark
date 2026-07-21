@@ -3,9 +3,7 @@ import { isProduction } from "@/lib/server/security";
 
 /**
  * Valida assinatura HMAC do webhook PodPay.
- *
- * Produção: secret OBRIGATÓRIO + signature OBRIGATÓRIA.
- * Dev: sem secret aceita (com reason); com secret, valida se signature vier.
+ * Fail-closed: sem secret ou sem signature → rejeita (exceto ALLOW_UNSIGNED_WEBHOOKS=1 e NÃO produção).
  */
 export function verifyPodPaySignature(
   rawBody: string,
@@ -13,21 +11,24 @@ export function verifyPodPaySignature(
   secret: string | undefined
 ): { ok: boolean; reason?: string } {
   const secretTrim = secret?.trim();
-  const prod = isProduction() || process.env.REQUIRE_WEBHOOK_HMAC === "1";
+  const allowUnsigned =
+    !isProduction() &&
+    (process.env.ALLOW_UNSIGNED_WEBHOOKS === "1" ||
+      process.env.ALLOW_UNSIGNED_WEBHOOKS === "true");
 
   if (!secretTrim) {
-    if (prod) {
-      return { ok: false, reason: "webhook_secret_required" };
+    if (allowUnsigned) {
+      return { ok: true, reason: "unsigned_allowed_explicit_dev" };
     }
-    return { ok: true, reason: "secret_not_configured_dev" };
+    return { ok: false, reason: "webhook_secret_required" };
   }
 
   const sig = signatureHeader?.trim();
   if (!sig) {
-    if (prod || process.env.PODPAY_ENV === "live") {
-      return { ok: false, reason: "missing_signature" };
+    if (allowUnsigned) {
+      return { ok: true, reason: "signature_empty_allowed_explicit_dev" };
     }
-    return { ok: true, reason: "signature_empty_allowed_sandbox" };
+    return { ok: false, reason: "missing_signature" };
   }
 
   const expected = createHmac("sha256", secretTrim)
@@ -50,11 +51,8 @@ export function verifyPodPaySignature(
 }
 
 /**
- * Velana postbacks:
- * - Se VELANA_WEBHOOK_SECRET setado → HMAC obrigatório
- * - Produção: sem secret, só aceita se VELANA_ALLOW_UNSIGNED_WEBHOOK=1
- *   (a doc Velana nem sempre documenta HMAC; prefira secret compartilhado)
- * - REQUIRE_WEBHOOK_HMAC=1 ou VELANA_REQUIRE_HMAC=1 → fail-closed sem secret
+ * Velana postbacks — mesmo fail-closed que PodPay.
+ * VELANA_ALLOW_UNSIGNED_WEBHOOK=1 só vale fora de produção.
  */
 export function verifyVelanaWebhook(
   rawBody: string,
@@ -62,26 +60,23 @@ export function verifyVelanaWebhook(
   secret: string | undefined
 ): { ok: boolean; reason?: string } {
   const secretTrim = secret?.trim();
-  const prod = isProduction() || process.env.REQUIRE_WEBHOOK_HMAC === "1";
-  const force =
-    process.env.VELANA_REQUIRE_HMAC === "1" ||
-    process.env.REQUIRE_WEBHOOK_HMAC === "1";
   const allowUnsigned =
-    process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "1" ||
-    process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "true";
+    !isProduction() &&
+    (process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "1" ||
+      process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "true" ||
+      process.env.ALLOW_UNSIGNED_WEBHOOKS === "1");
 
   if (!secretTrim) {
-    if (force) {
-      return { ok: false, reason: "velana_webhook_secret_required" };
+    if (allowUnsigned) {
+      return { ok: true, reason: "velana_unsigned_allowed_explicit_dev" };
     }
-    if (prod && !allowUnsigned) {
-      // Fail-closed em produção: force opt-in para postback sem HMAC
-      return { ok: false, reason: "velana_unsigned_blocked_in_prod" };
-    }
-    return { ok: true, reason: "velana_hmac_optional" };
+    return { ok: false, reason: "velana_webhook_secret_required" };
   }
 
   if (!signatureHeader?.trim()) {
+    if (allowUnsigned) {
+      return { ok: true, reason: "velana_signature_empty_allowed_explicit_dev" };
+    }
     return { ok: false, reason: "missing_signature" };
   }
 

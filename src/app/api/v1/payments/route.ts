@@ -7,30 +7,21 @@ import {
 } from "@/lib/services/payment-read.service";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
+import { createPaymentSchema, formatZodError } from "@/lib/api/schemas";
+import { z } from "zod";
 
 export async function POST(req: Request) {
   const gate = await requireSellerAuth(req, { permission: "transacoes" });
   if (isGuardFail(gate)) return gate.error;
 
   try {
-    const body = (await req.json()) as {
-      amount?: number;
-      description?: string;
-      customerName?: string;
-      customerDocument?: string;
-      customerEmail?: string;
-      customerPhone?: string;
-      metadata?: Record<string, string>;
-    };
-
-    if (!body.amount || body.amount < 1) {
+    let body: z.infer<typeof createPaymentSchema>;
+    try {
+      body = createPaymentSchema.parse(await req.json());
+    } catch (e) {
+      const msg = e instanceof z.ZodError ? formatZodError(e) : "Requisição inválida";
       return NextResponse.json(
-        {
-          error: {
-            code: "invalid_amount",
-            message: "amount obrigatório (mín. R$ 1,00)",
-          },
-        },
+        { error: { code: "validation_error", message: msg } },
         { status: 400 }
       );
     }

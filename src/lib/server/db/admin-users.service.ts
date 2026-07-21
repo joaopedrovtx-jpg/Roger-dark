@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
 
 function n(v: unknown): number {
@@ -10,7 +11,7 @@ function n(v: unknown): number {
 }
 
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 }
 
 async function dbAvailable(): Promise<boolean> {
@@ -186,6 +187,12 @@ export async function dbUpdateUserStatus(
   return { id: u.id, status: u.status };
 }
 
+function clampFee(value: number, max: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  if (value > max) return max;
+  return Math.round(value * 100) / 100;
+}
+
 export async function dbUpdateUserFees(
   id: string,
   fees: {
@@ -196,16 +203,19 @@ export async function dbUpdateUserFees(
   }
 ) {
   if (!(await dbAvailable())) return null;
+  // Cap razoável: 30% de percentual e R$ 50 de fixo. Admin não pode
+  // aplicar taxas absurdas que prejudiquem sellers.
+  const safe = {
+    mdrPercent: clampFee(Number(fees.mdrPercent), 30),
+    mdrFixed: clampFee(Number(fees.mdrFixed), 50),
+    saquePercent: clampFee(Number(fees.saquePercent), 30),
+    saqueFixed: clampFee(Number(fees.saqueFixed), 50),
+  };
   const u = await prisma.user.update({
     where: { id },
-    data: {
-      mdrPercent: fees.mdrPercent,
-      mdrFixed: fees.mdrFixed,
-      saquePercent: fees.saquePercent,
-      saqueFixed: fees.saqueFixed,
-    },
+    data: safe,
   });
-  await audit("user.fees", "user", id, fees);
+  await audit("user.fees", "user", id, safe);
   return {
     id: u.id,
     fees: {

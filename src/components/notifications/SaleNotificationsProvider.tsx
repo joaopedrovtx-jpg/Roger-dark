@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import {
+  emitSaleEvent,
   loadNotificationPrefs,
   playCashRegisterSound,
   resolveNotificationIconAsync,
@@ -11,9 +12,23 @@ import {
   type NotificationPrefs,
   type SaleNotifyPayload,
 } from "@/lib/notifications";
+import { authedFetch } from "@/lib/client/session";
+
+const POLL_INTERVAL_MS = 8000;
+
+type PollTx = {
+  id: string;
+  date: string;
+  kind: string;
+  amount: number;
+  status: string;
+  description?: string;
+  sellerId?: string;
+};
 
 /**
- * Escuta apenas eventos reais `darkpay:sale` (venda gerada / venda paga).
+ * Escuta eventos reais `darkpay:sale` (venda gerada / venda paga).
+ * Também faz polling de novas transações aprovadas para disparar notificações.
  * Som de caixa: só nesses eventos — nunca em clique/foco/timer solto.
  */
 export function SaleNotificationsProvider({
@@ -22,6 +37,8 @@ export function SaleNotificationsProvider({
   children: React.ReactNode;
 }) {
   const prefsRef = useRef<NotificationPrefs>(loadNotificationPrefs());
+  const lastTxIdRef = useRef<string>("");
+  const lastPaidIdRef = useRef<string>("");
 
   useEffect(() => {
     prefsRef.current = loadNotificationPrefs();
@@ -53,16 +70,71 @@ export function SaleNotificationsProvider({
       const prefs = prefsRef.current;
       if (!shouldAlertSale(prefs, detail, false)) return;
 
-      // Som só na venda real (chave de dedupe)
       const saleKey = `${detail.kind}:${detail.id || "no-id"}:${detail.amount}`;
       playCashRegisterSound(saleKey);
 
       void showSaleBrowserNotification(prefs, detail, { force: false });
     }
 
+    async function pollTransactions() {
+      try {
+        const res = await authedFetch(
+          `/api/v1/transactions?pageSize=10&page=1`
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          items?: PollTx[];
+          source?: string;
+        };
+        if (!json.items?.length) return;
+
+        const paid = json.items.filter(
+          (t) =>
+            t.kind === "venda" && t.status === "aprovada"
+        );
+
+        const newestPaid = paid[0];
+        if (newestPaid && newestPaid.id !== lastPaidIdRef.current) {
+          if (lastPaidIdRef.current) {
+            emitSaleEvent({
+              kind: "aprovada",
+              amount: newestPaid.amount,
+              customer: newestPaid.description,
+              product: newestPaid.description,
+              id: newestPaid.id,
+            });
+          }
+          lastPaidIdRef.current = newestPaid.id;
+        }
+
+        const newestTx = json.items[0];
+        if (
+          newestTx &&
+          newestTx.status === "pendente" &&
+          newestTx.id !== lastTxIdRef.current
+        ) {
+          if (lastTxIdRef.current) {
+            emitSaleEvent({
+              kind: "gerada",
+              amount: newestTx.amount,
+              customer: newestTx.description,
+              id: newestTx.id,
+            });
+          }
+          lastTxIdRef.current = newestTx.id;
+        }
+      } catch {
+        // polling silencioso
+      }
+    }
+
+    const pollTimer = setInterval(pollTransactions, POLL_INTERVAL_MS);
+    pollTransactions();
+
     window.addEventListener("darkpay:notifications", onPrefs);
     window.addEventListener("darkpay:sale", onSale);
     return () => {
+      clearInterval(pollTimer);
       for (const ev of unlockEvents) {
         window.removeEventListener(ev, unlockOnce, true);
       }

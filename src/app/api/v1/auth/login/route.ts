@@ -9,12 +9,15 @@ import {
 import {
   checkLoginRateLimit,
   clearLoginRateLimit,
+  getClientIp,
   securityHeaders,
 } from "@/lib/server/security";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { create2faChallenge } from "@/lib/server/signed-token";
 import { loginSchema, formatZodError } from "@/lib/api/schemas";
+import { checkSeedLogin } from "@/lib/server/seed-block";
 import { z } from "zod";
+import { log } from "@/lib/server/logger";
 
 export async function POST(req: Request) {
   try {
@@ -22,18 +25,26 @@ export async function POST(req: Request) {
     try {
       body = loginSchema.parse(await req.json());
     } catch (e) {
+      const msg = e instanceof z.ZodError ? formatZodError(e) : "Requisição inválida";
       return NextResponse.json(
-        { error: formatZodError(e as any) },
+        { error: msg },
         { status: 400, headers: securityHeaders() }
       );
     }
 
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "unknown";
-    const rateKey = `${ip}:${body.email.trim().toLowerCase()}`;
-    const rate = await checkLoginRateLimit(rateKey);
+    const ip = getClientIp(req);
+    const email = body.email.trim().toLowerCase();
+
+    // Hardening: bloqueia contas de seed em produção (DP-V3-02)
+    const seedCheck = checkSeedLogin(email);
+    if (!seedCheck.allowed) {
+      return NextResponse.json(
+        { error: seedCheck.reason },
+        { status: 403, headers: securityHeaders() }
+      );
+    }
+
+    const rate = await checkLoginRateLimit({ ip, email });
     if (!rate.ok) {
       return NextResponse.json(
         {
@@ -54,9 +65,9 @@ export async function POST(req: Request) {
 
     if (isDatabaseConfigured()) {
       await assertDatabase();
-      const email = body.email.trim().toLowerCase();
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user?.passwordHash) {
+        log.warn({ event: "auth_login_failed_no_account", email, ip }, "login_failed");
         return NextResponse.json(
           { error: "E-mail ou senha inválidos." },
           { status: 401, headers: securityHeaders() }
@@ -64,12 +75,14 @@ export async function POST(req: Request) {
       }
       const ok = await verifyPassword(body.password, user.passwordHash);
       if (!ok) {
+        log.warn({ event: "auth_login_failed_wrong_password", email, ip, userId: user.id }, "login_failed");
         return NextResponse.json(
           { error: "E-mail ou senha inválidos." },
           { status: 401, headers: securityHeaders() }
         );
       }
       if (user.status === "bloqueado") {
+        log.warn({ event: "auth_login_blocked", email, ip, userId: user.id }, "login_blocked");
         return NextResponse.json(
           { error: "Conta bloqueada. Fale com o suporte." },
           { status: 403, headers: securityHeaders() }
@@ -80,7 +93,7 @@ export async function POST(req: Request) {
         where: { userId: user.id },
       });
       if (twoFa?.enabled) {
-        await clearLoginRateLimit(rateKey);
+        await clearLoginRateLimit({ ip, email });
         const challenge = create2faChallenge(user.id);
         return NextResponse.json(
           {
@@ -96,7 +109,7 @@ export async function POST(req: Request) {
         ip,
         userAgent: req.headers.get("user-agent") ?? undefined,
       });
-      await clearLoginRateLimit(rateKey);
+      await clearLoginRateLimit({ ip, email });
       const res = NextResponse.json(
         { user: session.user, expiresAt: session.expiresAt },
         { headers: securityHeaders() }
@@ -116,7 +129,7 @@ export async function POST(req: Request) {
       { email: body.email, password: body.password },
       { ip, userAgent: req.headers.get("user-agent") ?? undefined }
     );
-    await clearLoginRateLimit(rateKey);
+    await clearLoginRateLimit({ ip, email });
     const res = NextResponse.json(
       { user: session.user, expiresAt: session.expiresAt },
       { headers: securityHeaders() }

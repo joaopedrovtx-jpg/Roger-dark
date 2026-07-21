@@ -4,14 +4,20 @@
  * Sem chave, os services continuam no mock local.
  */
 
+import { randomBytes } from "crypto";
 import {
   adjustBalance,
   getStore,
+  pushCharge,
+  pushTransaction,
+  pushWithdrawal,
+  setBrandingInStore,
   type PaymentCharge,
 } from "@/lib/server/memory-store";
 import type { CreateWithdrawalInput, Withdrawal } from "@/lib/domain/types";
 import { podpayClient, PodPayError } from "./client";
 import {
+  computePodPaySellerFee,
   isPodPayEnabled,
   resolvePodPayConfig,
   resolvePodPayConfigServer,
@@ -165,8 +171,8 @@ export async function createChargeViaPodPay(
   // TX local + MySQL
   const txId = `TX-PP-${Date.now().toString().slice(-8)}`;
   charge.transactionId = txId;
-  store.charges.unshift(charge);
-  store.transactions.unshift({
+  pushCharge(charge);
+  pushTransaction({
     id: txId,
     date: charge.createdAt,
     sellerId: input.sellerId,
@@ -183,8 +189,8 @@ export async function createChargeViaPodPay(
   if (charge.status === "waiting_payment") {
     adjustBalance(input.sellerId, { pending: charge.amount });
   } else if (charge.status === "paid") {
-    const mdr = charge.amount * 0.03 + 0.15;
-    const net = Math.max(0, Math.round((charge.amount - mdr) * 100) / 100);
+    const fee = computePodPaySellerFee(charge.amount);
+    const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
     adjustBalance(input.sellerId, { available: net });
   }
 
@@ -209,8 +215,7 @@ async function persistChargeToMysql(
   );
   if (!isDatabaseConfigured()) return;
 
-  const fee =
-    Math.round((charge.amount * 0.03 + 0.15) * 100) / 100;
+  const fee = computePodPaySellerFee(charge.amount);
   const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
   const txLocalId = charge.transactionId || `TX-PP-${Date.now()}`;
 
@@ -247,7 +252,7 @@ async function persistChargeToMysql(
   const chargeDbId =
     providerId.length <= 60
       ? `pp_${providerId}`
-      : `pay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      : `pay_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 
   await prisma.paymentCharge.create({
     data: {
@@ -328,8 +333,8 @@ export async function createWithdrawalViaPodPay(
     adjustBalance(sellerId, { available: -w.amount });
   }
 
-  getStore().withdrawals.unshift(w);
-  getStore().transactions.unshift({
+  pushWithdrawal(w);
+  pushTransaction({
     id: w.id,
     date: w.date,
     sellerId,
@@ -423,7 +428,7 @@ export async function syncChargeFromPodPay(
     throw new PodPayError("Cobrança não encontrada", { code: "NOT_FOUND" });
   }
 
-  const remoteId = (providerId || local!.id).replace(/^pp_/, "");
+  const remoteId = (providerId || local?.id || chargeOrProviderId).replace(/^pp_/, "");
   const remote = await podpayClient.getTransaction(remoteId, config);
   const mapped = mapPodPayTxStatus(remote.status);
   const now = new Date().toISOString();
@@ -443,16 +448,18 @@ export async function syncChargeFromPodPay(
     if (nextStatus === "paid" && !local.paidAt) {
       local.paidAt = now;
       if (wasWaiting) {
-        const mdr = local.amount * 0.03 + 0.15;
-        const net = Math.max(0, Math.round((local.amount - mdr) * 100) / 100);
+        const fee = computePodPaySellerFee(local.amount);
+        const net = Math.max(0, Math.round((local.amount - fee) * 100) / 100);
         adjustBalance(local.sellerId, {
           pending: -local.amount,
           available: net,
         });
       }
+      // sem wasWaiting: não credita duas vezes; o credit no DB
+      // (creditPaidSaleIdempotent) é idempotente e fonte da verdade.
     }
     if (local.transactionId) {
-      const tx = store.transactions.find((t) => t.id === local!.transactionId);
+      const tx = local.transactionId ? store.transactions.find((t) => t.id === local.transactionId) : undefined;
       if (tx) {
         tx.status =
           mapped === "aprovada"
@@ -465,7 +472,7 @@ export async function syncChargeFromPodPay(
       }
     }
     // ensure in store
-    if (!store.charges.some((c) => c.id === local!.id)) {
+    if (local && !store.charges.some((c) => c.id === local.id)) {
       store.charges.unshift(local);
     }
   }
@@ -537,7 +544,7 @@ async function applyPaidStatusToMysql(opts: {
     const amount = Number(charge.amount);
     const fee = tx
       ? Number(tx.feeAmount)
-      : Math.round((amount * 0.03 + 0.15) * 100) / 100;
+      : computePodPaySellerFee(amount);
     await creditPaidSaleIdempotent({
       transactionId: tx?.id,
       providerId: opts.providerId,
@@ -578,6 +585,11 @@ async function applyPaidStatusToMysql(opts: {
 
 /**
  * Processa webhook PodPay e atualiza store local.
+ *
+ * NOTA: este mirror em memória é cache de leitura. O saldo canônico é o DB
+ * via creditPaidSaleIdempotent. Aqui só atualizamos o status (para a UI
+ * reativa refletir rápido). Qualquer ajuste de saldo em produção deve ir
+ * pelo DB.
  */
 export function applyPodPayWebhook(payload: PodPayWebhookPayload): {
   ok: boolean;
@@ -592,26 +604,20 @@ export function applyPodPayWebhook(payload: PodPayWebhookPayload): {
     const status = String(data.status || "");
     const mapped = mapPodPayTxStatus(status);
 
-    // Atualiza charge
+    // Atualiza charge (mirror). Saldo canônico fica no DB.
     const charge = store.charges.find((c) => c.id === remoteId);
     if (charge) {
+      const wasWaiting = charge.status === "waiting_payment";
       if (mapped === "aprovada" && charge.status !== "paid") {
-        const wasWaiting = charge.status === "waiting_payment";
         charge.status = "paid";
         charge.paidAt = payload.timestamp || new Date().toISOString();
-        const mdr = charge.amount * 0.03 + 0.15;
-        const net = Math.max(0, Math.round((charge.amount - mdr) * 100) / 100);
         if (wasWaiting) {
-          adjustBalance(charge.sellerId, {
-            pending: -charge.amount,
-            available: net,
-          });
-        } else {
-          adjustBalance(charge.sellerId, { available: net });
+          const fee = computePodPaySellerFee(charge.amount);
+          const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
+          void net;
         }
       } else if (mapped === "recusada" && charge.status === "waiting_payment") {
         charge.status = "cancelled";
-        adjustBalance(charge.sellerId, { pending: -charge.amount });
       } else if (mapped === "reembolsada") {
         charge.status = "refunded";
       }

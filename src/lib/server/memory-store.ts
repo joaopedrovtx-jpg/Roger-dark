@@ -1,6 +1,13 @@
 /**
  * Store em memória (server + client via globalThis).
  * Em modo real começa vazio vendas/saques só entram via API / PodPay / DB.
+ *
+ * DP-V3-12: memória cache de LEITURA apenas.
+ *   - Saldo canônico = Prisma (User.balanceAvailable, ledger)
+ *   - Cobranças/withdrawals = Prisma (Transaction, Withdrawal, PaymentCharge)
+ *   - Este store só é consultado se DB não disponível (ALLOW_MOCK_DATA=1)
+ *     ou como cache secundário durante a mesma request.
+ *   - Nunca usado como fonte de verdade em produção.
  */
 
 import type {
@@ -57,11 +64,62 @@ function createStore(): MemoryStore {
 
 const g = globalThis as unknown as { __darkpayMemoryStore?: MemoryStore };
 
+/**
+ * DP-V3-12: bloqueia escrita em produção sem override.
+ * Em produção, qualquer mutação de estado deve ir para o Prisma.
+ * Leituras (cache) continuam permitidas.
+ */
+let warned = false;
+function guardWrite(field: keyof MemoryStore) {
+  if (process.env.NODE_ENV !== "production") return;
+  if (process.env.ALLOW_MEMORY_STORE_WRITES === "1") return;
+  if (!warned) {
+    warned = true;
+    console.warn(
+      `[memory-store] DP-V3-12: write to "${String(
+        field
+      )}" ignorado em produção (use Prisma).`
+    );
+  }
+}
+
 export function getStore(): MemoryStore {
   if (!g.__darkpayMemoryStore) {
     g.__darkpayMemoryStore = createStore();
   }
   return g.__darkpayMemoryStore;
+}
+
+/** Mutações que devem ser ignoradas em produção. */
+export function memoryStoreWriteBlocked(): boolean {
+  return (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_MEMORY_STORE_WRITES !== "1"
+  );
+}
+
+export function pushCharge(c: PaymentCharge) {
+  if (memoryStoreWriteBlocked()) return;
+  guardWrite("charges");
+  getStore().charges.unshift(c);
+}
+
+export function pushWithdrawal(w: Withdrawal) {
+  if (memoryStoreWriteBlocked()) return;
+  guardWrite("withdrawals");
+  getStore().withdrawals.unshift(w);
+}
+
+export function pushTransaction(t: Transaction) {
+  if (memoryStoreWriteBlocked()) return;
+  guardWrite("transactions");
+  getStore().transactions.unshift(t);
+}
+
+export function setBrandingInStore(b: PlatformBranding) {
+  if (memoryStoreWriteBlocked()) return;
+  guardWrite("branding");
+  getStore().branding = b;
 }
 
 export function resetStore() {

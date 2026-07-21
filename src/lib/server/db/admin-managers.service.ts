@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
 
 function n(v: unknown): number {
@@ -10,7 +11,7 @@ function n(v: unknown): number {
 }
 
 function newId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 }
 
 async function dbAvailable(): Promise<boolean> {
@@ -94,6 +95,11 @@ export async function dbCreateManagerFromUser(input: {
   if (user.status === "bloqueado") {
     throw new Error("Conta bloqueada não pode ser promovida a gerente");
   }
+  if (user.status === "pendente") {
+    throw new Error(
+      "Conta pendente não pode ser promovida. Aprove os documentos antes."
+    );
+  }
 
   const email = user.email.toLowerCase();
   const already = await prisma.manager.findUnique({ where: { email } });
@@ -142,7 +148,8 @@ export async function dbCreateManagerFromUser(input: {
     where: { id: user.id },
     data: {
       roles,
-      status: user.status === "bloqueado" ? user.status : "ativo",
+      // status já é "ativo" neste ponto (validado acima); preserva.
+      status: user.status,
     },
   });
 

@@ -62,10 +62,14 @@ export async function simulatePayAction(chargeId: string) {
   }
 
   try {
-    const charge = markChargePaid(chargeId);
-    if (charge.sellerId !== user.id && !user.roles.includes("admin")) {
+    const { getChargeAsync } = await import("@/lib/services/payment-read.service");
+    const existing = await getChargeAsync(chargeId);
+    if (!existing) return { error: "Cobrança não encontrada" };
+    if (existing.sellerId !== user.id && !user.roles.includes("admin")) {
       return { error: "Sem permissão para esta cobrança" };
     }
+
+    const charge = markChargePaid(chargeId);
     return {
       id: charge.id,
       status: charge.status,

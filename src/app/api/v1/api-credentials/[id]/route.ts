@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
 import {
   deleteApiCredential,
+  revealApiCredentialSecret,
   rotateApiCredential,
   updateApiCredential,
   type ApiPermission,
@@ -12,7 +13,7 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * PATCH  /api/v1/api-credentials/:id editar nome/perms
  * DELETE /api/v1/api-credentials/:id excluir
- * POST   /api/v1/api-credentials/:id { action: "rotate" } gera novas chaves
+ * POST   /api/v1/api-credentials/:id { action: "rotate" | "reveal" }
  */
 export async function PATCH(req: Request, ctx: Ctx) {
   const gate = await requireAuth(req);
@@ -26,7 +27,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       requireManualSaqueApproval?: boolean;
       expiresAt?: string | null;
       active?: boolean;
-      action?: "rotate";
+      action?: "rotate" | "reveal";
     };
 
     if (body.action === "rotate") {
@@ -34,7 +35,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
       return NextResponse.json({
         ...rotated,
         warning:
-          "Novas chaves geradas. Use o olho para ver e o botão copiar a secret.",
+          "Novas chaves geradas. Copie a secret agora — não será listada de novo.",
+      });
+    }
+
+    if (body.action === "reveal") {
+      const revealed = await revealApiCredentialSecret(gate.user.id, id);
+      return NextResponse.json({
+        ...revealed,
+        warning: "Secret revelada. Não compartilhe nem logue este valor.",
       });
     }
 
@@ -48,7 +57,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
 }
 
 export async function POST(req: Request, ctx: Ctx) {
-  // alias: POST com action rotate (alguns clientes preferem POST)
   return PATCH(req, ctx);
 }
 

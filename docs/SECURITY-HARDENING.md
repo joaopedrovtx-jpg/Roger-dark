@@ -119,17 +119,35 @@ Checks manuais:
 6. [ ] `npx tsc --noEmit` + `npm run smoke:security`
 7. [ ] PIX real → sync/webhook → saldo MySQL → saque
 
+## Hardening 20–21/07/2026 (pós-pentest)
+
+| Item | Status |
+|------|--------|
+| Webhooks PodPay/Velana **fail-closed** sem secret/sig | ✅ |
+| Cookie legado opaco rejeitado no middleware | ✅ |
+| SESSION_SECRET sem fallback fraco em prod | ✅ |
+| CSRF strict por default (`CSRF_STRICT=0` desliga) | ✅ |
+| Rate limit login: email+IP; XFF só com `TRUST_PROXY=1` | ✅ |
+| GET api-credentials **sem** secret; reveal sob demanda | ✅ |
+| Keys `pk_test_` em non-prod | ✅ |
+| CSP + health posture não pública | ✅ |
+| Nome sanitizado (anti XSS) | ✅ |
+| Crédito/débito em `$transaction` + ledger | ✅ `roundMoney` |
+| Seed bloqueado em production | ✅ |
+| Smoke atualizado (`scripts/smoke-security.mjs`) | ✅ |
+
 ## Ainda aberto (sprints futuros)
 
 - [ ] Fila de webhooks distribuída (Redis/SQS) — hoje in-process
-- [ ] Decimal/money types nativos no MySQL
+- [ ] Decimal/money types nativos no MySQL (hoje Float + roundMoney)
 - [ ] OpenTelemetry / APM completo (hoje: logger JSON leve)
 - [x] 2FA **obrigatório** para admins (policy)
 - [x] Saque unificado (débito DB + adquirente + row MySQL)
 - [x] 2FA UI só via API (sem mock localStorage)
-- [x] Velana HMAC fail-closed em produção
-- [ ] Testes e2e (Playwright) + pentest formal
+- [x] Velana HMAC fail-closed (todos envs sem opt-in)
+- [ ] Testes e2e (Playwright) + pentest formal retest
 - [ ] Remover memory-store por completo (espelho residual em gateways)
+- [ ] npm audit: uploadthing/effect, postcss via next
 
 ## Arquivos-chave
 

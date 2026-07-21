@@ -7,7 +7,7 @@ import {
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { verify2faChallenge } from "@/lib/server/signed-token";
 import { verifyTotp, consumeBackupCode } from "@/lib/server/totp";
-import { securityHeaders } from "@/lib/server/security";
+import { getClientIp, securityHeaders } from "@/lib/server/security";
 
 /**
  * POST /api/v1/auth/login/2fa
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     }
 
     const { session, token } = await createSessionForUser(user.id, {
-      ip: req.headers.get("x-forwarded-for") ?? undefined,
+      ip: getClientIp(req),
       userAgent: req.headers.get("user-agent") ?? undefined,
     });
 

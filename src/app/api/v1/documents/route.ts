@@ -110,6 +110,8 @@ export async function POST(req: Request) {
 
   const MAX_DATA = 1_200_000; // ~1.2MB por arquivo em base64
 
+  const BLOCKED_IMAGE_SUBTYPES = ["svg", "svg+xml"];
+
   for (const [kind, item] of byKind) {
     let previewUrl: string | null = null;
     if (item.dataUrl && typeof item.dataUrl === "string") {
@@ -121,10 +123,50 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      if (
-        item.dataUrl.startsWith("data:image/") ||
-        item.dataUrl.startsWith("data:application/pdf")
-      ) {
+      const dataUrlLower = item.dataUrl.toLowerCase();
+      const isAllowedImage = dataUrlLower.startsWith("data:image/") &&
+        !BLOCKED_IMAGE_SUBTYPES.some((t) => dataUrlLower.startsWith(`data:image/${t}`));
+      const isPdf = dataUrlLower.startsWith("data:application/pdf");
+      if (isAllowedImage || isPdf) {
+        const commaIdx = item.dataUrl.indexOf(",");
+        if (commaIdx > 0) {
+          const b64 = item.dataUrl.slice(commaIdx + 1).trim();
+          if (b64.length > 0) {
+            try {
+              const decoded = Buffer.from(b64, "base64");
+              if (decoded.length < 20) {
+                return NextResponse.json(
+                  { error: `Arquivo inválido ou corrompido em ${DOC_KIND_LABELS[kind as SellerDocKind]}.` },
+                  { status: 400 }
+                );
+              }
+              if (isAllowedImage) {
+                const magic = decoded.slice(0, 8).toString("hex").toLowerCase();
+                const validImageHeader = /^(ffd8ffe0|ffd8ffe1|ffd8ffe2|89504e47|47494638|424d)/.test(magic);
+                if (!validImageHeader) {
+                  return NextResponse.json(
+                    { error: `Formato de imagem não suportado em ${DOC_KIND_LABELS[kind as SellerDocKind]}. Use JPEG, PNG, GIF ou BMP.` },
+                    { status: 400 }
+                  );
+                }
+              }
+              if (isPdf) {
+                const magic = decoded.slice(0, 5).toString("ascii");
+                if (magic !== "%PDF-") {
+                  return NextResponse.json(
+                    { error: `Arquivo PDF inválido em ${DOC_KIND_LABELS[kind as SellerDocKind]}.` },
+                    { status: 400 }
+                  );
+                }
+              }
+            } catch {
+              return NextResponse.json(
+                { error: `Erro ao processar arquivo em ${DOC_KIND_LABELS[kind as SellerDocKind]}.` },
+                { status: 400 }
+              );
+            }
+          }
+        }
         previewUrl = item.dataUrl;
       }
     }
@@ -180,14 +222,16 @@ export async function POST(req: Request) {
     });
   }
 
+  // Recarrega o status real do user (pode ter mudado acima) para o kyc.
+  const refreshed = await prisma.user.findUnique({
+    where: { id: auth.user.id },
+    select: { status: true },
+  });
   const docs = await prisma.document.findMany({
     where: { userId: auth.user.id },
     select: { kind: true, status: true },
   });
-  const kyc = buildKyc(
-    auth.user.status === "ativo" ? "ativo" : "pendente",
-    docs
-  );
+  const kyc = buildKyc(refreshed?.status ?? auth.user.status, docs);
 
   return NextResponse.json({
     ok: true,

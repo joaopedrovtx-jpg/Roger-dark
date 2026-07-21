@@ -6,6 +6,7 @@ import {
   dbSaveBranding,
 } from "@/lib/server/db/admin-branding.service";
 import { getBrandingFromStore, getStore } from "@/lib/server/memory-store";
+import { hasStaffPermission } from "@/lib/staff";
 
 export async function getBrandingAction() {
   try {
@@ -24,8 +25,9 @@ export async function saveBrandingAction(data: {
   banners: Array<{ id: string; imageUrl: string; name: string; linkUrl: string }>;
 }) {
   const user = await getSessionUser();
-  if (!user?.roles.includes("admin")) {
-    return { error: "Acesso restrito a administradores" };
+  if (!user) return { error: "Não autenticado" };
+  if (!hasStaffPermission(user, "personalizacao")) {
+    return { error: "Sem permissão para alterar a personalização" };
   }
 
   try {

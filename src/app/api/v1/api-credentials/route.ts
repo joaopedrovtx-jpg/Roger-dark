@@ -8,8 +8,8 @@ import {
 } from "@/lib/server/db/api-credentials.service";
 
 /**
- * GET  /api/v1/api-credentials lista credenciais do seller (com secret do dono)
- * POST /api/v1/api-credentials cria (retorna secret)
+ * GET  /api/v1/api-credentials lista (sem secret — só hint)
+ * POST /api/v1/api-credentials cria (retorna secret UMA vez)
  */
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
@@ -23,9 +23,10 @@ export async function GET(req: Request) {
       total: items.length,
       format: {
         publicKey: "pk_live_… | pk_test_…",
-        secretKey: "sk_live_… | sk_test_…",
+        secretKey: "sk_live_… | sk_test_… (só no create/rotate/reveal)",
         authHeader: "Authorization: Bearer sk_live_…",
         endpoint: "/api/v1/payments",
+        reveal: "POST /api/v1/api-credentials/:id { action: \"reveal\" }",
       },
     });
   } catch (e) {

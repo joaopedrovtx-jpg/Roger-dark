@@ -343,6 +343,7 @@ function SecretRow({
   /** Secret completa — copiar sempre usa este valor (mesmo com máscara na tela) */
   fullSecret = null,
   secretMode = false,
+  onReveal,
 }: {
   label: string;
   value: string;
@@ -350,24 +351,50 @@ function SecretRow({
   fullSecret?: string | null;
   /** true = linha de Client Secret (olho + copiar a secret inteira) */
   secretMode?: boolean;
+  /** Busca secret no servidor (reveal) ao abrir o olho */
+  onReveal?: () => Promise<string | null>;
 }) {
   const [visible, setVisible] = useState(false);
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const effectiveFull = revealed || fullSecret;
   const hasFull = Boolean(
-    fullSecret &&
-      fullSecret.startsWith("sk_") &&
-      fullSecret.length >= 20 &&
-      !fullSecret.includes("…") &&
-      !fullSecret.includes("•")
+    effectiveFull &&
+      effectiveFull.startsWith("sk_") &&
+      effectiveFull.length >= 20 &&
+      !effectiveFull.includes("…") &&
+      !effectiveFull.includes("•")
   );
   // Na tela: mascarado por padrão; com olho abre a completa
   const display =
     secretMode && hasFull
       ? visible
-        ? fullSecret!
-        : maskSecretForDisplay(fullSecret, null)
+        ? effectiveFull!
+        : maskSecretForDisplay(effectiveFull, null)
       : value;
   // Copiar SEMPRE a secret completa sk_… (nunca a máscara)
-  const copyValue = secretMode ? (hasFull ? fullSecret! : "") : value;
+  const copyValue = secretMode ? (hasFull ? effectiveFull! : "") : value;
+
+  async function toggleVisible() {
+    if (!secretMode) {
+      setVisible((v) => !v);
+      return;
+    }
+    if (visible) {
+      setVisible(false);
+      return;
+    }
+    if (!hasFull && onReveal) {
+      setRevealing(true);
+      try {
+        const s = await onReveal();
+        if (s) setRevealed(s);
+      } finally {
+        setRevealing(false);
+      }
+    }
+    setVisible(true);
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -402,13 +429,16 @@ function SecretRow({
         >
           {display}
         </code>
-        {/* Olho: mostrar/ocultar secret completa */}
-        {secretMode && hasFull ? (
+        {/* Olho: mostrar/ocultar secret (reveal no servidor se necessário) */}
+        {secretMode && (hasFull || onReveal) ? (
           <IconActionButton
             ariaLabel={visible ? "Ocultar secret" : "Visualizar secret"}
-            onClick={() => setVisible((v) => !v)}
+            onClick={() => void toggleVisible()}
+            disabled={revealing}
           >
-            {visible ? (
+            {revealing ? (
+              <Loader2 size={16} strokeWidth={2.2} className="animate-spin" />
+            ) : visible ? (
               <EyeOff size={16} strokeWidth={2.2} />
             ) : (
               <Eye size={16} strokeWidth={2.2} />
@@ -1045,6 +1075,52 @@ export function ApiIntegracaoView() {
                                 secretMode
                                 fullSecret={full}
                                 canCopy
+                                onReveal={async () => {
+                                  try {
+                                    const { authedFetch } = await import(
+                                      "@/lib/client/session"
+                                    );
+                                    const res = await authedFetch(
+                                      `/api/v1/api-credentials/${encodeURIComponent(c.id)}`,
+                                      {
+                                        method: "POST",
+                                        headers: {
+                                          "content-type": "application/json",
+                                        },
+                                        body: JSON.stringify({
+                                          action: "reveal",
+                                        }),
+                                      }
+                                    );
+                                    const json = (await res.json()) as {
+                                      secretKey?: string | null;
+                                      error?: string;
+                                    };
+                                    if (!res.ok || !json.secretKey) {
+                                      setError(
+                                        json.error ||
+                                          "Não foi possível revelar a secret"
+                                      );
+                                      return null;
+                                    }
+                                    saveSessionSecret(c.id, json.secretKey);
+                                    setCreds((prev) =>
+                                      prev.map((x) =>
+                                        x.id === c.id
+                                          ? { ...x, secretKey: json.secretKey! }
+                                          : x
+                                      )
+                                    );
+                                    return json.secretKey;
+                                  } catch (e) {
+                                    setError(
+                                      e instanceof Error
+                                        ? e.message
+                                        : "Falha ao revelar secret"
+                                    );
+                                    return null;
+                                  }
+                                }}
                               />
                               {expired ? (
                                 <p
