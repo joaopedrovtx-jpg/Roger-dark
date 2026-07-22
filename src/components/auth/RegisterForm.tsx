@@ -10,6 +10,7 @@ import {
   waitBrandLoadingMin,
 } from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
+import { isTurnstileClientEnabled } from "@/lib/client/turnstile";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 function onlyDigits(v: string) {
@@ -36,6 +37,8 @@ export function RegisterForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  /** Sem site key no build, não exige captcha. */
+  const turnstileRequired = isTurnstileClientEnabled();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -58,7 +61,7 @@ export function RegisterForm() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (turnstileRequired && !turnstileToken) {
       setError("Resolva a verificação de segurança.");
       return;
     }
@@ -71,7 +74,7 @@ export function RegisterForm() {
         email: email.trim(),
         phone: phone.trim(),
         password,
-        turnstileToken,
+        ...(turnstileToken ? { turnstileToken } : {}),
       });
       // Logo pulsando no mínimo 2s antes de entrar
       await waitBrandLoadingMin(startedAt);
@@ -246,19 +249,26 @@ export function RegisterForm() {
           </p>
         ) : null}
 
-        <div className="flex justify-center">
-          <TurnstileWidget onToken={setTurnstileToken} />
-        </div>
+        {turnstileRequired ? (
+          <div className="flex justify-center">
+            <TurnstileWidget onToken={setTurnstileToken} />
+          </div>
+        ) : null}
 
         <button
           type="submit"
-          disabled={loading || !turnstileToken}
+          disabled={loading || (turnstileRequired && !turnstileToken)}
           className="auth-cta w-full font-semibold transition-opacity"
           style={{
             ...authButtonStyle,
             marginTop: 2,
-            cursor: loading ? "wait" : "pointer",
-            opacity: loading ? 0.7 : 1,
+            cursor: loading
+              ? "wait"
+              : turnstileRequired && !turnstileToken
+                ? "not-allowed"
+                : "pointer",
+            opacity:
+              loading || (turnstileRequired && !turnstileToken) ? 0.55 : 1,
           }}
         >
           {loading ? "Criando conta…" : "Criar minha conta"}

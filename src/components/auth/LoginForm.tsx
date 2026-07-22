@@ -11,6 +11,7 @@ import {
 import { AuthInput, authButtonStyle } from "./AuthInput";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
+import { isTurnstileClientEnabled } from "@/lib/client/turnstile";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 export function LoginForm() {
@@ -22,6 +23,8 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  /** Sem site key no build, não exige captcha (servidor já ignora se não houver secret). */
+  const turnstileRequired = isTurnstileClientEnabled();
 
   function goAfterLogin(roles: string[]) {
     const isStaff =
@@ -92,7 +95,7 @@ export function LoginForm() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (turnstileRequired && !turnstileToken) {
       setError("Resolva a verificação de segurança.");
       return;
     }
@@ -103,7 +106,11 @@ export function LoginForm() {
       clearClientToken();
       const res = await authedFetch("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), password, turnstileToken }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          ...(turnstileToken ? { turnstileToken } : {}),
+        }),
       });
       const json = (await res.json()) as {
         error?: string;
@@ -238,7 +245,7 @@ export function LoginForm() {
           <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{error}</p>
         ) : null}
 
-        {!challenge ? (
+        {!challenge && turnstileRequired ? (
           <div className="flex justify-center">
             <TurnstileWidget onToken={setTurnstileToken} />
           </div>
@@ -246,11 +253,22 @@ export function LoginForm() {
 
         <button
           type="submit"
-          disabled={loading || (!challenge && !turnstileToken)}
+          disabled={
+            loading ||
+            (!challenge && turnstileRequired && !turnstileToken)
+          }
           style={{
             ...authButtonStyle,
-            opacity: loading ? 0.7 : 1,
-            cursor: loading ? "wait" : "pointer",
+            opacity:
+              loading ||
+              (!challenge && turnstileRequired && !turnstileToken)
+                ? 0.55
+                : 1,
+            cursor: loading
+              ? "wait"
+              : !challenge && turnstileRequired && !turnstileToken
+                ? "not-allowed"
+                : "pointer",
           }}
         >
           {loading
