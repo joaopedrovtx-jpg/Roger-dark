@@ -247,9 +247,6 @@ export function TaxasView() {
             </span>
           </p>
 
-          <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: "auto" }}>
-            Configurada pelo administrador da plataforma para a sua conta.
-          </p>
         </article>
       </div>
     </div>
