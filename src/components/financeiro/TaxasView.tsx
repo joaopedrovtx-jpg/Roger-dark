@@ -129,46 +129,71 @@ export function TaxasView() {
             PIX é o meio de pagamento instantâneo da plataforma.
           </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <p
-              className="font-bold tabular"
-              style={{
-                margin: 0,
-                fontSize: 16,
-                color: "var(--green-use)",
-              }}
-            >
-              R$&nbsp;1,00{" "}
-              <span
-                className="font-medium"
-                style={{ fontSize: 13, color: "var(--text-2)" }}
+          {/* Duas faixas na mesma linha */}
+          <div
+            className="flex items-start"
+            style={{
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+              <p
+                className="font-bold tabular"
+                style={{
+                  margin: 0,
+                  fontSize: 16,
+                  color: "var(--green-use)",
+                  whiteSpace: "nowrap",
+                }}
               >
-                / transação
-              </span>
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
-              Em vendas de até R$&nbsp;50,00
-            </p>
+                R$&nbsp;1,00{" "}
+                <span
+                  className="font-medium"
+                  style={{ fontSize: 13, color: "var(--text-2)" }}
+                >
+                  / transação
+                </span>
+              </p>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 13,
+                  color: "var(--text-3)",
+                }}
+              >
+                Em vendas de até R$&nbsp;50,00
+              </p>
+            </div>
 
-            <p
-              className="font-bold tabular"
-              style={{
-                margin: "6px 0 0",
-                fontSize: 16,
-                color: "var(--green-use)",
-              }}
-            >
-              3,00%{" "}
-              <span
-                className="font-medium"
-                style={{ fontSize: 13, color: "var(--text-2)" }}
+            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+              <p
+                className="font-bold tabular"
+                style={{
+                  margin: 0,
+                  fontSize: 16,
+                  color: "var(--green-use)",
+                  whiteSpace: "nowrap",
+                }}
               >
-                / transação
-              </span>
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
-              Em vendas acima de R$&nbsp;50,00
-            </p>
+                3,00%{" "}
+                <span
+                  className="font-medium"
+                  style={{ fontSize: 13, color: "var(--text-2)" }}
+                >
+                  / transação
+                </span>
+              </p>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 13,
+                  color: "var(--text-3)",
+                }}
+              >
+                Em vendas acima de R$&nbsp;50,00
+              </p>
+            </div>
           </div>
 
           <p
