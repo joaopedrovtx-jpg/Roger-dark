@@ -102,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // bug log global (window.error / unhandledrejection)
+    void import("@/lib/client/bug-report").then((m) =>
+      m.installClientBugHandlers()
+    );
     void refresh();
   }, [refresh]);
 

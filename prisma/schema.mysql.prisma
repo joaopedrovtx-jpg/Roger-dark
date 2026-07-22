@@ -128,7 +128,8 @@ model Document {
   typeLabel   String    @db.VarChar(128)
   submittedAt DateTime  @default(now())
   status      String    @default("pendente") @db.VarChar(32)
-  previewUrl  String?   @db.Text
+  // LONGTEXT: data URLs base64 de imagens/PDF cabem (TEXT = 64KB estoura → 500)
+  previewUrl  String?   @db.LongText
   notes       String?   @db.Text
   reviewedBy  String?   @db.VarChar(64)
   reviewedAt  DateTime?
@@ -464,4 +465,30 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+/** Log de bugs/erros (servidor + cliente) para diagnóstico em produção */
+model BugLog {
+  id         String   @id @db.VarChar(64)
+  source     String   @default("server") @db.VarChar(16)
+  level      String   @default("error") @db.VarChar(16)
+  message    String   @db.VarChar(512)
+  stack      String?  @db.Text
+  route      String?  @db.VarChar(255)
+  method     String?  @db.VarChar(16)
+  statusCode Int?
+  code       String?  @db.VarChar(64)
+  userId     String?  @db.VarChar(64)
+  userEmail  String?  @db.VarChar(191)
+  requestId  String?  @db.VarChar(64)
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(512)
+  meta       Json?
+  createdAt  DateTime @default(now())
+  @@index([createdAt])
+  @@index([source])
+  @@index([route])
+  @@index([userId])
+  @@index([level])
+  @@map("bug_logs")
 }

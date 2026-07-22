@@ -474,3 +474,29 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+/** Log de bugs/erros (servidor + cliente) */
+model BugLog {
+  id         String   @id
+  source     String   @default("server")
+  level      String   @default("error")
+  message    String
+  stack      String?
+  route      String?
+  method     String?
+  statusCode Int?
+  code       String?
+  userId     String?
+  userEmail  String?
+  requestId  String?
+  ip         String?
+  userAgent  String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+  @@index([createdAt])
+  @@index([source])
+  @@index([route])
+  @@index([userId])
+  @@index([level])
+  @@map("bug_logs")
+}

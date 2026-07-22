@@ -7,6 +7,7 @@ import {
   getImpersonateSeller,
   VIEW_SELLER_HEADER,
 } from "@/lib/client/impersonate";
+import { reportClientBug } from "@/lib/client/bug-report";
 
 /** @deprecated no-op: token não é mais persistido no JS */
 export function saveClientToken(_token?: string | null) {
@@ -42,9 +43,54 @@ export async function authedFetch(
       headers.set(VIEW_SELLER_HEADER, view.id);
     }
   }
-  return fetch(input, {
-    ...init,
-    credentials: "include",
-    headers,
-  });
+
+  const method = (init?.method || "GET").toUpperCase();
+  let res: Response;
+  try {
+    res = await fetch(input, {
+      ...init,
+      credentials: "include",
+      headers,
+    });
+  } catch (err) {
+    reportClientBug({
+      message: err instanceof Error ? err.message : "Falha de rede",
+      stack: err instanceof Error ? err.stack : undefined,
+      route: typeof input === "string" ? input : "fetch",
+      method,
+      code: "network_error",
+      meta: {
+        online:
+          typeof navigator !== "undefined" ? navigator.onLine : undefined,
+      },
+    });
+    throw err;
+  }
+
+  // 5xx e 401 de documentos → bug log (dedupe no client)
+  if (res.status >= 500 || (res.status === 401 && String(input).includes("/documents"))) {
+    let serverMsg = "";
+    let bugId: string | undefined;
+    try {
+      const clone = res.clone();
+      const json = (await clone.json()) as {
+        error?: string;
+        bugId?: string;
+      };
+      serverMsg = json.error || "";
+      bugId = json.bugId;
+    } catch {
+      /* ignore */
+    }
+    reportClientBug({
+      message: serverMsg || `HTTP ${res.status} em ${input}`,
+      route: typeof input === "string" ? input.split("?")[0] : "fetch",
+      method,
+      statusCode: res.status,
+      code: bugId ? `server_bug:${bugId}` : `http_${res.status}`,
+      meta: { bugId },
+    });
+  }
+
+  return res;
 }
