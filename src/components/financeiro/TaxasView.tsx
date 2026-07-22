@@ -162,7 +162,7 @@ export function TaxasView() {
                   color: "var(--text-3)",
                 }}
               >
-                Em vendas de até R$&nbsp;50,00
+                abaixo de R$&nbsp;50
               </p>
             </div>
 
@@ -191,7 +191,7 @@ export function TaxasView() {
                   color: "var(--text-3)",
                 }}
               >
-                Em vendas acima de R$&nbsp;50,00
+                acima de R$&nbsp;50
               </p>
             </div>
           </div>
