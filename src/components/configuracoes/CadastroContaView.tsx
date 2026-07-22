@@ -1112,6 +1112,10 @@ function DocumentosPanel() {
   const loadServer = useCallback(async () => {
     try {
       const res = await authedFetch("/api/v1/documents");
+      if (res.status === 401) {
+        setError("Sessão expirada. Faça login novamente para enviar documentos.");
+        return;
+      }
       if (!res.ok) return;
       const json = (await res.json()) as {
         documents?: Array<{
@@ -1215,9 +1219,22 @@ function DocumentosPanel() {
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
         message?: string;
+        hint?: string;
       };
       if (!res.ok) {
-        setError(json.error || "Falha ao enviar documentos");
+        if (res.status === 401) {
+          setError(
+            "Não autenticado — sua sessão expirou. Entre novamente e reenvie os documentos."
+          );
+          return;
+        }
+        setError(
+          json.error
+            ? json.hint
+              ? `${json.error}. ${json.hint}`
+              : json.error
+            : "Falha ao enviar documentos"
+        );
         return;
       }
       setSubmitted(true);

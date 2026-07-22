@@ -54,9 +54,14 @@ export function SaleNotificationsProvider({
   const lastPaidIdRef = useRef<string>("");
   const isStaffRef = useRef(false);
   const roleReadyRef = useRef(false);
+  /** Para de poluir o console/rede se a sessão caiu (401). */
+  const authDeadRef = useRef(false);
+  const authFailCountRef = useRef(0);
 
   useEffect(() => {
     prefsRef.current = loadNotificationPrefs();
+    authDeadRef.current = false;
+    authFailCountRef.current = 0;
     void resolveNotificationIconAsync();
     primeCashRegisterSound();
     // SW: notificação com ícone Dark Pay (Safari costuma ignorar new Notification icon)
@@ -93,12 +98,31 @@ export function SaleNotificationsProvider({
       });
     }
 
+    function markAuthOk() {
+      authFailCountRef.current = 0;
+      authDeadRef.current = false;
+    }
+
+    function markAuthFail(status: number) {
+      if (status !== 401 && status !== 403) return;
+      authFailCountRef.current += 1;
+      if (authFailCountRef.current >= 2) {
+        authDeadRef.current = true;
+      }
+    }
+
     async function resolveRole() {
       try {
         const res = await authedFetch("/api/v1/auth/me");
-        if (!res.ok) return;
-        const json = (await res.json()) as { user?: MeUser };
-        isStaffRef.current = isStaffRoles(json.user?.roles);
+        if (!res.ok) {
+          markAuthFail(res.status);
+          return;
+        }
+        markAuthOk();
+        // /api/v1/auth/me devolve o user no root (não { user })
+        const json = (await res.json()) as MeUser & { user?: MeUser };
+        const roles = json.roles ?? json.user?.roles;
+        isStaffRef.current = isStaffRoles(roles);
       } catch {
         isStaffRef.current = false;
       } finally {
@@ -191,13 +215,20 @@ export function SaleNotificationsProvider({
     }
 
     async function pollTransactions() {
-      if (!roleReadyRef.current) return;
+      if (!roleReadyRef.current || authDeadRef.current) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
       try {
         if (isStaffRef.current) {
           const res = await authedFetch(
             `/api/v1/admin/dashboard?period=7d`
           );
-          if (!res.ok) return;
+          if (!res.ok) {
+            markAuthFail(res.status);
+            return;
+          }
+          markAuthOk();
           const json = (await res.json()) as { ledger?: PollTx[] };
           if (!json.ledger?.length) return;
           handleNewest(json.ledger, "admin");
@@ -207,12 +238,16 @@ export function SaleNotificationsProvider({
         const res = await authedFetch(
           `/api/v1/transactions?pageSize=10&page=1`
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          markAuthFail(res.status);
+          return;
+        }
+        markAuthOk();
         const json = (await res.json()) as { items?: PollTx[] };
         if (!json.items?.length) return;
         handleNewest(json.items, "seller");
       } catch {
-        // polling silencioso
+        // polling silencioso (rede offline, etc.)
       }
     }
 
