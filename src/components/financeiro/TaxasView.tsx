@@ -6,8 +6,6 @@ import { authedFetch } from "@/lib/client/session";
 import { formatBRL } from "@/lib/format";
 
 type FeePlan = {
-  mdrPercent: number;
-  mdrFixed: number;
   saquePercent: number;
   saqueFixed: number;
 };
@@ -20,8 +18,9 @@ function formatPct(n: number) {
 }
 
 /**
- * Taxas da conta do seller — mesmas salvas no Admin → Usuário.
- * MDR (Pix) descontado em cada venda aprovada; saque no momento do saque.
+ * Taxas exibidas ao seller.
+ * Pix: até R$ 50 = R$ 1,00 fixo; acima = 3% (regra da plataforma).
+ * Saque: plano da conta (Admin).
  */
 export function TaxasView() {
   const [fees, setFees] = useState<FeePlan | null>(null);
@@ -44,18 +43,13 @@ export function TaxasView() {
         };
         if (cancelled) return;
         setFees({
-          mdrPercent: Number(json.fees?.mdrPercent) || 0,
-          mdrFixed: Number(json.fees?.mdrFixed) || 0,
           saquePercent: Number(json.fees?.saquePercent) || 0,
           saqueFixed: Number(json.fees?.saqueFixed) || 0,
         });
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Erro ao carregar");
-          // fallback visual padrão plataforma
           setFees({
-            mdrPercent: 3,
-            mdrFixed: 0.15,
             saquePercent: 3,
             saqueFixed: 0,
           });
@@ -69,13 +63,7 @@ export function TaxasView() {
     };
   }, []);
 
-  const mdr = fees ?? { mdrPercent: 3, mdrFixed: 0.15, saquePercent: 3, saqueFixed: 0 };
-  const exampleAmount = 100;
-  const exampleFee =
-    Math.round(
-      ((exampleAmount * mdr.mdrPercent) / 100 + mdr.mdrFixed) * 100
-    ) / 100;
-  const exampleNet = Math.round((exampleAmount - exampleFee) * 100) / 100;
+  const saque = fees ?? { saquePercent: 3, saqueFixed: 0 };
 
   return (
     <div className="flex flex-col w-full min-w-0" style={{ gap: 16 }}>
@@ -86,10 +74,6 @@ export function TaxasView() {
         >
           Minhas taxas
         </h1>
-        <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--text-3)" }}>
-          Plano da sua conta. O MDR é descontado automaticamente em cada venda
-          aprovada; a taxa de saque no momento do saque.
-        </p>
       </div>
 
       {error ? (
@@ -103,7 +87,7 @@ export function TaxasView() {
           gap: 16,
         }}
       >
-        {/* Card Pix D+0 — MDR da conta */}
+        {/* Card Pix D+0 — faixas por valor */}
         <article
           className="surface-card relative flex flex-col"
           style={{
@@ -138,34 +122,64 @@ export function TaxasView() {
               fontSize: 13,
               lineHeight: 1.5,
               color: "var(--text-2)",
-              marginBottom: 18,
+              marginBottom: 16,
               maxWidth: 340,
             }}
           >
-            Taxa de venda (MDR) da sua conta. Descontada sobre cada pagamento
-            PIX aprovado antes de creditar o saldo disponível.
+            PIX é o meio de pagamento instantâneo da plataforma.
           </p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <p
+              className="font-bold tabular"
+              style={{
+                margin: 0,
+                fontSize: 16,
+                color: "var(--green-use)",
+              }}
+            >
+              R$&nbsp;1,00{" "}
+              <span
+                className="font-medium"
+                style={{ fontSize: 13, color: "var(--text-2)" }}
+              >
+                / transação
+              </span>
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
+              Em vendas de até R$&nbsp;50,00
+            </p>
+
+            <p
+              className="font-bold tabular"
+              style={{
+                margin: "6px 0 0",
+                fontSize: 16,
+                color: "var(--green-use)",
+              }}
+            >
+              3,00%{" "}
+              <span
+                className="font-medium"
+                style={{ fontSize: 13, color: "var(--text-2)" }}
+              >
+                / transação
+              </span>
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
+              Em vendas acima de R$&nbsp;50,00
+            </p>
+          </div>
 
           <p
-            className="font-bold tabular"
             style={{
-              fontSize: 16,
-              color: "var(--green-use)",
-              marginBottom: 10,
+              fontSize: 13,
+              color: "var(--text-3)",
+              marginTop: "auto",
+              paddingTop: 16,
             }}
           >
-            {loading ? "…" : `${formatPct(mdr.mdrPercent)}% + ${formatBRL(mdr.mdrFixed)}`}{" "}
-            <span
-              className="font-medium"
-              style={{ fontSize: 13, color: "var(--text-2)" }}
-            >
-              / transação
-            </span>
-          </p>
-
-          <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: "auto" }}>
-            Reserva financeira por 0 dias · Ex.: venda de{" "}
-            {formatBRL(exampleAmount)} → líquido ≈ {formatBRL(exampleNet)}
+            Reserva financeira por 0 dias
           </p>
         </article>
 
@@ -209,7 +223,7 @@ export function TaxasView() {
           >
             {loading
               ? "…"
-              : `${formatPct(mdr.saquePercent)}% + ${formatBRL(mdr.saqueFixed)}`}{" "}
+              : `${formatPct(saque.saquePercent)}% + ${formatBRL(saque.saqueFixed)}`}{" "}
             <span
               className="font-medium"
               style={{ fontSize: 13, color: "var(--text-2)" }}

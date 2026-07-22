@@ -1,15 +1,24 @@
 /**
- * Taxas da conta seller (MDR de venda + saque).
- * Fonte: User.mdrPercent / mdrFixed / saquePercent / saqueFixed
- * (editadas no Admin → Usuário → Taxas).
+ * Taxas da conta seller (venda PIX + saque).
+ *
+ * Venda PIX (plataforma):
+ * - até R$ 50,00 (inclusive): R$ 1,00 fixo por transação
+ * - acima de R$ 50,00: 3% do valor da venda
+ *
+ * Saque: User.saquePercent / saqueFixed (Admin → Usuário).
  */
 
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { roundMoney } from "@/lib/server/security";
 
-/** Defaults de plataforma quando o seller ainda não tem plano personalizado */
-export const DEFAULT_MDR_PERCENT = 3;
-export const DEFAULT_MDR_FIXED = 0.15;
+/** Faixa PIX: valor limite e taxas */
+export const PIX_FEE_THRESHOLD = 50;
+export const PIX_FEE_FIXED_UP_TO_THRESHOLD = 1;
+export const PIX_FEE_PERCENT_ABOVE_THRESHOLD = 3;
+
+/** Defaults legados / display admin */
+export const DEFAULT_MDR_PERCENT = PIX_FEE_PERCENT_ABOVE_THRESHOLD;
+export const DEFAULT_MDR_FIXED = PIX_FEE_FIXED_UP_TO_THRESHOLD;
 export const DEFAULT_SAQUE_PERCENT = 3;
 export const DEFAULT_SAQUE_FIXED = 0;
 
@@ -35,8 +44,8 @@ function n(v: unknown): number {
 }
 
 /**
- * Interpreta campos de taxa do User.
- * 0 é valor válido (admin pode zerar). Só usa default se o valor for inválido/NaN.
+ * Interpreta campos de taxa do User (saque + espelho display).
+ * 0 é valor válido. Só usa default se o valor for inválido/NaN.
  */
 export function parseSellerFeePlan(user: {
   mdrPercent?: unknown;
@@ -57,21 +66,31 @@ export function parseSellerFeePlan(user: {
   };
 }
 
-/** Taxa de venda (MDR) em R$ sobre o valor bruto da cobrança */
+/**
+ * Taxa de venda PIX em R$ sobre o valor bruto.
+ *
+ * Regra da plataforma:
+ * - amount ≤ 50 → R$ 1,00 fixo
+ * - amount > 50 → 3% do valor
+ *
+ * `fees` é aceito por compatibilidade das call-sites, mas a regra em faixas manda.
+ */
 export function computeSaleFeeAmount(
   amountReais: number,
-  fees: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
+  _fees?: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
 ): number {
   const amount = Math.max(0, Number(amountReais) || 0);
-  const fee =
-    (amount * (Number(fees.mdrPercent) || 0)) / 100 +
-    (Number(fees.mdrFixed) || 0);
-  return roundMoney(Math.max(0, fee));
+  if (amount <= 0) return 0;
+
+  if (amount <= PIX_FEE_THRESHOLD) {
+    return roundMoney(PIX_FEE_FIXED_UP_TO_THRESHOLD);
+  }
+  return roundMoney((amount * PIX_FEE_PERCENT_ABOVE_THRESHOLD) / 100);
 }
 
 export function computeSaleNetAmount(
   amountReais: number,
-  fees: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
+  fees?: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
 ): { fee: number; net: number } {
   const amount = Math.max(0, Number(amountReais) || 0);
   const fee = computeSaleFeeAmount(amount, fees);
@@ -79,7 +98,7 @@ export function computeSaleNetAmount(
   return { fee, net };
 }
 
-/** Carrega MDR da conta no banco */
+/** Carrega MDR da conta no banco (espelho; cálculo de venda usa faixas PIX) */
 export async function getSellerSaleFees(
   sellerId: string
 ): Promise<SellerSaleFees> {

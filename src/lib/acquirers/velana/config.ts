@@ -172,25 +172,18 @@ export function buildVelanaAuthHeader(secretKey: string): string {
 }
 
 /**
- * Taxa cobrada do seller na venda (R$).
- * Preferir sempre as taxas da conta (User.mdrPercent / mdrFixed) via opts.
- * Sem opts: default Velana (2,99% + R$ 1,00) com piso de custo.
+ * Taxa cobrada do seller na venda PIX (R$).
+ * Regra da plataforma: até R$ 50 → R$ 1,00; acima → 3%.
+ * (opts percent/fixed ignorados para manter a regra única.)
  */
 export function computeVelanaSellerFee(
   amountReais: number,
-  opts?: { percent?: number; fixed?: number; enforceMin?: boolean }
+  _opts?: { percent?: number; fixed?: number; enforceMin?: boolean }
 ): number {
-  const hasCustom =
-    opts != null && (opts.percent != null || opts.fixed != null);
-  const percent = opts?.percent ?? VELANA_DEFAULT_SELLER_FEE_PERCENT;
-  const fixed = opts?.fixed ?? VELANA_DEFAULT_SELLER_FEE_FIXED;
-  const fee = amountReais * (percent / 100) + fixed;
-  // Piso só no default de adquirente — taxa impostada no admin manda
-  if (hasCustom && opts?.enforceMin !== true) {
-    return Math.round(Math.max(0, fee) * 100) / 100;
-  }
-  const minFee = VELANA_COST_FIXED + 0.2;
-  return Math.round(Math.max(fee, minFee) * 100) / 100;
+  const amount = Math.max(0, Number(amountReais) || 0);
+  if (amount <= 0) return 0;
+  if (amount <= 50) return 1;
+  return Math.round(amount * 0.03 * 100) / 100;
 }
 
 export { STORAGE_KEY as VELANA_CONFIG_STORAGE_KEY };

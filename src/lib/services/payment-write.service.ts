@@ -237,18 +237,16 @@ export async function markChargePaid(chargeId: string): Promise<PaymentCharge> {
   charge.status = "paid";
   charge.paidAt = new Date().toISOString();
 
-  // mock path: tenta taxa da conta; senão env
-  let feePercent = Number(process.env.PLATFORM_FEE_PERCENT) || 3;
-  let feeFixed = Number(process.env.PLATFORM_FEE_FIXED) || 0.15;
+  // mock path: mesma regra PIX (≤50 = R$1; >50 = 3%)
+  let fee = round2(
+    charge.amount <= 50 ? 1 : (charge.amount * 3) / 100
+  );
   try {
-    const { getSellerSaleFees } = await import("@/lib/server/seller-fees");
-    const plan = await getSellerSaleFees(charge.sellerId);
-    feePercent = plan.mdrPercent;
-    feeFixed = plan.mdrFixed;
+    const { computeSaleFeeAmount } = await import("@/lib/server/seller-fees");
+    fee = computeSaleFeeAmount(charge.amount);
   } catch {
-    /* env */
+    /* fallback acima */
   }
-  const fee = round2(charge.amount * (feePercent / 100) + feeFixed);
   const net = Math.max(0, round2(charge.amount - fee));
 
   adjustBalance(charge.sellerId, {
