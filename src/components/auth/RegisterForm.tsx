@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Lock, Mail, Phone, User } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
@@ -10,7 +10,7 @@ import {
   waitBrandLoadingMin,
 } from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
-import { isTurnstileClientEnabled } from "@/lib/client/turnstile";
+import { fetchTurnstilePublicConfig } from "@/lib/client/turnstile";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 function onlyDigits(v: string) {
@@ -37,8 +37,20 @@ export function RegisterForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  /** Sem site key no build, não exige captcha. */
-  const turnstileRequired = isTurnstileClientEnabled();
+  /** true = captcha ligado; null = carregando config do servidor */
+  const [turnstileRequired, setTurnstileRequired] = useState<boolean | null>(
+    null
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTurnstilePublicConfig().then((cfg) => {
+      if (!cancelled) setTurnstileRequired(cfg.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -61,8 +73,8 @@ export function RegisterForm() {
       return;
     }
 
-    if (turnstileRequired && !turnstileToken) {
-      setError("Resolva a verificação de segurança.");
+    if (turnstileRequired === true && !turnstileToken) {
+      setError("Resolva a verificação de segurança (Cloudflare).");
       return;
     }
 
@@ -249,26 +261,33 @@ export function RegisterForm() {
           </p>
         ) : null}
 
-        {turnstileRequired ? (
-          <div className="flex justify-center">
-            <TurnstileWidget onToken={setTurnstileToken} />
-          </div>
-        ) : null}
+        <div className="flex justify-center">
+          <TurnstileWidget onToken={setTurnstileToken} />
+        </div>
 
         <button
           type="submit"
-          disabled={loading || (turnstileRequired && !turnstileToken)}
+          disabled={
+            loading ||
+            turnstileRequired === null ||
+            (turnstileRequired === true && !turnstileToken)
+          }
           className="auth-cta w-full font-semibold transition-opacity"
           style={{
             ...authButtonStyle,
             marginTop: 2,
             cursor: loading
               ? "wait"
-              : turnstileRequired && !turnstileToken
+              : turnstileRequired === null ||
+                  (turnstileRequired === true && !turnstileToken)
                 ? "not-allowed"
                 : "pointer",
             opacity:
-              loading || (turnstileRequired && !turnstileToken) ? 0.55 : 1,
+              loading ||
+              turnstileRequired === null ||
+              (turnstileRequired === true && !turnstileToken)
+                ? 0.55
+                : 1,
           }}
         >
           {loading ? "Criando conta…" : "Criar minha conta"}

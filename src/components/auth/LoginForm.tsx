@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Lock, Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
@@ -11,7 +11,7 @@ import {
 import { AuthInput, authButtonStyle } from "./AuthInput";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
-import { isTurnstileClientEnabled } from "@/lib/client/turnstile";
+import { fetchTurnstilePublicConfig } from "@/lib/client/turnstile";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 export function LoginForm() {
@@ -23,8 +23,20 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  /** Sem site key no build, não exige captcha (servidor já ignora se não houver secret). */
-  const turnstileRequired = isTurnstileClientEnabled();
+  /** true = captcha ligado no servidor; null = ainda carregando config */
+  const [turnstileRequired, setTurnstileRequired] = useState<boolean | null>(
+    null
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTurnstilePublicConfig().then((cfg) => {
+      if (!cancelled) setTurnstileRequired(cfg.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function goAfterLogin(roles: string[]) {
     const isStaff =
@@ -95,8 +107,8 @@ export function LoginForm() {
       return;
     }
 
-    if (turnstileRequired && !turnstileToken) {
-      setError("Resolva a verificação de segurança.");
+    if (turnstileRequired === true && !turnstileToken) {
+      setError("Resolva a verificação de segurança (Cloudflare).");
       return;
     }
 
@@ -245,7 +257,7 @@ export function LoginForm() {
           <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{error}</p>
         ) : null}
 
-        {!challenge && turnstileRequired ? (
+        {!challenge ? (
           <div className="flex justify-center">
             <TurnstileWidget onToken={setTurnstileToken} />
           </div>
@@ -255,18 +267,21 @@ export function LoginForm() {
           type="submit"
           disabled={
             loading ||
-            (!challenge && turnstileRequired && !turnstileToken)
+            turnstileRequired === null ||
+            (!challenge && turnstileRequired === true && !turnstileToken)
           }
           style={{
             ...authButtonStyle,
             opacity:
               loading ||
-              (!challenge && turnstileRequired && !turnstileToken)
+              turnstileRequired === null ||
+              (!challenge && turnstileRequired === true && !turnstileToken)
                 ? 0.55
                 : 1,
             cursor: loading
               ? "wait"
-              : !challenge && turnstileRequired && !turnstileToken
+              : turnstileRequired === null ||
+                  (!challenge && turnstileRequired === true && !turnstileToken)
                 ? "not-allowed"
                 : "pointer",
           }}

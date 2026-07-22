@@ -5,6 +5,8 @@ export async function verifyTurnstileToken(
   remoteIp?: string
 ): Promise<{ success: boolean; error?: string }> {
   const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
+  // Sem secret no .env: não bloqueia login (dev / antes de configurar CF).
+  // Com secret: token obrigatório e validado no siteverify.
   if (!secret) {
     return { success: true };
   }
