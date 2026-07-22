@@ -42,7 +42,7 @@ export async function POST(
         { status: 403, headers: securityHeaders() }
       );
     }
-    const charge = markChargePaid(id);
+    const charge = await markChargePaid(id);
     return NextResponse.json(
       {
         id: charge.id,

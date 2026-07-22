@@ -255,9 +255,22 @@ export async function createChargeViaVelana(
     paidAt: mapped === "aprovada" ? remote.paidAt || now : undefined,
   };
 
+  // Taxa da conta do seller (Admin → Usuário → MDR); fallback Velana se não informado
+  let feePercent = input.feePercent;
+  let feeFixed = input.feeFixed;
+  if (feePercent == null || feeFixed == null) {
+    try {
+      const { getSellerSaleFees } = await import("@/lib/server/seller-fees");
+      const plan = await getSellerSaleFees(input.sellerId);
+      feePercent = feePercent ?? plan.mdrPercent;
+      feeFixed = feeFixed ?? plan.mdrFixed;
+    } catch {
+      /* usa default Velana */
+    }
+  }
   const fee = computeVelanaSellerFee(charge.amount, {
-    percent: input.feePercent,
-    fixed: input.feeFixed,
+    percent: feePercent,
+    fixed: feeFixed,
   });
   const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
 
@@ -608,7 +621,16 @@ export async function syncChargeFromVelana(
     if (nextStatus === "paid" && !local.paidAt) {
       local.paidAt = now;
       if (wasWaiting) {
-        const fee = computeVelanaSellerFee(local.amount);
+        let fee = computeVelanaSellerFee(local.amount);
+        try {
+          const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+            "@/lib/server/seller-fees"
+          );
+          const plan = await getSellerSaleFees(local.sellerId);
+          fee = computeSaleFeeAmount(local.amount, plan);
+        } catch {
+          /* default */
+        }
         const net = Math.max(0, Math.round((local.amount - fee) * 100) / 100);
         adjustBalance(local.sellerId, {
           pending: -local.amount,
@@ -701,9 +723,31 @@ async function applyPaidStatusToMysql(opts: {
       "@/lib/server/balance"
     );
     const amount = Number(charge.amount);
-    const fee = tx
-      ? Number(tx.feeAmount)
-      : computeVelanaSellerFee(amount);
+    // Sempre aplica MDR da conta do seller no momento do pagamento
+    let fee = 0;
+    try {
+      const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+        "@/lib/server/seller-fees"
+      );
+      const plan = await getSellerSaleFees(charge.sellerId);
+      fee = computeSaleFeeAmount(amount, plan);
+    } catch {
+      fee = tx
+        ? Number(tx.feeAmount)
+        : computeVelanaSellerFee(amount);
+    }
+    // Atualiza fee/net na TX se ainda estiver pendente (exibe líquido correto)
+    if (tx?.id && Number(tx.feeAmount) !== fee) {
+      try {
+        const net = Math.max(0, Math.round((amount - fee) * 100) / 100);
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: { feeAmount: fee, netAmount: net, platformFee: fee },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
     const credit = await creditPaidSaleIdempotent({
       transactionId: tx?.id,
       providerId: opts.providerId,

@@ -189,7 +189,18 @@ export async function createChargeViaPodPay(
   if (charge.status === "waiting_payment") {
     adjustBalance(input.sellerId, { pending: charge.amount });
   } else if (charge.status === "paid") {
-    const fee = computePodPaySellerFee(charge.amount);
+    let fee = computePodPaySellerFee(charge.amount);
+    try {
+      const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+        "@/lib/server/seller-fees"
+      );
+      fee = computeSaleFeeAmount(
+        charge.amount,
+        await getSellerSaleFees(input.sellerId)
+      );
+    } catch {
+      /* default */
+    }
     const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
     adjustBalance(input.sellerId, { available: net });
   }
@@ -213,7 +224,18 @@ async function persistChargeToMysql(
     throw new Error("Banco indisponível para gravar cobrança PodPay");
   }
 
-  const fee = computePodPaySellerFee(charge.amount);
+  let fee = computePodPaySellerFee(charge.amount);
+  try {
+    const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+      "@/lib/server/seller-fees"
+    );
+    fee = computeSaleFeeAmount(
+      charge.amount,
+      await getSellerSaleFees(input.sellerId)
+    );
+  } catch {
+    /* default env */
+  }
   const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
   const txLocalId = charge.transactionId || `TX-PP-${Date.now()}`;
 
@@ -450,7 +472,18 @@ export async function syncChargeFromPodPay(
     if (nextStatus === "paid" && !local.paidAt) {
       local.paidAt = now;
       if (wasWaiting) {
-        const fee = computePodPaySellerFee(local.amount);
+        let fee = computePodPaySellerFee(local.amount);
+        try {
+          const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+            "@/lib/server/seller-fees"
+          );
+          fee = computeSaleFeeAmount(
+            local.amount,
+            await getSellerSaleFees(local.sellerId)
+          );
+        } catch {
+          /* default */
+        }
         const net = Math.max(0, Math.round((local.amount - fee) * 100) / 100);
         adjustBalance(local.sellerId, {
           pending: -local.amount,
@@ -546,9 +579,32 @@ async function applyPaidStatusToMysql(opts: {
       "@/lib/server/balance"
     );
     const amount = Number(charge.amount);
-    const fee = tx
-      ? Number(tx.feeAmount)
-      : computePodPaySellerFee(amount);
+    // MDR da conta do seller (Admin) no momento do pagamento
+    let fee = 0;
+    try {
+      const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+        "@/lib/server/seller-fees"
+      );
+      fee = computeSaleFeeAmount(
+        amount,
+        await getSellerSaleFees(charge.sellerId)
+      );
+    } catch {
+      fee = tx
+        ? Number(tx.feeAmount)
+        : computePodPaySellerFee(amount);
+    }
+    if (tx?.id && Number(tx.feeAmount) !== fee) {
+      try {
+        const net = Math.max(0, Math.round((amount - fee) * 100) / 100);
+        await prisma.transaction.update({
+          where: { id: tx.id },
+          data: { feeAmount: fee, netAmount: net, platformFee: fee },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
     const credit = await creditPaidSaleIdempotent({
       transactionId: tx?.id,
       providerId: opts.providerId,

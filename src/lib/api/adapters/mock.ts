@@ -417,7 +417,7 @@ export const mockAdapter: DarkPayApi = {
 
   async simulatePaymentPaid(id) {
     await delay(300);
-    return markChargePaid(id);
+    return await markChargePaid(id);
   },
 };
 

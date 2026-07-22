@@ -172,17 +172,23 @@ export function buildVelanaAuthHeader(secretKey: string): string {
 }
 
 /**
- * Taxa cobrada do seller na venda Velana (R$).
- * Cobre o custo R$ 0,80 e gera margem para a plataforma.
+ * Taxa cobrada do seller na venda (R$).
+ * Preferir sempre as taxas da conta (User.mdrPercent / mdrFixed) via opts.
+ * Sem opts: default Velana (2,99% + R$ 1,00) com piso de custo.
  */
 export function computeVelanaSellerFee(
   amountReais: number,
-  opts?: { percent?: number; fixed?: number }
+  opts?: { percent?: number; fixed?: number; enforceMin?: boolean }
 ): number {
+  const hasCustom =
+    opts != null && (opts.percent != null || opts.fixed != null);
   const percent = opts?.percent ?? VELANA_DEFAULT_SELLER_FEE_PERCENT;
   const fixed = opts?.fixed ?? VELANA_DEFAULT_SELLER_FEE_FIXED;
   const fee = amountReais * (percent / 100) + fixed;
-  // Nunca cobrar menos que o custo + margem mínima de R$ 0,20
+  // Piso só no default de adquirente — taxa impostada no admin manda
+  if (hasCustom && opts?.enforceMin !== true) {
+    return Math.round(Math.max(0, fee) * 100) / 100;
+  }
   const minFee = VELANA_COST_FIXED + 0.2;
   return Math.round(Math.max(fee, minFee) * 100) / 100;
 }

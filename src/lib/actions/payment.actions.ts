@@ -69,7 +69,7 @@ export async function simulatePayAction(chargeId: string) {
       return { error: "Sem permissão para esta cobrança" };
     }
 
-    const charge = markChargePaid(chargeId);
+    const charge = await markChargePaid(chargeId);
     return {
       id: charge.id,
       status: charge.status,
