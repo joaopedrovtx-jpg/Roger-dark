@@ -16,6 +16,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' https: wss:",
   "frame-src https://challenges.cloudflare.com",
+  // Áudio de notificação (cash-register.mp3 em /sounds)
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   ...(isProd ? ["upgrade-insecure-requests"] : []),
@@ -41,15 +42,103 @@ const securityHeaders = [
     : []),
 ];
 
+/**
+ * HTML (páginas) sem cache agressivo → evita tela branca após deploy
+ * (Safari/Chrome com CSS/JS de BUILD_ID antigo).
+ * Assets hashed em /_next/static/* podem cachear longo.
+ */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["@prisma/client", "prisma", "pino"],
   poweredByHeader: false,
   async headers() {
+    // Next aplica o ÚLTIMO match — catch-all primeiro, overrides específicos no fim.
     return [
       {
+        // Documentos HTML e rotas app — sempre revalidar
         source: "/:path*",
-        headers: securityHeaders,
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, must-revalidate, max-age=0",
+          },
+        ],
+      },
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: isProd
+              ? "public, max-age=31536000, immutable"
+              : "no-store",
+          },
+        ],
+      },
+      {
+        source: "/sounds/:path*",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400",
+          },
+        ],
+      },
+      // Ícones da notificação — URL pública estável (Safari não aceita data: no icon)
+      {
+        source: "/Fiveicon-notif.png",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
+        source: "/Fiveicon.png",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
+        source: "/sw-notifications.js",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          {
+            key: "Service-Worker-Allowed",
+            value: "/",
+          },
+          {
+            key: "Content-Type",
+            value: "application/javascript; charset=utf-8",
+          },
+        ],
+      },
+      {
+        source: "/site.webmanifest",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "public, max-age=3600",
+          },
+          {
+            key: "Content-Type",
+            value: "application/manifest+json",
+          },
+        ],
       },
     ];
   },

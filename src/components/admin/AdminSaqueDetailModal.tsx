@@ -3,7 +3,7 @@
 import { useEffect, useId, type CSSProperties } from "react";
 import { X } from "lucide-react";
 import { IconPixFilled } from "@/components/dashboard/KpiIcons";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import {
   saqueFeeAmount,
   type AdminSaque,
@@ -50,12 +50,6 @@ const moneyValueStyle: CSSProperties = {
   fontSize: 15,
   color: "var(--text-1)",
 };
-
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
 
 function statusLabel(s: AdminSaqueStatus): string {
   return s === "pago" ? "Aprovado" : s === "recusado" ? "Recusado" : "Pendente";

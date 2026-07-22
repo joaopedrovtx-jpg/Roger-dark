@@ -55,6 +55,28 @@ export async function POST(req: Request) {
       metadata: body.metadata,
     });
 
+    // UTMify: PIX gerado (waiting_payment) — tracking server-side
+    try {
+      const { pushSaleToUtmifyBackground } = await import(
+        "@/lib/integrations/utmify/service"
+      );
+      pushSaleToUtmifyBackground({
+        sellerId,
+        orderId: charge.id,
+        status: "waiting_payment",
+        amount: charge.amount,
+        description: charge.description || body.description,
+        customerName: charge.customerName || customerName,
+        customerEmail: customerEmail || gate.user.email,
+        customerDocument: customerDocument,
+        customerPhone: customerPhone,
+        metadata: body.metadata as Record<string, unknown> | undefined,
+        createdAt: charge.createdAt || new Date().toISOString(),
+      });
+    } catch {
+      /* não bloqueia cobrança */
+    }
+
     const provider = charge.provider || "unknown";
     const routingMode = charge.routingMode || "plataforma";
 

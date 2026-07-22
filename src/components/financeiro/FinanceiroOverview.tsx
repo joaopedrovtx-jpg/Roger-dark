@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Loader2, X } from "lucide-react";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import type { SaqueStatus, SaqueTransaction } from "@/lib/mock/financeiro";
 import {
   IconDolarSymbol,
@@ -67,11 +67,7 @@ function toneForStatus(status: SaqueStatus): {
   }
 }
 
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? (iso.split("T")[1] || "").slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
+
 
 const ICON = 24;
 
@@ -303,13 +299,13 @@ export function FinanceiroOverview() {
   const [rows, setRows] = useState<SaqueTransaction[]>([]);
   const [available, setAvailable] = useState(0);
   const [held, setHeld] = useState(0);
-  const [pending, setPending] = useState(0);
   const [totalOut, setTotalOut] = useState(0);
   const [saquePercent, setSaquePercent] = useState(3);
   const [saqueFixed, setSaqueFixed] = useState(0);
   const [saqueOpen, setSaqueOpen] = useState(false);
   const [selected, setSelected] = useState<SaqueTransaction | null>(null);
   const [viewOnly, setViewOnly] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     setViewOnly(isImpersonating());
@@ -322,6 +318,7 @@ export function FinanceiroOverview() {
 
   async function reload() {
     try {
+      setLoadError(null);
       const { authedFetch } = await import("@/lib/client/session");
       const res = await authedFetch("/api/v1/finance");
       if (!res.ok) throw new Error("Falha ao carregar financeiro");
@@ -339,8 +336,8 @@ export function FinanceiroOverview() {
         }>;
       };
       setAvailable(fin.balances.available);
+      // Saldo retido: valor já pago, bloqueado por suspeita/fraude (não é PIX pendente)
       setHeld(fin.balances.held);
-      setPending(fin.balances.pending ?? 0);
       setTotalOut(fin.totalOut);
       if (fin.fees?.saquePercent != null) setSaquePercent(fin.fees.saquePercent);
       if (fin.fees?.saqueFixed != null) setSaqueFixed(fin.fees.saqueFixed);
@@ -355,11 +352,10 @@ export function FinanceiroOverview() {
         }))
       );
     } catch {
-      setRows([]);
-      setAvailable(0);
-      setHeld(0);
-      setPending(0);
-      setTotalOut(0);
+      setLoadError(
+        "Não foi possível carregar o financeiro. Tente atualizar a página."
+      );
+      // Não zera saldos se já havia dados — evita “conta vazia” falsa
     }
   }
 
@@ -389,15 +385,18 @@ export function FinanceiroOverview() {
       isSacar: true,
     },
     {
-      key: "pending",
-      label: "Aguardando pagamento (PIX)",
-      value: pending,
+      key: "held",
+      label: "Saldo retido",
+      value: held,
       icon: <IconLockFilled size={ICON} />,
     },
   ];
 
   return (
     <div className="flex flex-col" style={{ gap: 18 }}>
+      {loadError ? (
+        <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{loadError}</p>
+      ) : null}
       <SaqueModal
         open={saqueOpen}
         onClose={() => setSaqueOpen(false)}

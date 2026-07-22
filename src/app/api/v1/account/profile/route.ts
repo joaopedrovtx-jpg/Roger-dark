@@ -12,6 +12,20 @@ function onlyDigits(v: string): string {
   return v.replace(/\D/g, "");
 }
 
+/** UF BR: só 2 letras (MySQL state VARCHAR(8) — evita P2000 com nome completo). */
+function normalizeState(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw)
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  // Aceita só UF de 2 letras; se vier "SAOPAULO" etc., corta 2
+  return s.slice(0, 2);
+}
+
 function isValidCpf(digits: string): boolean {
   if (digits.length !== 11 || /^(\d)\1+$/.test(digits)) return false;
   let sum = 0;
@@ -227,8 +241,8 @@ export async function PATCH(req: Request) {
         phone: body.phone ? onlyDigits(body.phone) : undefined,
         address: body.address?.trim().slice(0, 200) || null,
         city: body.city?.trim().slice(0, 80) || null,
-        state: body.state?.trim().slice(0, 2) || null,
-        zip: body.zip ? onlyDigits(body.zip) : null,
+        state: normalizeState(body.state),
+        zip: body.zip ? onlyDigits(body.zip).slice(0, 12) || null : null,
       },
     });
 
@@ -284,8 +298,8 @@ export async function PATCH(req: Request) {
       phone: body.phone ? onlyDigits(body.phone) : undefined,
       address: body.address?.trim().slice(0, 200) || null,
       city: body.city?.trim().slice(0, 80) || null,
-      state: body.state?.trim().slice(0, 2) || null,
-      zip: body.zip ? onlyDigits(body.zip) : null,
+      state: normalizeState(body.state),
+      zip: body.zip ? onlyDigits(body.zip).slice(0, 12) || null : null,
     },
   });
 

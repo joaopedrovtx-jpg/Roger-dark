@@ -8,6 +8,7 @@ import { RevenueChart } from "./RevenueChart";
 import type { PeriodValue } from "./PeriodFilter";
 import type { DashboardData } from "@/types/dashboard";
 import { authedFetch } from "@/lib/client/session";
+import { fillChartSeries } from "@/lib/chart-series";
 
 const DEFAULT_PERIOD: PeriodValue = {
   key: "7d",
@@ -15,19 +16,12 @@ const DEFAULT_PERIOD: PeriodValue = {
 };
 
 /** Painel real: zeros até a API devolver vendas/saldos do banco */
-function emptyDashboard(name = "-"): DashboardData {
-  // 7 dias reais (calendário atual) com amount 0
-  const revenueHistory: DashboardData["revenueHistory"] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setHours(12, 0, 0, 0);
-    d.setDate(d.getDate() - i);
-    revenueHistory.push({
-      date: d.toISOString().slice(0, 10),
-      amount: 0,
-      grain: "day",
-    });
-  }
+function emptyDashboard(
+  name = "-",
+  periodKey: PeriodValue["key"] = "7d"
+): DashboardData {
+  // Série contínua do período selecionado (ex.: 15 pontos em 15d)
+  const revenueHistory = fillChartSeries(periodKey, []);
   return {
     user: { name, avatarUrl: null },
     volume: { current: 0, goal: 1000 },
@@ -43,7 +37,10 @@ function emptyDashboard(name = "-"): DashboardData {
   };
 }
 
-function mapApiToDashboard(json: Record<string, unknown>): DashboardData {
+function mapApiToDashboard(
+  json: Record<string, unknown>,
+  periodKey: PeriodValue["key"]
+): DashboardData {
   const bal = json.balances as DashboardData["balances"] | undefined;
   const metrics = json.metrics as
     | {
@@ -78,7 +75,8 @@ function mapApiToDashboard(json: Record<string, unknown>): DashboardData {
       averageTicket: Number(metrics?.averageTicket) || 0,
       totalOutflows: Number(metrics?.totalOut) || 0,
     },
-    revenueHistory: history ?? [],
+    // Garante 7/15/… pontos no eixo mesmo se a API vier esparsa
+    revenueHistory: fillChartSeries(periodKey, history ?? []),
     volume: {
       current: Number(volumeGoal?.current) || 0,
       goal: Number(volumeGoal?.target) || 1000,
@@ -95,10 +93,12 @@ export function DashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
   const [data, setData] = useState<DashboardData>(() => emptyDashboard());
   const [fetchError, setFetchError] = useState(false);
+  const [saqueFees, setSaqueFees] = useState({ percent: 3, fixed: 0 });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setData((prev) => emptyDashboard(prev.user.name));
+    setData((prev) => emptyDashboard(prev.user.name, period.key));
     setFetchError(false);
 
     (async () => {
@@ -112,16 +112,45 @@ export function DashboardView() {
         }
         const json = (await res.json()) as Record<string, unknown>;
         if (cancelled) return;
-        setData(mapApiToDashboard(json));
+        setData(mapApiToDashboard(json, period.key));
+        // taxas de saque (mesmo source do financeiro quando disponível)
+        const fees = json.fees as
+          | { saquePercent?: number; saqueFixed?: number }
+          | undefined;
+        if (fees) {
+          setSaqueFees({
+            percent: Number(fees.saquePercent) || 3,
+            fixed: Number(fees.saqueFixed) || 0,
+          });
+        }
       } catch {
         if (!cancelled) setFetchError(true);
+      }
+    })();
+
+    // fees do financeiro como fallback
+    void (async () => {
+      try {
+        const res = await authedFetch("/api/v1/finance");
+        if (!res.ok || cancelled) return;
+        const fin = (await res.json()) as {
+          fees?: { saquePercent?: number; saqueFixed?: number };
+        };
+        if (fin.fees && !cancelled) {
+          setSaqueFees({
+            percent: Number(fin.fees.saquePercent) || 3,
+            fixed: Number(fin.fees.saqueFixed) || 0,
+          });
+        }
+      } catch {
+        /* ignore */
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [period.key]);
+  }, [period.key, refreshKey]);
 
   return (
     <div className="flex min-w-0 w-full flex-col stack-gap">
@@ -141,20 +170,31 @@ export function DashboardView() {
       ) : null}
       <PromoBanner />
 
-      {/* Saldos 3 cards (disponível | pendente | retido) + Sacar */}
-      <KpiGrid data={data} />
-
-      <div className="grid-dash-main">
-        <div className="min-w-0" style={{ minHeight: 280 }}>
-          <RevenueChart
-            data={data.revenueHistory}
-            period={period}
-            onPeriodChange={setPeriod}
+      {/*
+        [ Disponível | Pendente | Retido ]  ← mesma altura e largura (3 iguais)
+        [        Gráfico                 ]  [ 4 métricas do topo à base do gráfico ]
+      */}
+      <div className="dash-seller">
+        <div className="dash-seller__balances">
+          <KpiGrid
+            data={data}
+            feePercent={saqueFees.percent}
+            feeFixed={saqueFees.fixed}
+            onBalancesRefresh={() => setRefreshKey((k) => k + 1)}
           />
         </div>
 
-        <div className="min-w-0">
-          <MetricsStack data={data} />
+        <div className="dash-seller__body">
+          <div className="dash-seller__chart min-w-0">
+            <RevenueChart
+              data={data.revenueHistory}
+              period={period}
+              onPeriodChange={setPeriod}
+            />
+          </div>
+          <div className="dash-seller__metrics min-w-0">
+            <MetricsStack data={data} />
+          </div>
         </div>
       </div>
     </div>

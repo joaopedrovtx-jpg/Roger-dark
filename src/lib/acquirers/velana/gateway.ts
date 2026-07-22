@@ -284,11 +284,9 @@ export async function createChargeViaVelana(
     adjustBalance(input.sellerId, { available: net });
   }
 
-  try {
-    await persistChargeToMysql(charge, input, providerId, mapped, fee, net);
-  } catch (e) {
-    console.error("[velana] falha ao gravar MySQL", e);
-  }
+  // Persistência obrigatória: se o MySQL falhar, a cobrança não é considerada criada
+  // (evita PIX pago na Velana sem TX no DarkPay).
+  await persistChargeToMysql(charge, input, providerId, mapped, fee, net);
 
   return charge;
 }
@@ -304,85 +302,95 @@ async function persistChargeToMysql(
   const { prisma, isDatabaseConfigured } = await import(
     "@/lib/server/prisma"
   );
-  if (!isDatabaseConfigured()) return;
+  if (!isDatabaseConfigured()) {
+    throw new VelanaError("Banco indisponível para gravar cobrança", {
+      code: "DB_UNAVAILABLE",
+    });
+  }
 
   const txLocalId = charge.transactionId || `TX-VL-${Date.now()}`;
 
   const user = await prisma.user.findUnique({
     where: { id: input.sellerId },
   });
-  if (!user) return;
-
-  await prisma.transaction.create({
-    data: {
-      id: txLocalId,
-      date: new Date(charge.createdAt),
-      sellerId: input.sellerId,
-      sellerName: user.name,
-      kind: "venda",
-      direction: "entrada",
-      description: input.description || "Cobrança PIX Velana",
-      method: "PIX",
-      amount: charge.amount,
-      feeAmount: fee,
-      netAmount: net,
-      platformFee: fee,
-      status: mappedStatus === "aprovada" ? "aprovada" : "pendente",
-      customer: input.customerName,
-      customerDocument: charge.customerDocument,
-      product: input.description,
-      acquirerId: "velana",
-      provider: "velana",
-      providerId,
-      paidAt: charge.paidAt ? new Date(charge.paidAt) : null,
-    },
-  });
+  if (!user) {
+    throw new VelanaError("Seller não encontrado para gravar cobrança", {
+      code: "SELLER_NOT_FOUND",
+    });
+  }
 
   const chargeDbId =
     providerId.length <= 60
       ? `vl_${providerId}`
       : `pay_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 
-  await prisma.paymentCharge.create({
-    data: {
-      id: chargeDbId.slice(0, 64),
-      sellerId: input.sellerId,
-      amount: charge.amount,
-      currency: "BRL",
-      status:
-        charge.status === "paid"
-          ? "paid"
-          : charge.status === "cancelled"
-            ? "cancelled"
-            : "waiting_payment",
-      method: "PIX",
-      description: input.description,
-      customerName: input.customerName,
-      customerDocument: charge.customerDocument,
-      pixQrCode: charge.pixQrCode,
-      pixCopyPaste: charge.pixCopyPaste,
-      expiresAt: new Date(charge.expiresAt),
-      paidAt: charge.paidAt ? new Date(charge.paidAt) : null,
-      transactionId: txLocalId,
-      provider: "velana",
-      providerId,
-    },
-  });
-
-  if (mappedStatus === "pendente" || charge.status === "waiting_payment") {
-    await prisma.user.update({
-      where: { id: input.sellerId },
-      data: { balancePending: { increment: charge.amount } },
-    });
-  } else if (mappedStatus === "aprovada") {
-    await prisma.user.update({
-      where: { id: input.sellerId },
+  await prisma.$transaction(async (db) => {
+    await db.transaction.create({
       data: {
-        balanceAvailable: { increment: net },
-        volumeTotal: { increment: charge.amount },
+        id: txLocalId,
+        date: new Date(charge.createdAt),
+        sellerId: input.sellerId,
+        sellerName: user.name,
+        kind: "venda",
+        direction: "entrada",
+        description: input.description || "Cobrança PIX Velana",
+        method: "PIX",
+        amount: charge.amount,
+        feeAmount: fee,
+        netAmount: net,
+        platformFee: fee,
+        status: mappedStatus === "aprovada" ? "aprovada" : "pendente",
+        customer: input.customerName,
+        customerDocument: charge.customerDocument,
+        product: input.description,
+        acquirerId: "velana",
+        provider: "velana",
+        providerId,
+        paidAt: charge.paidAt ? new Date(charge.paidAt) : null,
       },
     });
-  }
+
+    await db.paymentCharge.create({
+      data: {
+        id: chargeDbId.slice(0, 64),
+        sellerId: input.sellerId,
+        amount: charge.amount,
+        currency: "BRL",
+        status:
+          charge.status === "paid"
+            ? "paid"
+            : charge.status === "cancelled"
+              ? "cancelled"
+              : "waiting_payment",
+        method: "PIX",
+        description: input.description,
+        customerName: input.customerName,
+        customerDocument: charge.customerDocument,
+        pixQrCode: charge.pixQrCode,
+        pixCopyPaste: charge.pixCopyPaste,
+        expiresAt: new Date(charge.expiresAt),
+        paidAt: charge.paidAt ? new Date(charge.paidAt) : null,
+        transactionId: txLocalId,
+        provider: "velana",
+        providerId,
+      },
+    });
+
+    if (mappedStatus === "pendente" || charge.status === "waiting_payment") {
+      await db.user.update({
+        where: { id: input.sellerId },
+        data: { balancePending: { increment: charge.amount } },
+      });
+    } else if (mappedStatus === "aprovada") {
+      await db.user.update({
+        where: { id: input.sellerId },
+        data: {
+          balanceAvailable: { increment: net },
+          volumeTotal: { increment: charge.amount },
+        },
+      });
+    }
+  });
 }
 
 export async function createWithdrawalViaVelana(
@@ -689,12 +697,14 @@ async function applyPaidStatusToMysql(opts: {
 
   // Crédito atômico + idempotente (fonte da verdade: DB)
   if (statusCharge === "paid") {
-    const { creditPaidSaleIdempotent } = await import("@/lib/server/balance");
+    const { creditPaidSaleIdempotent, notifyUtmifyAfterPaid } = await import(
+      "@/lib/server/balance"
+    );
     const amount = Number(charge.amount);
     const fee = tx
       ? Number(tx.feeAmount)
       : computeVelanaSellerFee(amount);
-    await creditPaidSaleIdempotent({
+    const credit = await creditPaidSaleIdempotent({
       transactionId: tx?.id,
       providerId: opts.providerId,
       provider: "velana",
@@ -702,34 +712,70 @@ async function applyPaidStatusToMysql(opts: {
       amount,
       feeAmount: fee,
     });
+    if (credit.credited) {
+      let meta: Record<string, unknown> | null = null;
+      try {
+        meta =
+          charge.metadata && typeof charge.metadata === "object"
+            ? (charge.metadata as Record<string, unknown>)
+            : null;
+      } catch {
+        meta = null;
+      }
+      await notifyUtmifyAfterPaid({
+        sellerId: charge.sellerId,
+        orderId: charge.id,
+        amount,
+        feeAmount: fee,
+        description: charge.description || tx?.description,
+        customerName: charge.customerName || tx?.customer,
+        customerEmail: tx?.customerEmail,
+        customerDocument: charge.customerDocument || tx?.customerDocument,
+        metadata: meta,
+        createdAt: charge.createdAt,
+      });
+    }
     return;
   }
 
-  if (tx && tx.status === "pendente" && statusTx !== "pendente") {
-    await prisma.transaction.updateMany({
-      where: { id: tx.id, status: "pendente" },
-      data: {
-        status: statusTx,
-        refundedAt: statusTx === "reembolsada" ? new Date() : undefined,
-      },
+  if (tx && statusTx === "recusada") {
+    const { rejectPendingSaleIdempotent } = await import(
+      "@/lib/server/balance"
+    );
+    await rejectPendingSaleIdempotent({
+      transactionId: tx.id,
+      sellerId: charge.sellerId,
+      amount: Number(charge.amount),
+      providerId: opts.providerId,
+      chargeStatus: "cancelled",
     });
-    if (statusTx === "recusada" || statusTx === "reembolsada") {
-      await prisma.user.update({
-        where: { id: charge.sellerId },
-        data: { balancePending: { decrement: Number(charge.amount) } },
-      });
-    }
+    return;
   }
 
-  await prisma.paymentCharge.updateMany({
-    where: {
-      id: charge.id,
-      status: "waiting_payment",
-    },
-    data: {
-      status: statusCharge,
-    },
-  });
+  if (tx && statusTx === "reembolsada") {
+    const { refundSaleIdempotent } = await import("@/lib/server/balance");
+    await refundSaleIdempotent({
+      transactionId: tx.id,
+      sellerId: charge.sellerId,
+      amount: Number(tx.amount),
+      feeAmount: Number(tx.feeAmount),
+      netAmount: Number(tx.netAmount),
+      providerId: opts.providerId,
+    });
+    return;
+  }
+
+  if (statusCharge !== "waiting_payment") {
+    await prisma.paymentCharge.updateMany({
+      where: {
+        id: charge.id,
+        status: "waiting_payment",
+      },
+      data: {
+        status: statusCharge,
+      },
+    });
+  }
 }
 
 /**

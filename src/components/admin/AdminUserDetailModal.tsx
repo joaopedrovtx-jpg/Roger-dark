@@ -10,7 +10,7 @@ import {
   IdCard,
   X,
 } from "lucide-react";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import { setImpersonateSeller } from "@/lib/client/impersonate";
 import {
   adquirentesMock,
@@ -91,12 +91,6 @@ const inputStyle: CSSProperties = {
   fontWeight: 500,
   padding: 0,
 };
-
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? (iso.split("T")[1] || "").slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
 
 function statusLabel(s: UserStatus): string {
   if (s === "ativo") return "Ativo";

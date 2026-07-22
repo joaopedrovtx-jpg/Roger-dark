@@ -36,15 +36,17 @@ export async function GET(req: Request) {
     const period = searchParams.get("period");
     const days = daysForPeriod(period);
 
+    const periodKey = period || "7d";
     const [metricsDb, volumeDb, ledgerDb] = await Promise.all([
-      getAdminDashboardMetrics(),
-      getAdminVolumeHistory(days),
+      getAdminDashboardMetrics(periodKey),
+      getAdminVolumeHistory(days, periodKey),
       getAdminLedger(80),
     ]);
 
     if (metricsDb) {
       return NextResponse.json({
         source: "mysql",
+        period: periodKey,
         metrics: metricsDb,
         volumeHistory: volumeDb ?? [],
         ledger: ledgerDb ?? [],

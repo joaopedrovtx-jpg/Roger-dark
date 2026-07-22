@@ -107,10 +107,14 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/icons") ||
     pathname === "/favicon.ico" ||
+    pathname === "/sw-notifications.js" ||
+    pathname === "/site.webmanifest" ||
     pathname.endsWith(".png") ||
     pathname.endsWith(".jpg") ||
     pathname.endsWith(".webp") ||
     pathname.endsWith(".svg") ||
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".webmanifest") ||
     pathname.endsWith(".wav") ||
     pathname.endsWith(".mp3") ||
     pathname.startsWith("/sounds");

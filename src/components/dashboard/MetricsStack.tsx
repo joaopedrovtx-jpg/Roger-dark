@@ -12,17 +12,17 @@ interface MetricsStackProps {
   data: DashboardData;
 }
 
-const ICON = 24;
-const ICON_TX = 28;
-const ICON_TICKET = 24;
+const ICON = 22;
 
 /**
- * Cards à direita do gráfico empilhados e alinhados
+ * 4 indicadores laterais do gráfico.
+ * fill: dividem a altura do gráfico em 4 partes iguais
+ * (topo alinhado ao topo do gráfico, base alinhada à base).
  */
 export function MetricsStack({ data }: MetricsStackProps) {
   return (
     <div className="metrics-stack w-full h-full">
-      <div className="min-h-0 min-w-0">
+      <div className="metrics-stack__cell">
         <KpiCard
           fill
           icon={<IconMoneyFlying size={ICON} />}
@@ -30,23 +30,23 @@ export function MetricsStack({ data }: MetricsStackProps) {
           value={formatBRL(data.metrics.netProfit)}
         />
       </div>
-      <div className="min-h-0 min-w-0">
+      <div className="metrics-stack__cell">
         <KpiCard
           fill
-          icon={<IconTransferFilled size={ICON_TX} />}
+          icon={<IconTransferFilled size={ICON} />}
           label="Total de Transações"
           value={String(data.metrics.totalTransactions)}
         />
       </div>
-      <div className="min-h-0 min-w-0">
+      <div className="metrics-stack__cell">
         <KpiCard
           fill
-          icon={<IconPercentFilled size={ICON_TICKET} />}
+          icon={<IconPercentFilled size={ICON} />}
           label="Ticket médio"
           value={formatBRL(data.metrics.averageTicket)}
         />
       </div>
-      <div className="min-h-0 min-w-0">
+      <div className="metrics-stack__cell">
         <KpiCard
           fill
           icon={<IconOutflowFilled size={ICON} />}

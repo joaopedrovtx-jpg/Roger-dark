@@ -1,5 +1,15 @@
 import type { AdminMetrics } from "@/lib/domain/types";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
+import {
+  daysForPeriod,
+  fillChartSeries,
+  type ChartPeriodKey,
+} from "@/lib/chart-series";
+import {
+  endOfZonedDay,
+  startOfZonedDay,
+  toISODateInZone,
+} from "@/lib/timezone";
 
 export type AdminLedgerRow = {
   id: string;
@@ -38,8 +48,45 @@ export async function dbAvailable(): Promise<boolean> {
   }
 }
 
-export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
+/**
+ * Início do período em America/Sao_Paulo (alinhado ao gráfico).
+ */
+export function adminPeriodStart(period?: ChartPeriodKey | string | null): Date {
+  if (period === "today") return startOfZonedDay(0);
+  if (period === "yesterday") return startOfZonedDay(1);
+  const days = daysForPeriod(period || "7d");
+  return startOfZonedDay(days - 1);
+}
+
+function adminPeriodEnd(period?: ChartPeriodKey | string | null): Date {
+  if (period === "yesterday") return endOfZonedDay(1);
+  return endOfZonedDay(0);
+}
+
+/**
+ * Métricas do admin.
+ * - Volume / receita / ticket / conversão / txs: filtrados pelo `period` (mesmo do gráfico)
+ * - Usuários / saldos / pendências: snapshot atual (não dependem do filtro)
+ */
+export async function getAdminDashboardMetrics(
+  period?: ChartPeriodKey | string | null
+): Promise<AdminMetrics | null> {
   if (!(await dbAvailable())) return null;
+
+  const from = adminPeriodStart(period);
+  const to = adminPeriodEnd(period);
+
+  const saleDate = { gte: from, lte: to };
+  const wdDate = { gte: from, lte: to };
+  // Vendas pagas: preferir paidAt (quando o dinheiro entrou)
+  const paidWhere = {
+    kind: "venda" as const,
+    status: "aprovada" as const,
+    OR: [
+      { paidAt: saleDate },
+      { paidAt: null, date: saleDate },
+    ],
+  };
 
   const [
     users,
@@ -54,7 +101,7 @@ export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
   ] = await Promise.all([
     prisma.user.groupBy({ by: ["status"], _count: true }),
     prisma.transaction.aggregate({
-      where: { kind: "venda", status: "aprovada" },
+      where: paidWhere,
       _sum: { amount: true, platformFee: true },
       _count: true,
     }),
@@ -62,11 +109,14 @@ export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
       where: {
         kind: "venda",
         status: { in: ["aprovada", "recusada", "reembolsada"] },
+        date: saleDate,
       },
     }),
-    prisma.transaction.count({ where: { kind: "venda" } }),
+    prisma.transaction.count({
+      where: { kind: "venda", date: saleDate },
+    }),
     prisma.withdrawal.aggregate({
-      where: { status: "pago" },
+      where: { status: "pago", date: wdDate },
       _sum: { feeAmount: true },
     }),
     prisma.withdrawal.aggregate({
@@ -123,79 +173,45 @@ export async function getAdminDashboardMetrics(): Promise<AdminMetrics | null> {
   };
 }
 
+/**
+ * Volume diário da plataforma no período (America/Sao_Paulo).
+ * Usa paidAt das vendas aprovadas (fallback: date).
+ */
 export async function getAdminVolumeHistory(
-  days = 10
+  days = 10,
+  period?: ChartPeriodKey
 ): Promise<VolumePoint[] | null> {
   if (!(await dbAvailable())) return null;
 
-  const rows = await prisma.metricDaily.findMany({
-    where: { scope: "platform" },
-    orderBy: { date: "desc" },
-    take: days,
+  const periodKey: ChartPeriodKey = period || `${days}d`;
+  const since = adminPeriodStart(periodKey);
+  const until = adminPeriodEnd(periodKey);
+
+  const txs = await prisma.transaction.findMany({
+    where: {
+      kind: "venda",
+      status: "aprovada",
+      OR: [
+        { paidAt: { gte: since, lte: until } },
+        { paidAt: null, date: { gte: since, lte: until } },
+      ],
+    },
+    select: { date: true, paidAt: true, amount: true },
+    take: 8000,
   });
 
-  if (rows.length > 0) {
-    return rows
-      .map((r) => ({
-        date:
-          r.date instanceof Date
-            ? r.date.toISOString().slice(0, 10)
-            : String(r.date).slice(0, 10),
-        amount: n(r.volumeGross),
-        grain: "day" as const,
-      }))
-      .reverse();
+  const map = new Map<string, number>();
+  for (const t of txs) {
+    const when = t.paidAt ?? t.date;
+    const d = toISODateInZone(when);
+    map.set(d, (map.get(d) ?? 0) + n(t.amount));
   }
+  const sparse = [...map.entries()].map(([date, amount]) => ({
+    date,
+    amount,
+  }));
 
-  try {
-    const since = new Date(Date.now() - days * 864e5);
-    const isMysql = (process.env.DATABASE_URL || "").startsWith("mysql");
-    const rows = isMysql
-      ? await prisma.$queryRaw<Array<{ d: Date | string; total: unknown }>>`
-          SELECT DATE(\`date\`) AS d, SUM(amount) AS total
-          FROM \`transactions\`
-          WHERE kind = 'venda' AND status = 'aprovada' AND \`date\` >= ${since}
-          GROUP BY DATE(\`date\`)
-          ORDER BY d ASC
-        `
-      : await prisma.$queryRaw<Array<{ d: string; total: unknown }>>`
-          SELECT date(date) AS d, SUM(amount) AS total
-          FROM transactions
-          WHERE kind = 'venda' AND status = 'aprovada' AND date >= ${since}
-          GROUP BY date(date)
-          ORDER BY d ASC
-        `;
-
-    return rows.map((r) => ({
-      date:
-        r.d instanceof Date
-          ? r.d.toISOString().slice(0, 10)
-          : String(r.d).slice(0, 10),
-      amount: n(r.total),
-      grain: "day" as const,
-    }));
-  } catch {
-    const txs = await prisma.transaction.findMany({
-      where: {
-        kind: "venda",
-        status: "aprovada",
-        date: { gte: new Date(Date.now() - days * 864e5) },
-      },
-      select: { date: true, amount: true },
-      take: 2000,
-    });
-    const map = new Map<string, number>();
-    for (const t of txs) {
-      const d =
-        t.date instanceof Date
-          ? t.date.toISOString().slice(0, 10)
-          : String(t.date).slice(0, 10);
-      map.set(d, (map.get(d) ?? 0) + n(t.amount));
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, amount]) => ({ date, amount, grain: "day" as const }));
-  }
+  return fillChartSeries(periodKey, sparse);
 }
 
 export async function getAdminLedger(

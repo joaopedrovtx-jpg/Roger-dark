@@ -20,6 +20,7 @@ import {
   Loader2,
   X,
 } from "lucide-react";
+import { formatDateTime } from "@/lib/format";
 
 /** Ações da credencial mesmo tamanho (um pouco maior) */
 const ACTION_ICON = 18;
@@ -144,15 +145,7 @@ function formatDate(iso: string): string {
   });
 }
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+
 
 /** Botões primários mesmo raio das outras páginas (ex.: Novo gerente) */
 const btnPrimary: CSSProperties = {
@@ -807,8 +800,8 @@ export function ApiIntegracaoView() {
             gap: 16,
           }}
         >
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-col" style={{ gap: 8 }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <h1
                 className="font-bold"
                 style={{
@@ -819,52 +812,46 @@ export function ApiIntegracaoView() {
               >
                 API de integração
               </h1>
-              <p
-                style={{
-                  margin: "8px 0 0",
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                  color: "var(--text-2)",
-                }}
-              >
-                Gerencie suas credenciais de API para integrar com a
-                plataforma.
-              </p>
-              <p
-                style={{
-                  margin: "6px 0 0",
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                  color: "var(--text-3)",
-                }}
-              >
-                Leia a documentação para mais detalhes sobre como usar as
-                credenciais de API.
-              </p>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <Link
+                  href="/docs"
+                  className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-90"
+                  style={{
+                    ...btnGhost,
+                    textDecoration: "none",
+                    height: 42,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  Documentação
+                  <ExternalLink size={14} strokeWidth={2.25} aria-hidden />
+                </Link>
+                <button
+                  type="button"
+                  onClick={openCreate}
+                  className="inline-flex items-center transition-opacity hover:opacity-90"
+                  style={btnPrimary}
+                >
+                  Nova credencial
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <Link
-                href="/docs"
-                className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-90"
-                style={{
-                  ...btnGhost,
-                  textDecoration: "none",
-                  height: 42,
-                  boxSizing: "border-box",
-                }}
-              >
-                Documentação
-                <ExternalLink size={14} strokeWidth={2.25} aria-hidden />
-              </Link>
-              <button
-                type="button"
-                onClick={openCreate}
-                className="inline-flex items-center transition-opacity hover:opacity-90"
-                style={btnPrimary}
-              >
-                Nova credencial
-              </button>
-            </div>
+            {/* Exatamente 2 linhas — largura total do card, sem competir com os botões */}
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                lineHeight: 1.45,
+                color: "var(--text-2)",
+              }}
+            >
+              <span style={{ display: "block" }}>
+                Gerencie suas credenciais de API para integrar com a plataforma.
+              </span>
+              <span style={{ display: "block" }}>
+                Leia a documentação para mais detalhes.
+              </span>
+            </p>
           </div>
 
           {!hydrated ? null : creds.length === 0 ? (

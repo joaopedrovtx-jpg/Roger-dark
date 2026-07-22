@@ -113,13 +113,18 @@ export async function dbSetWithdrawalStatus(
   const fee = n(w.feeAmount);
 
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.withdrawal.update({
+    // CAS: só atualiza se ainda estiver processando (evita double-refund)
+    const cas = await tx.withdrawal.updateMany({
       where: { id, status: "processando" },
       data: {
         status,
         reviewedAt: new Date(),
       },
     });
+    if (cas.count === 0) {
+      throw new Error("Saque já foi processado por outra operação");
+    }
+    const row = await tx.withdrawal.findUniqueOrThrow({ where: { id } });
 
     if (status === "recusado") {
       await tx.user.update({
@@ -128,6 +133,10 @@ export async function dbSetWithdrawalStatus(
           balanceAvailable: { increment: n(w.amount) },
         },
       });
+      const user = await tx.user.findUnique({
+        where: { id: w.sellerId },
+        select: { balanceAvailable: true },
+      });
       await tx.balanceLedger.create({
         data: {
           id: newId("led"),
@@ -135,7 +144,7 @@ export async function dbSetWithdrawalStatus(
           type: "withdrawal_refund",
           amount: n(w.amount),
           bucket: "available",
-          balanceAfter: 0,
+          balanceAfter: n(user?.balanceAvailable),
           referenceType: "withdrawal",
           referenceId: id,
           description: "Saque recusado valor devolvido",

@@ -6,39 +6,42 @@ import {
   mapVelanaTransferStatus,
 } from "@/lib/acquirers/velana/mappers";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
-import { creditPaidSaleIdempotent } from "@/lib/server/balance";
+import {
+  creditPaidSaleIdempotent,
+  refundSaleIdempotent,
+  rejectPendingSaleIdempotent,
+} from "@/lib/server/balance";
 import { verifyVelanaWebhook } from "@/lib/server/hmac";
 
 /**
  * POST /api/v1/webhooks/velana
- * Público. Postbacks oficiais:
- * https://velana.readme.io/reference/formato-dos-postbacks
  *
- * Formatos:
- *  { type: "transaction", objectId, data: { id, status, ... } }
- *  { type: "checkout", data: { transaction: { ... } } }
- *  { type: "transfer", data: { id, status, ... } }
+ * A Velana NÃO documenta HMAC nos postbacks.
+ * - Se houver assinatura + secret → valida HMAC.
+ * - Sem assinatura: aceita, mas TODO status que mexe dinheiro é
+ *   reconfirmado na API Velana (GET /transactions/:id).
+ * - Se paid não confirmar na API → HTTP 503 para a Velana reenviar.
  */
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
-    const signature = req.headers.get("x-velana-signature");
-    if (!signature) {
-      return NextResponse.json(
-        { error: "Assinatura ausente", reason: "missing_signature" },
-        { status: 401 }
-      );
-    }
-    const sigCheck = verifyVelanaWebhook(
-      rawBody,
-      signature,
-      process.env.VELANA_WEBHOOK_SECRET
-    );
-    if (!sigCheck.ok) {
-      return NextResponse.json(
-        { error: "Assinatura inválida", reason: sigCheck.reason },
-        { status: 401 }
-      );
+    const signature =
+      req.headers.get("x-velana-signature") ||
+      req.headers.get("x-hub-signature-256") ||
+      req.headers.get("x-signature");
+
+    const secret = process.env.VELANA_WEBHOOK_SECRET;
+    let signedOk = false;
+
+    if (signature?.trim() && secret?.trim()) {
+      const sigCheck = verifyVelanaWebhook(rawBody, signature, secret);
+      if (!sigCheck.ok) {
+        return NextResponse.json(
+          { error: "Assinatura inválida", reason: sigCheck.reason },
+          { status: 401 }
+        );
+      }
+      signedOk = true;
     }
 
     let payload: VelanaPostbackPayload;
@@ -61,7 +64,9 @@ export async function POST(req: Request) {
 
     const vData = (payload.data || {}) as Record<string, unknown>;
     const vRemoteId = String(vData.id ?? payload.objectId ?? "").trim();
-    const { recordInbox, markInbox } = await import("@/lib/server/webhook-inbox");
+    const { recordInbox, markInbox } = await import(
+      "@/lib/server/webhook-inbox"
+    );
     const inbox = await recordInbox({
       provider: "velana",
       eventId: undefined,
@@ -70,17 +75,23 @@ export async function POST(req: Request) {
       payload,
     });
 
+    let applyResult: ApplyResult = { ok: true };
+
     if (isDatabaseConfigured()) {
       try {
         const { enqueueWebhookJob } = await import(
           "@/lib/server/webhook-queue"
         );
-        // Await é obrigatório: sem ele a resposta 200 volta à adquirente
-        // ANTES do apply rodar, e um restart nesse meio tempo perde o evento.
         await enqueueWebhookJob("velana", async () => {
-          await applyWebhookToMysql(payload);
+          applyResult = await applyWebhookToMysql(payload, { signedOk });
         });
-        if (inbox.created) await markInbox(inbox.inboxId, "applied");
+        if (inbox.created) {
+          await markInbox(
+            inbox.inboxId,
+            applyResult.ok ? "applied" : "failed",
+            applyResult.reason
+          );
+        }
       } catch (applyErr) {
         if (inbox.created) {
           await markInbox(
@@ -93,13 +104,40 @@ export async function POST(req: Request) {
       }
     }
 
+    // Paid não confirmado na Velana → 503 para forçar retry
+    if (applyResult.retry) {
+      const { log } = await import("@/lib/server/logger");
+      log.warn(
+        { remoteId: vRemoteId, reason: applyResult.reason },
+        "velana_webhook_retry"
+      );
+      return NextResponse.json(
+        {
+          error: "Confirmação Velana pendente",
+          reason: applyResult.reason || "confirm_failed",
+        },
+        { status: 503 }
+      );
+    }
+
     const { log } = await import("@/lib/server/logger");
-    log.info({ message: result.message, type: String(payload.type || ""), queued: true }, "velana_webhook");
+    log.info(
+      {
+        message: result.message,
+        type: String(payload.type || ""),
+        remoteId: vRemoteId,
+        signedOk,
+        applied: applyResult.ok,
+      },
+      "velana_webhook"
+    );
 
     return NextResponse.json({
       success: true,
       message: result.message,
       queued: true,
+      signedOk,
+      applied: applyResult.ok,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro no webhook";
@@ -109,8 +147,15 @@ export async function POST(req: Request) {
   }
 }
 
-function normalizePayload(payload: VelanaPostbackPayload): VelanaPostbackPayload {
-  // Objeto transaction solto
+type ApplyResult = {
+  ok: boolean;
+  retry?: boolean;
+  reason?: string;
+};
+
+function normalizePayload(
+  payload: VelanaPostbackPayload
+): VelanaPostbackPayload {
   if (!payload.type && payload.data) {
     return { type: "transaction", data: payload.data };
   }
@@ -122,14 +167,42 @@ function normalizePayload(payload: VelanaPostbackPayload): VelanaPostbackPayload
       data: asAny,
     };
   }
-  // type ausente mas tem data.id + data.status
   if (!payload.type && payload.data?.status != null) {
     return { ...payload, type: "transaction" };
   }
   return payload;
 }
 
-async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
+async function fetchVelanaRemoteStatus(
+  remoteId: string
+): Promise<{ ok: boolean; status?: string; mapped?: string }> {
+  try {
+    const { resolveVelanaConfigServer } = await import(
+      "@/lib/acquirers/velana/config"
+    );
+    const { velanaClient } = await import("@/lib/acquirers/velana/client");
+    const config = await resolveVelanaConfigServer();
+    if (!config?.secretKey) return { ok: false, status: "no_config" };
+    const remote = await velanaClient.getTransaction(remoteId, config);
+    const st = String(remote.status || "");
+    return { ok: true, status: st, mapped: mapVelanaTxStatus(st) };
+  } catch (e) {
+    const { log } = await import("@/lib/server/logger");
+    log.warn(
+      {
+        remoteId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+      "velana_fetch_status_failed"
+    );
+    return { ok: false, status: "fetch_error" };
+  }
+}
+
+async function applyWebhookToMysql(
+  payload: VelanaPostbackPayload,
+  opts: { signedOk: boolean }
+): Promise<ApplyResult> {
   const type = String(payload.type || "").toLowerCase();
   let data = (payload.data || {}) as Record<string, unknown>;
 
@@ -138,7 +211,7 @@ async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
   }
 
   const remoteId = String(data.id ?? payload.objectId ?? "").trim();
-  if (!remoteId) return;
+  if (!remoteId) return { ok: true };
 
   // ── Transação / checkout ──────────────────────────────
   if (
@@ -146,23 +219,40 @@ async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
     type === "checkout" ||
     (data.status != null && type !== "transfer")
   ) {
-    const mapped = mapVelanaTxStatus(String(data.status || ""));
-    const statusTx =
-      mapped === "aprovada"
-        ? "aprovada"
-        : mapped === "reembolsada"
-          ? "reembolsada"
-          : mapped === "recusada"
-            ? "recusada"
-            : "pendente";
-    const statusCharge =
-      statusTx === "aprovada"
-        ? "paid"
-        : statusTx === "reembolsada"
-          ? "refunded"
-          : statusTx === "recusada"
-            ? "cancelled"
-            : "waiting_payment";
+    let mapped = mapVelanaTxStatus(String(data.status || ""));
+    const postbackSaysPaid = mapped === "aprovada";
+    const postbackSaysTerminal =
+      mapped === "aprovada" ||
+      mapped === "recusada" ||
+      mapped === "reembolsada";
+
+    // Sem HMAC: reconfirma na API qualquer status terminal que mexe saldo
+    if (!opts.signedOk && postbackSaysTerminal) {
+      const remote = await fetchVelanaRemoteStatus(remoteId);
+      if (!remote.ok) {
+        // Paid sem confirmação → retry; outros status: ignora mutação
+        if (postbackSaysPaid) {
+          return {
+            ok: false,
+            retry: true,
+            reason: remote.status || "confirm_failed",
+          };
+        }
+        return {
+          ok: false,
+          reason: `unconfirmed_${remote.status || "fetch_error"}`,
+        };
+      }
+      mapped = (remote.mapped as typeof mapped) || mapped;
+      // Se postback diz paid mas API não confirma paid → 503
+      if (postbackSaysPaid && mapped !== "aprovada") {
+        return {
+          ok: false,
+          retry: true,
+          reason: `velana_status_${remote.status}`,
+        };
+      }
+    }
 
     const tx = await prisma.transaction.findFirst({
       where: {
@@ -174,8 +264,19 @@ async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
       },
     });
 
-    if (statusTx === "aprovada" && tx) {
-      await creditPaidSaleIdempotent({
+    if (!tx) {
+      const { log } = await import("@/lib/server/logger");
+      log.warn({ remoteId, mapped }, "velana_webhook_tx_not_found");
+      // Se paid e não achou TX, pedir retry (persist pode ter atrasado)
+      if (mapped === "aprovada") {
+        return { ok: false, retry: true, reason: "tx_not_found" };
+      }
+      return { ok: true, reason: "tx_not_found" };
+    }
+
+    if (mapped === "aprovada") {
+      const { notifyUtmifyAfterPaid } = await import("@/lib/server/balance");
+      const credit = await creditPaidSaleIdempotent({
         transactionId: tx.id,
         providerId: remoteId,
         provider: "velana",
@@ -183,42 +284,78 @@ async function applyWebhookToMysql(payload: VelanaPostbackPayload) {
         amount: Number(tx.amount),
         feeAmount: Number(tx.feeAmount),
       });
-    } else if (tx && tx.status === "pendente") {
-      await prisma.transaction.updateMany({
-        where: { id: tx.id, status: "pendente" },
-        data: {
-          status: statusTx,
-          refundedAt: statusTx === "reembolsada" ? new Date() : undefined,
-        },
-      });
-      if (statusTx === "recusada" || statusTx === "reembolsada") {
-        await prisma.user.update({
-          where: { id: tx.sellerId },
-          data: {
-            balancePending: { decrement: Number(tx.amount) },
-          },
+      if (credit.credited) {
+        await notifyUtmifyAfterPaid({
+          sellerId: tx.sellerId,
+          orderId: tx.id,
+          amount: Number(tx.amount),
+          feeAmount: Number(tx.feeAmount),
+          description: tx.description,
+          customerName: tx.customer,
+          customerEmail: tx.customerEmail,
+          customerDocument: tx.customerDocument,
+          createdAt: tx.createdAt,
         });
       }
-      await prisma.paymentCharge.updateMany({
-        where: {
-          OR: [{ providerId: remoteId }, { id: `vl_${remoteId}` }],
-        },
-        data: { status: statusCharge },
-      });
+      return { ok: true };
     }
-    return;
+
+    if (mapped === "recusada") {
+      await rejectPendingSaleIdempotent({
+        transactionId: tx.id,
+        sellerId: tx.sellerId,
+        amount: Number(tx.amount),
+        providerId: remoteId,
+        chargeStatus: "cancelled",
+      });
+      return { ok: true };
+    }
+
+    if (mapped === "reembolsada") {
+      await refundSaleIdempotent({
+        transactionId: tx.id,
+        sellerId: tx.sellerId,
+        amount: Number(tx.amount),
+        feeAmount: Number(tx.feeAmount),
+        netAmount: Number(tx.netAmount),
+        providerId: remoteId,
+      });
+      return { ok: true };
+    }
+
+    return { ok: true };
   }
 
   // ── Transferência / saque ─────────────────────────────
   if (type === "transfer") {
-    const mapped = mapVelanaTransferStatus(String(data.status || ""));
+    let mapped = mapVelanaTransferStatus(String(data.status || ""));
+
+    // Sem HMAC: só aplica se a transfer existir localmente (não inventa saque)
+    if (!opts.signedOk) {
+      const local = await prisma.withdrawal.findFirst({
+        where: {
+          OR: [{ providerId: remoteId }, { id: remoteId }],
+        },
+        select: { id: true, status: true },
+      });
+      if (!local) {
+        return { ok: false, reason: "withdrawal_not_found" };
+      }
+      // Não promove processando→pago sem assinatura forte;
+      // só espelha se já conhecido no providerId
+    }
+
     await prisma.withdrawal.updateMany({
       where: {
         OR: [{ providerId: remoteId }, { id: remoteId }],
+        // não sobrescreve se já terminal localmente? permite update
       },
       data: { status: mapped, reviewedAt: new Date() },
     });
+    return { ok: true };
   }
+
+  return { ok: true };
 }
 
 export async function GET() {

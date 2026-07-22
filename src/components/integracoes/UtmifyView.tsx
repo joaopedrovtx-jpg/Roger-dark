@@ -1,13 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
-
-const STORAGE_KEY = "darkpay.utmify.connection.v1";
+import { authedFetch } from "@/lib/client/session";
+import { formatDateTime } from "@/lib/format";
 
 interface UtmifyConnection {
-  token: string;
-  connectedAt: string;
+  active: boolean;
+  hasToken: boolean;
+  tokenMasked: string | null;
+  connectedAt: string | null;
 }
+
+/** Mesmos tamanhos das ações de API / Webhooks */
+const ACTION_ICON = 18;
+const ACTION_BTN = 36;
+/** PNG preto → ícone preto sólido (botão branco) */
+const FILTER_ICON_BLACK = "brightness(0) saturate(100%)";
 
 const btnPrimary: CSSProperties = {
   height: 42,
@@ -16,30 +24,6 @@ const btnPrimary: CSSProperties = {
   border: "none",
   background: "#ffffff",
   color: "#0a0f0c",
-  fontSize: 13.5,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const btnGhost: CSSProperties = {
-  height: 42,
-  padding: "0 18px",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border-muted)",
-  background: "var(--bg-elevated)",
-  color: "var(--text-1)",
-  fontSize: 13.5,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const btnDanger: CSSProperties = {
-  height: 42,
-  padding: "0 18px",
-  borderRadius: "var(--radius-md)",
-  border: "none",
-  background: "#ef4444",
-  color: "#ffffff",
   fontSize: 13.5,
   fontWeight: 600,
   cursor: "pointer",
@@ -57,63 +41,42 @@ const inputStyle: CSSProperties = {
   fontWeight: 500,
   outline: "none",
   boxSizing: "border-box",
-  /* mesma fonte do restante do Dark Pay (Inter) */
   fontFamily: "inherit",
 };
 
-function loadConnection(): UtmifyConnection | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as UtmifyConnection;
-  } catch {
-    return null;
-  }
-}
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
-/** Mascara o token exibindo só o início e o fim */
-function maskToken(token: string): string {
-  const t = token.trim();
-  if (t.length <= 12) return "•".repeat(Math.min(t.length, 8));
-  return `${t.slice(0, 6)}${"•".repeat(10)}${t.slice(-4)}`;
-}
-
+/**
+ * UTMify: 1 token por conta.
+ * - Sem token: campo + Salvar
+ * - Com token: só Token ativo + lixeira (remove)
+ */
 export function UtmifyView() {
   const [hydrated, setHydrated] = useState(false);
   const [connection, setConnection] = useState<UtmifyConnection | null>(null);
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [justConnected, setJustConnected] = useState(false);
 
-  useEffect(() => {
-    const saved = loadConnection();
-    setConnection(saved);
-    if (saved) setToken(saved.token);
-    setHydrated(true);
-  }, []);
-
-  const persist = useCallback((next: UtmifyConnection | null) => {
-    setConnection(next);
-    if (next) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+  const load = useCallback(async () => {
+    try {
+      const res = await authedFetch("/api/v1/integrations/utmify");
+      if (!res.ok) return;
+      const json = (await res.json()) as { connection?: UtmifyConnection };
+      if (json.connection) setConnection(json.connection);
+    } catch {
+      /* ignore */
+    } finally {
+      setHydrated(true);
     }
   }, []);
 
-  function handleConnect(e: FormEvent) {
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function handleSave(e: FormEvent) {
     e.preventDefault();
     const value = token.trim();
     if (!value) {
@@ -126,31 +89,65 @@ export function UtmifyView() {
     }
 
     setError(null);
+    setInfo(null);
     setSaving(true);
-    // Mock de conexão via token (persistência local)
-    window.setTimeout(() => {
-      persist({
-        token: value,
-        connectedAt: new Date().toISOString(),
+    try {
+      const res = await authedFetch("/api/v1/integrations/utmify", {
+        method: "PUT",
+        body: JSON.stringify({ apiToken: value }),
       });
+      const json = (await res.json()) as {
+        error?: string;
+        detail?: string;
+        connection?: UtmifyConnection;
+      };
+      if (!res.ok) {
+        setError(json.error || json.detail || "Não foi possível salvar o token.");
+        return;
+      }
+      if (json.connection) setConnection(json.connection);
+      setToken("");
+      setInfo(null);
+    } catch {
+      setError("Falha de rede ao salvar o token.");
+    } finally {
       setSaving(false);
-      setJustConnected(true);
-      window.setTimeout(() => setJustConnected(false), 1800);
-    }, 700);
+    }
   }
 
-  function handleDisconnect() {
-    if (!confirm("Desconectar a integração com a UTMify?")) return;
-    persist(null);
-    setToken("");
+  async function handleRemove() {
+    if (!confirm("Remover o token UTMify desta conta?")) return;
     setError(null);
-    setJustConnected(false);
+    setInfo(null);
+    setSaving(true);
+    try {
+      const res = await authedFetch("/api/v1/integrations/utmify", {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setError("Não foi possível remover o token.");
+        return;
+      }
+      setConnection({
+        active: false,
+        hasToken: false,
+        tokenMasked: null,
+        connectedAt: null,
+      });
+      setToken("");
+    } catch {
+      setError("Falha de rede ao remover o token.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const connected = Boolean(connection?.token);
+  /** Com token salvo: nunca mostra campo para “mais um” — só o ativo + lixeira */
+  const hasToken = Boolean(connection?.hasToken);
+  const connected = Boolean(connection?.active && connection?.hasToken);
 
   return (
-    <div className="flex flex-col" style={{ gap: 18, maxWidth: 640 }}>
+    <div className="flex flex-col" style={{ gap: 18, maxWidth: 680 }}>
       <section
         className="surface-card flex flex-col"
         style={{
@@ -159,7 +156,6 @@ export function UtmifyView() {
           gap: 18,
         }}
       >
-        {/* Header */}
         <div className="flex items-start gap-4">
           <span
             className="flex shrink-0 items-center justify-center overflow-hidden"
@@ -177,11 +173,7 @@ export function UtmifyView() {
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1
                 className="font-bold"
-                style={{
-                  margin: 0,
-                  fontSize: 18,
-                  color: "var(--text-1)",
-                }}
+                style={{ margin: 0, fontSize: 18, color: "var(--text-1)" }}
               >
                 UTMify
               </h1>
@@ -212,73 +204,34 @@ export function UtmifyView() {
                 color: "var(--text-2)",
               }}
             >
-              Conecte sua conta UTMify via Token de API para automatizar o
-              rastreamento de campanhas e UTMs nas suas vendas.
+              Rastreie vendas Dark Pay na UTMify (Meta Ads / Pixel / campanhas).
+              Cole o Token de API da sua conta em{" "}
+              <a
+                href="https://app.utmify.com.br"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--text-1)", fontWeight: 600 }}
+              >
+                app.utmify.com.br
+              </a>
+              .
             </p>
           </div>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleConnect} className="flex flex-col" style={{ gap: 14 }}>
-          <label className="flex flex-col gap-1.5">
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 650,
-                color: "var(--text-2)",
-              }}
-            >
-              Token de API
-            </span>
-            <input
-              type="password"
-              name="utmify-token"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Cole aqui o token gerado na UTMify"
-              value={token}
-              onChange={(e) => {
-                setToken(e.target.value);
-                if (error) setError(null);
-              }}
-              style={inputStyle}
-              disabled={saving}
-            />
-            <span style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.4 }}>
-              Gere o token no painel da UTMify (Integrações / API) e cole
-              acima para conectar.
-            </span>
-          </label>
-
-          {error ? (
-            <p
-              style={{
-                margin: 0,
-                fontSize: 13,
-                color: "#f87171",
-                lineHeight: 1.4,
-              }}
-            >
-              {error}
-            </p>
-          ) : null}
-
-          {connected && connection ? (
-            <div
-              style={{
-                padding: "12px 14px",
-                borderRadius: "var(--radius-md)",
-                background: "var(--bg-app)",
-                border: "1px solid var(--border-card)",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12.5,
-                  color: "var(--text-3)",
-                }}
-              >
+        {/* 1 token por conta: com token → só exibe + lixeira; sem token → formulário */}
+        {hasToken && connection ? (
+          <div
+            className="flex items-center gap-3"
+            style={{
+              padding: "12px 14px",
+              borderRadius: "var(--radius-md)",
+              background: "var(--bg-app)",
+              border: "1px solid var(--border-card)",
+            }}
+          >
+            <div className="min-w-0 flex-1">
+              <p style={{ margin: 0, fontSize: 12.5, color: "var(--text-3)" }}>
                 Token ativo
               </p>
               <p
@@ -288,74 +241,149 @@ export function UtmifyView() {
                   fontSize: 13,
                   fontWeight: 500,
                   color: "var(--text-1)",
-                  fontFamily: "inherit",
                   wordBreak: "break-all",
                 }}
               >
-                {maskToken(connection.token)}
+                {connection.tokenMasked || "••••••••"}
               </p>
-              <p
-                style={{
-                  margin: "6px 0 0",
-                  fontSize: 12,
-                  color: "var(--text-3)",
-                }}
-              >
-                Conectado em {formatDateTime(connection.connectedAt)}
-              </p>
+              {connection.connectedAt ? (
+                <p
+                  style={{
+                    margin: "6px 0 0",
+                    fontSize: 12,
+                    color: "var(--text-3)",
+                  }}
+                >
+                  Conectado em {formatDateTime(connection.connectedAt)}
+                </p>
+              ) : null}
             </div>
-          ) : null}
-
-          <div className="flex items-center gap-2.5 flex-wrap">
             <button
-              type="submit"
+              type="button"
+              onClick={() => void handleRemove()}
               disabled={saving}
-              className="inline-flex items-center justify-center transition-opacity hover:opacity-90"
+              aria-label="Remover token"
+              title="Remover token"
+              className="flex shrink-0 items-center justify-center transition-opacity hover:opacity-90"
               style={{
-                ...btnPrimary,
-                opacity: saving ? 0.75 : 1,
+                width: ACTION_BTN,
+                height: ACTION_BTN,
+                borderRadius: "var(--radius-md)",
+                border: "none",
+                backgroundColor: "#ffffff",
+                background: "#ffffff",
+                color: "#0a0f0c",
                 cursor: saving ? "wait" : "pointer",
+                opacity: saving ? 0.6 : 1,
+                padding: 0,
+                flexShrink: 0,
               }}
             >
-              {justConnected
-                ? "Conectado"
-                : saving
-                  ? "Conectando…"
-                  : connected
-                    ? "Atualizar conexão"
-                    : "Conectar"}
-            </button>
-
-            {connected ? (
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                disabled={saving}
-                className="inline-flex items-center justify-center transition-opacity hover:opacity-90"
-                style={btnDanger}
-              >
-                Desconectar
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setToken("");
-                  setError(null);
-                }}
-                disabled={saving || !token}
-                className="inline-flex items-center transition-opacity hover:opacity-90"
+              {/* Mesmo ícone Flaticon das credenciais API / webhooks */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/icons/lixeira.png"
+                alt=""
+                width={ACTION_ICON}
+                height={ACTION_ICON}
+                aria-hidden
                 style={{
-                  ...btnGhost,
-                  opacity: !token || saving ? 0.5 : 1,
-                  cursor: !token || saving ? "default" : "pointer",
+                  width: ACTION_ICON,
+                  height: ACTION_ICON,
+                  objectFit: "contain",
+                  filter: FILTER_ICON_BLACK,
+                  display: "block",
+                }}
+              />
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={handleSave}
+            className="flex flex-col"
+            style={{ gap: 14 }}
+          >
+            <label className="flex flex-col gap-1.5">
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 650,
+                  color: "var(--text-2)",
                 }}
               >
-                Limpar
+                Token de API
+              </span>
+              <input
+                type="password"
+                name="utmify-token"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Cole aqui o token gerado na UTMify"
+                value={token}
+                onChange={(e) => {
+                  setToken(e.target.value);
+                  if (error) setError(null);
+                }}
+                style={inputStyle}
+                disabled={saving}
+              />
+            </label>
+
+            {error ? (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "#f87171",
+                  lineHeight: 1.4,
+                }}
+              >
+                {error}
+              </p>
+            ) : null}
+            {info ? (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "var(--text-2)",
+                  lineHeight: 1.4,
+                }}
+              >
+                {info}
+              </p>
+            ) : null}
+
+            <div className="flex items-center">
+              <button
+                type="submit"
+                disabled={saving || !token.trim()}
+                className="inline-flex items-center justify-center transition-opacity hover:opacity-90"
+                style={{
+                  ...btnPrimary,
+                  opacity: saving || !token.trim() ? 0.55 : 1,
+                  cursor:
+                    saving || !token.trim() ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving ? "Salvando…" : "Salvar"}
               </button>
-            )}
-          </div>
-        </form>
+            </div>
+          </form>
+        )}
+
+        {hasToken && error ? (
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              color: "#f87171",
+              lineHeight: 1.4,
+            }}
+          >
+            {error}
+          </p>
+        ) : null}
       </section>
     </div>
   );

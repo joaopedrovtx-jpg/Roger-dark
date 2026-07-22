@@ -172,7 +172,7 @@ export function LoginForm() {
         >
           {challenge
             ? "Digite o código do app autenticador ou um backup code."
-            : "Faça login na sua conta real (MySQL)."}
+            : "Faça login na sua conta."}
         </p>
 
       </div>
