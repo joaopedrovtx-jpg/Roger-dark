@@ -196,16 +196,6 @@ export function TaxasView() {
             </div>
           </div>
 
-          <p
-            style={{
-              fontSize: 13,
-              color: "var(--text-3)",
-              marginTop: "auto",
-              paddingTop: 16,
-            }}
-          >
-            Reserva financeira por 0 dias
-          </p>
         </article>
 
         {/* Card saque */}
