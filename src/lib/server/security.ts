@@ -52,7 +52,7 @@ export function getClientIp(req: Request): string {
   }
 
   // Sem proxy confiável: não usa XFF controlado pelo cliente
-  return "direct";
+  return "unknown";
 }
 
 export function warnWeakSecrets(): void {

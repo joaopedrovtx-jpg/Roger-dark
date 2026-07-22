@@ -12,6 +12,10 @@ import {
   unlockNotificationAudio,
   type NotificationPrefs,
 } from "@/lib/notifications";
+import {
+  getEmailNotificationPrefs,
+  updateEmailNotificationPrefs,
+} from "@/lib/actions/notifications.actions";
 
 function Switch({
   checked,
@@ -70,7 +74,6 @@ function Switch({
   );
 }
 
-/** Card simples: só o nome + switch */
 function OptionCard({
   id,
   title,
@@ -143,6 +146,13 @@ export function NotificacoesView() {
   const [hydrated, setHydrated] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const [emailPrefs, setEmailPrefs] = useState<{
+    emailOnSale: boolean;
+    emailOnWithdrawal: boolean;
+    emailOnDocReview: boolean;
+  } | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+
   const refreshPermission = useCallback(() => {
     setPermission(getNotificationPermission());
   }, []);
@@ -152,7 +162,6 @@ export function NotificacoesView() {
     const perm = getNotificationPermission();
     const apiOk = isNotificationApiSupported();
 
-    // Se o browser ainda não autorizou, não mantém “ligado” no storage
     if (perm !== "granted" && loaded.browserEnabled) {
       loaded.browserEnabled = false;
       saveNotificationPrefs(loaded);
@@ -162,9 +171,12 @@ export function NotificacoesView() {
     setSupported(apiOk);
     setPermission(perm);
     setHydrated(true);
+
+    getEmailNotificationPrefs().then((prefs) => {
+      if (prefs) setEmailPrefs(prefs);
+    });
   }, []);
 
-  // Atualiza se o usuário mudar a permissão nas configs do browser e voltar
   useEffect(() => {
     function onVis() {
       if (document.visibilityState === "visible") {
@@ -193,14 +205,9 @@ export function NotificacoesView() {
     saveNotificationPrefs(next);
   }
 
-  /**
-   * Liga/desliga. Ao ligar, SEMPRE aciona o pedido nativo do navegador
-   * (Notification.requestPermission) a partir do clique do usuário.
-   */
   async function handleMaster(wantOn: boolean) {
     if (busy) return;
 
-    // Desligar: só preferência local
     if (!wantOn) {
       persist({ ...prefs, browserEnabled: false });
       return;
@@ -214,14 +221,9 @@ export function NotificacoesView() {
 
     setBusy(true);
     try {
-      // Desbloqueia som (caixa registradora) no mesmo gesto do clique
       unlockNotificationAudio();
-
-      // 1) Chama o browser AGORA (gesto do clique) → popup Permitir / Bloquear
       const perm = await requestNotificationPermission();
       setPermission(perm);
-
-      // 2) Só fica Ativo se o usuário/navegador autorizou
       if (perm === "granted") {
         persist({ ...prefs, browserEnabled: true });
       } else {
@@ -240,12 +242,29 @@ export function NotificacoesView() {
     persist({ ...prefs, [key]: next });
   }
 
-  // Ligado de verdade = preferência + permissão do browser
+  async function handleEmailPref(
+    key: "emailOnSale" | "emailOnWithdrawal" | "emailOnDocReview",
+    next: boolean
+  ) {
+    if (emailBusy || !emailPrefs) return;
+    setEmailBusy(true);
+    const updated = { ...emailPrefs, [key]: next };
+    setEmailPrefs(updated);
+    try {
+      const result = await updateEmailNotificationPrefs({ [key]: next });
+      setEmailPrefs(result);
+    } catch {
+      setEmailPrefs(emailPrefs);
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
   const masterOn = prefs.browserEnabled && permission === "granted";
   const typesLocked = !masterOn || !supported;
 
   return (
-    <div className="flex flex-col" style={{ gap: 16, maxWidth: 520 }}>
+    <div className="flex flex-col" style={{ gap: 24, maxWidth: 520 }}>
       <div className="flex items-center justify-between gap-3">
         <h1
           className="font-bold"
@@ -274,7 +293,6 @@ export function NotificacoesView() {
         ) : null}
       </div>
 
-      {/* Clique no card ou no switch → pede autorização nativa do navegador */}
       <div
         role="button"
         tabIndex={busy || (!supported && hydrated) ? -1 : 0}
@@ -353,7 +371,7 @@ export function NotificacoesView() {
             fontWeight: 500,
           }}
         >
-          Tipos de notificação
+          Notificações no navegador
         </p>
         <OptionCard
           id="notif-aprovada"
@@ -368,6 +386,49 @@ export function NotificacoesView() {
           checked={prefs.vendaGerada && masterOn}
           disabled={typesLocked}
           onChange={(v) => handleType("vendaGerada", v)}
+        />
+      </div>
+
+      <div
+        style={{
+          width: "100%",
+          height: 1,
+          background: "var(--border-card)",
+          margin: "4px 0",
+        }}
+      />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "var(--text-3)",
+            fontWeight: 500,
+          }}
+        >
+          Notificações por e-mail
+        </p>
+        <OptionCard
+          id="email-on-sale"
+          title="Receber e-mail quando uma venda for aprovada"
+          checked={emailPrefs?.emailOnSale ?? false}
+          disabled={emailBusy || !emailPrefs}
+          onChange={(v) => handleEmailPref("emailOnSale", v)}
+        />
+        <OptionCard
+          id="email-on-withdrawal"
+          title="Receber e-mail sobre status de saques"
+          checked={emailPrefs?.emailOnWithdrawal ?? true}
+          disabled={emailBusy || !emailPrefs}
+          onChange={(v) => handleEmailPref("emailOnWithdrawal", v)}
+        />
+        <OptionCard
+          id="email-on-doc-review"
+          title="Receber e-mail quando documentos forem revisados"
+          checked={emailPrefs?.emailOnDocReview ?? true}
+          disabled={emailBusy || !emailPrefs}
+          onChange={(v) => handleEmailPref("emailOnDocReview", v)}
         />
       </div>
     </div>

@@ -24,7 +24,7 @@ export async function listSellerTransactions(
   opts?: { page?: number; pageSize?: number; status?: string }
 ) {
   if (!(await dbOk())) return null;
-  const page = opts?.page ?? 1;
+  const page = Math.max(1, opts?.page ?? 1);
   const pageSize = opts?.pageSize ?? 40;
   const where: { sellerId: string; status?: string; kind?: string } = {
     sellerId,

@@ -6,6 +6,8 @@ export const env = cleanEnv(process.env, {
   SESSION_SECRET: str({ default: "" }),
   RESEND_API_KEY: str({ default: "" }),
   EMAIL_FROM: str({ default: "DarkPay <onboarding@resend.dev>" }),
+  TURNSTILE_SECRET_KEY: str({ default: "" }),
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: str({ default: "" }),
 
   ALLOW_MOCK_DATA: str({ default: "0" }),
   COOKIE_SECURE: str({ default: "0" }),

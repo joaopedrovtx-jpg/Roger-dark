@@ -11,7 +11,20 @@ function redactPath(path: string): boolean {
 export const log = pino({
   level: process.env.LOG_LEVEL || "info",
   redact: {
-    paths: ["req.headers.authorization", "req.headers.cookie", "token", "password", "privateKey", "secret"],
+    paths: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      "req.headers.x-secret-key",
+      "req.headers.x-api-key",
+      "req.headers.x-darkpay-secret",
+      "req.headers.x-public-key",
+      "token",
+      "password",
+      "privateKey",
+      "secret",
+      "pixkey",
+      "backup",
+    ],
     censor: "[redacted]",
   },
   serializers: {

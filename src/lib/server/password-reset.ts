@@ -3,16 +3,15 @@
  */
 import { randomBytes, createHash } from "crypto";
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
-import { sendEmail } from "@/lib/server/email";
-import { hashPassword, verifyPassword } from "@/lib/server/auth";
+import { sendPasswordResetEmail } from "@/lib/server/email";
+import { hashPassword } from "@/lib/server/auth";
 import { validatePasswordStrength } from "@/lib/server/security";
 import { log } from "@/lib/server/logger";
 
 const TOKEN_TTL_MIN = 30;
+const RESET_COOLDOWN_MS = 60_000;
+const resetRateMap = new Map<string, number>();
 
 function newId(prefix: string) {
   return `${prefix}_${randomBytes(18).toString("base64url")}`;
@@ -65,6 +64,19 @@ export async function requestPasswordReset(
     return { ok: true };
   }
 
+  const lastReq = resetRateMap.get(email);
+  if (lastReq && Date.now() - lastReq < RESET_COOLDOWN_MS) {
+    return { ok: true };
+  }
+  resetRateMap.set(email, Date.now());
+  // Evita crecimiento infinito do map
+  if (resetRateMap.size > 10_000) {
+    const now = Date.now();
+    for (const [k, ts] of resetRateMap) {
+      if (now - ts > RESET_COOLDOWN_MS * 2) resetRateMap.delete(k);
+    }
+  }
+
   const user = await prisma.user.findUnique({ where: { email } }).catch(() => null);
   if (!user) {
     // Anti-enumeração: mesma latência + mesmo retorno
@@ -102,18 +114,7 @@ export async function requestPasswordReset(
     token
   )}&email=${encodeURIComponent(email)}`;
 
-  await sendEmail({
-    to: email,
-    subject: "Redefinição de senha — DarkPay",
-    html: `<p>Olá <strong>${escapeHtml(user.name || "cliente")}</strong>,</p>
-<p>Recebemos um pedido de redefinição de senha. Se foi você, clique no link abaixo em até ${TOKEN_TTL_MIN} minutos:</p>
-<p><a href="${link}" referrerpolicy="no-referrer">${link}</a></p>
-<p>Se não foi você, ignore este e-mail. Sua senha continua a mesma.</p>
-<p>— Equipe DarkPay</p>`,
-    text: `Olá ${
-      user.name || "cliente"
-    }, redefina sua senha em até ${TOKEN_TTL_MIN} minutos: ${link}`,
-  });
+  await sendPasswordResetEmail(email, user.name || "cliente", link, TOKEN_TTL_MIN);
 
   log.info(
     {

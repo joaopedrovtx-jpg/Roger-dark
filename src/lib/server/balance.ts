@@ -6,6 +6,7 @@
 import { randomBytes } from "crypto";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { roundMoney } from "@/lib/server/security";
+import { notifySaleApproved } from "@/lib/server/notify-email";
 
 function newLedgerId(): string {
   return `led_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
@@ -90,8 +91,9 @@ export async function creditPaidSaleIdempotent(opts: {
   const fee = roundMoney(opts.feeAmount);
   const net = Math.max(0, roundMoney(amount - fee));
 
+  let credited = false;
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       let updated = 0;
       let txId: string | null = opts.transactionId ?? null;
 
@@ -180,7 +182,13 @@ export async function creditPaidSaleIdempotent(opts: {
 
       return { credited: true };
     });
+    credited = result.credited;
+    return result;
   } catch {
     return { credited: false };
+  } finally {
+    if (credited && opts.sellerId && opts.amount > 0) {
+      notifySaleApproved(opts.sellerId, opts.amount).catch(() => {});
+    }
   }
 }

@@ -138,6 +138,8 @@ export function adjustBalance(
   sellerId: string,
   delta: Partial<Balances>
 ) {
+  if (memoryStoreWriteBlocked()) return;
+  guardWrite("balances");
   const b = getSellerBalance(sellerId);
   if (delta.available !== undefined) b.available = round2(b.available + delta.available);
   if (delta.pending !== undefined) b.pending = round2(b.pending + delta.pending);

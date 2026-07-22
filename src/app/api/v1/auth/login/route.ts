@@ -16,6 +16,7 @@ import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { create2faChallenge } from "@/lib/server/signed-token";
 import { loginSchema, formatZodError } from "@/lib/api/schemas";
 import { checkSeedLogin } from "@/lib/server/seed-block";
+import { verifyTurnstileToken } from "@/lib/server/turnstile";
 import { z } from "zod";
 import { log } from "@/lib/server/logger";
 
@@ -60,6 +61,14 @@ export async function POST(req: Request) {
               : {}),
           },
         }
+      );
+    }
+
+    const turnstile = await verifyTurnstileToken(body.turnstileToken ?? "", ip);
+    if (!turnstile.success) {
+      return NextResponse.json(
+        { error: "Verificação de segurança falhou. Tente novamente." },
+        { status: 403, headers: securityHeaders() }
       );
     }
 

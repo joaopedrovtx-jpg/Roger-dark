@@ -148,6 +148,12 @@ export async function listPendingInbox(limit = 50): Promise<unknown[]> {
     const rows = await prisma.auditLog.findMany({
       where: {
         action: "webhook_inbox",
+        NOT: {
+          OR: [
+            { meta: { path: "$.status", string_contains: "applied" } },
+            { meta: { path: "$.status", string_contains: "failed" } },
+          ],
+        },
       },
       orderBy: { createdAt: "desc" },
       take: limit,

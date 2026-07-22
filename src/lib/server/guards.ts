@@ -243,7 +243,9 @@ export async function requireAdmin(
   const r = await requireAuth(req);
   if ("error" in r) return r;
 
-  const { rolesIncludeStaff } = await import("@/lib/staff");
+  const { rolesIncludeStaff } = await import("@/lib/staff").catch(
+    () => ({ rolesIncludeStaff: () => false } as unknown as typeof import("@/lib/staff"))
+  );
   if (!rolesIncludeStaff(r.user.roles)) {
     return {
       error: NextResponse.json(

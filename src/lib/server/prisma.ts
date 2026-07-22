@@ -48,10 +48,8 @@ if (
 
 export const prisma = globalForPrisma.prisma ?? makeClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-  globalForPrisma.prismaFieldSig = fieldSig;
-}
+globalForPrisma.prisma = prisma;
+globalForPrisma.prismaFieldSig = fieldSig;
 
 /** true quando DATABASE_URL está definida (banco disponível) */
 export function isDatabaseConfigured(): boolean {

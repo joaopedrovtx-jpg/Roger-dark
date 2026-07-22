@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
+import { notifyWithdrawalStatus } from "@/lib/server/notify-email";
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -113,7 +114,7 @@ export async function dbSetWithdrawalStatus(
 
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.withdrawal.update({
-      where: { id },
+      where: { id, status: "processando" },
       data: {
         status,
         reviewedAt: new Date(),
@@ -172,12 +173,13 @@ export async function dbSetWithdrawalStatus(
         provider: "darkpay",
         providerId: id,
       },
-    }).catch(() => null);
+    });
 
     return row;
   });
 
   await audit(`withdrawal.${status}`, "withdrawal", id);
+  notifyWithdrawalStatus(w.sellerId, n(w.amount), status, w.destination).catch(() => {});
   return {
     id: updated.id,
     sellerId: updated.sellerId,

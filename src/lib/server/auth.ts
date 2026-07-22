@@ -154,6 +154,12 @@ export async function verifyPassword(
   return bcrypt.compare(password, hash);
 }
 
+import { createHash } from "crypto";
+
+function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
 export async function createSessionForUser(
   userId: string,
   meta?: { ip?: string; userAgent?: string }
@@ -165,15 +171,16 @@ export async function createSessionForUser(
     throw new Error("Conta bloqueada. Fale com o suporte.");
   }
 
-  // Token forte (32 bytes)
+  // Token forte (32 bytes) — armazenamos apenas o hash no DB
   const { generateSecureToken } = await import("@/lib/server/security");
-  const token = generateSecureToken("tok");
+  const rawToken = generateSecureToken("tok");
+  const tokenHash = hashSessionToken(rawToken);
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 864e5);
   await prisma.session.create({
     data: {
       id: newId("ses"),
       userId: user.id,
-      token,
+      token: tokenHash,
       expiresAt,
       ip: meta?.ip,
       userAgent: meta?.userAgent?.slice(0, 500),
@@ -184,16 +191,16 @@ export async function createSessionForUser(
     data: { lastLoginAt: new Date() },
   });
 
-  // Cookie assinado: middleware valida exp+HMAC; API valida token no DB
+  // Cookie assinado: middleware valida exp+HMAC; API valida hash do token no DB
   const { packSessionCookie } = await import("@/lib/server/signed-token");
-  const cookieToken = packSessionCookie(token, expiresAt, user.status);
+  const cookieToken = packSessionCookie(rawToken, expiresAt, user.status);
 
   const base = toAuthUser(user);
   const enriched = await enrichAuthUser(base);
 
   return {
     token: cookieToken,
-    rawToken: token,
+    rawToken,
     session: {
       user: enriched,
       token: cookieToken,
@@ -287,7 +294,8 @@ export async function logoutByToken(token: string | undefined) {
     } catch {
       /* legado */
     }
-    await prisma.session.deleteMany({ where: { token: raw } });
+    const tokenHash = hashSessionToken(raw);
+    await prisma.session.deleteMany({ where: { token: tokenHash } });
   } catch {
     /* cookie ainda é limpo na route */
   }
@@ -319,8 +327,9 @@ export async function getUserBySessionToken(
     /* continue */
   }
 
+  const tokenHash = hashSessionToken(raw);
   const ses = await prisma.session.findUnique({
-    where: { token: raw },
+    where: { token: tokenHash },
     include: { user: true },
   });
   if (!ses) return null;
@@ -380,7 +389,7 @@ export function sessionCookieOptions(token: string, req?: Request) {
   const forceInsecure = process.env.FORCE_INSECURE_COOKIE === "1";
   const isProd = process.env.NODE_ENV === "production";
 
-  const secure = !forceInsecure && (isHttps || (isProd && !!process.env.VERCEL));
+  const secure = !forceInsecure && (isHttps || (isProd && !!process.env.VERCEL) || process.env.COOKIE_SECURE === "1");
 
   return {
     name: COOKIE,

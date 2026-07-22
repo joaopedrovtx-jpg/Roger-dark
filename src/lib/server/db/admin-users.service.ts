@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { isDatabaseConfigured, prisma } from "@/lib/server/prisma";
+import { notifyDocReview } from "@/lib/server/notify-email";
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -250,28 +251,31 @@ export async function dbUpdateUserRouting(
         ? data.preferredAdquirenteId
         : undefined;
 
-  const u = await prisma.user.update({
-    where: { id },
-    data: {
-      ...(data.saqueAutomatico !== undefined
-        ? { saqueAutomatico: data.saqueAutomatico }
-        : {}),
-      ...(mode ? { routingMode: mode } : {}),
-      ...(preferred !== undefined ? { preferredAdquirenteId: preferred } : {}),
-    },
-  });
-  if (data.adquirenteIds) {
-    await prisma.userAcquirer.deleteMany({ where: { userId: id } });
-    if (data.adquirenteIds.length) {
-      await prisma.userAcquirer.createMany({
-        data: data.adquirenteIds.map((acquirerId) => ({
-          userId: id,
-          acquirerId,
-          enabled: true,
-        })),
-      });
+  const u = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      data: {
+        ...(data.saqueAutomatico !== undefined
+          ? { saqueAutomatico: data.saqueAutomatico }
+          : {}),
+        ...(mode ? { routingMode: mode } : {}),
+        ...(preferred !== undefined ? { preferredAdquirenteId: preferred } : {}),
+      },
+    });
+    if (data.adquirenteIds) {
+      await tx.userAcquirer.deleteMany({ where: { userId: id } });
+      if (data.adquirenteIds.length) {
+        await tx.userAcquirer.createMany({
+          data: data.adquirenteIds.map((acquirerId) => ({
+            userId: id,
+            acquirerId,
+            enabled: true,
+          })),
+        });
+      }
     }
-  }
+    return updated;
+  });
   await audit("user.routing", "user", id, data);
   return {
     id: u.id,
@@ -305,6 +309,7 @@ export async function dbSetUserDocumentsStatus(
     });
   }
   await audit("documents.bulk", "user", userId, { status });
+  notifyDocReview(userId, status).catch(() => {});
   return { ok: true };
 }
 
