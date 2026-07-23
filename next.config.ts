@@ -11,11 +11,10 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   isProd
-    ? "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' https: wss:",
-  "frame-src https://challenges.cloudflare.com",
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   ...(isProd ? ["upgrade-insecure-requests"] : []),

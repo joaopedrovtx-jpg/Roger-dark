@@ -10,8 +10,6 @@ import {
   waitBrandLoadingMin,
 } from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
-import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
-
 function onlyDigits(v: string) {
   return v.replace(/\D/g, "");
 }
@@ -35,8 +33,6 @@ export function RegisterForm() {
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -58,11 +54,6 @@ export function RegisterForm() {
       return;
     }
 
-    if (!turnstileToken) {
-      setError("Resolva a verificação de segurança.");
-      return;
-    }
-
     setLoading(true);
     const startedAt = Date.now();
     try {
@@ -71,7 +62,6 @@ export function RegisterForm() {
         email: email.trim(),
         phone: phone.trim(),
         password,
-        turnstileToken,
       });
       // Logo pulsando no mínimo 2s antes de entrar
       await waitBrandLoadingMin(startedAt);
@@ -246,13 +236,9 @@ export function RegisterForm() {
           </p>
         ) : null}
 
-        <div className="flex justify-center">
-          <TurnstileWidget onToken={setTurnstileToken} />
-        </div>
-
         <button
           type="submit"
-          disabled={loading || !turnstileToken}
+          disabled={loading}
           className="auth-cta w-full font-semibold transition-opacity"
           style={{
             ...authButtonStyle,

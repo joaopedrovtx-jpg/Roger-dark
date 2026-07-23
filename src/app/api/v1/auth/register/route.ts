@@ -10,7 +10,6 @@ import {
   securityHeaders,
   isProduction,
 } from "@/lib/server/security";
-import { verifyTurnstileToken } from "@/lib/server/turnstile";
 
 /** POST /api/v1/auth/register */
 export async function POST(req: Request) {
@@ -50,16 +49,7 @@ export async function POST(req: Request) {
       email?: string;
       phone?: string;
       password?: string;
-      turnstileToken?: string;
     };
-
-    const turnstile = await verifyTurnstileToken(body.turnstileToken ?? "", ip);
-    if (!turnstile.success) {
-      return NextResponse.json(
-        { error: "Verificação de segurança falhou. Tente novamente." },
-        { status: 403, headers: securityHeaders() }
-      );
-    }
 
     if (!body.name?.trim() || !body.email?.trim() || !body.password) {
       return NextResponse.json(

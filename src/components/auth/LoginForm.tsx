@@ -11,8 +11,6 @@ import {
 import { AuthInput, authButtonStyle } from "./AuthInput";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
-import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
-
 export function LoginForm() {
   const { branding } = useBranding();
   const [email, setEmail] = useState("");
@@ -21,8 +19,6 @@ export function LoginForm() {
   const [challenge, setChallenge] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-
   function goAfterLogin(roles: string[]) {
     const isStaff =
       roles.includes("admin") || roles.includes("manager");
@@ -92,18 +88,13 @@ export function LoginForm() {
       return;
     }
 
-    if (!turnstileToken) {
-      setError("Resolva a verificação de segurança.");
-      return;
-    }
-
     setLoading(true);
     const startedAt = Date.now();
     try {
       clearClientToken();
       const res = await authedFetch("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), password, turnstileToken }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
       const json = (await res.json()) as {
         error?: string;
@@ -238,15 +229,9 @@ export function LoginForm() {
           <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{error}</p>
         ) : null}
 
-        {!challenge ? (
-          <div className="flex justify-center">
-            <TurnstileWidget onToken={setTurnstileToken} />
-          </div>
-        ) : null}
-
         <button
           type="submit"
-          disabled={loading || (!challenge && !turnstileToken)}
+          disabled={loading}
           style={{
             ...authButtonStyle,
             opacity: loading ? 0.7 : 1,

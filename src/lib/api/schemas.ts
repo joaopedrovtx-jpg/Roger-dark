@@ -3,7 +3,6 @@ import { z } from "zod";
 export const loginSchema = z.object({
   email: z.string().email("E-mail inválido"),
   password: z.string().min(1, "Senha obrigatória"),
-  turnstileToken: z.string().optional(),
 });
 
 export const registerSchema = z.object({
@@ -11,7 +10,6 @@ export const registerSchema = z.object({
   email: z.string().email("E-mail inválido"),
   phone: z.string().optional(),
   password: z.string().min(10, "Senha deve ter no mínimo 10 caracteres"),
-  turnstileToken: z.string().optional(),
 });
 
 export const twoFactorSchema = z.object({

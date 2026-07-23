@@ -82,7 +82,6 @@ export interface Session {
 export interface LoginInput {
   email: string;
   password: string;
-  turnstileToken?: string;
 }
 
 export interface RegisterInput {
@@ -90,7 +89,6 @@ export interface RegisterInput {
   email: string;
   phone: string;
   password: string;
-  turnstileToken?: string;
 }
 
 // ─── Seller / User ──────────────────────────────────────
