@@ -7,12 +7,14 @@ export async function GET(req: Request) {
   const gate = await requireAdmin(req);
   if (isGuardFail(gate)) return gate.error;
   try {
-    const fromDb = await getAdminDashboardMetrics();
+    const { searchParams } = new URL(req.url);
+    const period = searchParams.get("period") || "7d";
+    const fromDb = await getAdminDashboardMetrics(period);
     if (fromDb) {
-      return NextResponse.json({ source: "mysql", ...fromDb });
+      return NextResponse.json({ source: "mysql", period, ...fromDb });
     }
     const metrics = await mockAdapter.getAdminMetrics();
-    return NextResponse.json({ source: "mock", ...metrics });
+    return NextResponse.json({ source: "mock", period, ...metrics });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
     return NextResponse.json({ error: msg }, { status: 500 });

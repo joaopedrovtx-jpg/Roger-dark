@@ -13,7 +13,7 @@ import { AdminStatusBadge } from "./AdminStatusBadge";
 import { AdminTd, AdminActionButton } from "./AdminTable";
 import { AdminGerenteDetailModal } from "./AdminGerenteDetailModal";
 import { AdminGerenteCreateModal } from "./AdminGerenteCreateModal";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import { type AdminGerente, type GerenteStatus } from "@/lib/mock/admin";
 import { authedFetch } from "@/lib/client/session";
 
@@ -27,12 +27,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "ativo", label: "Ativos" },
   { id: "inativo", label: "Inativos" },
 ];
-
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
 
 function mapGerente(g: AdminGerente): AdminGerente {
   return {

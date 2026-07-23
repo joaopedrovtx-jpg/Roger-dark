@@ -17,7 +17,8 @@ import {
 } from "@/components/dashboard/KpiIcons";
 import { AdminStatusBadge } from "./AdminStatusBadge";
 import { AdminTd } from "./AdminTable";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
+import { fillChartSeries } from "@/lib/chart-series";
 import {
   adminMetricsMock,
   type AdminMetrics,
@@ -39,19 +40,6 @@ const DEFAULT_PERIOD: PeriodValue = {
   key: "7d",
   label: "Últimos 7 dias",
 };
-
-function formatDateTime(iso: string): string {
-  if (!iso || iso === "undefined" || iso === "null") return "-";
-  try {
-    const date = formatChartDate(iso);
-    if (!date || date.includes("NaN") || date.includes("undefined")) return "-";
-    const time = iso.includes("T") ? iso.split("T")[1]?.slice(0, 5) : "";
-    if (!time || time.includes("undefined")) return date;
-    return `${date} ${time}`;
-  } catch {
-    return "-";
-  }
-}
 
 /** Nome + sobrenome em uma linha (sem undefined) */
 function formatSellerName(raw: unknown): string {
@@ -156,8 +144,9 @@ function formatAmount(tx: AdminLedgerTx): { text: string; color: string } {
 
 /**
  * Layout espelhado da Dashboard de usuário:
- * 1) 3 indicadores no topo
- * 2) gráfico (2 cols) + 4 métricas empilhadas (1 col)
+ * 1) topo: Volume + Receita (área do gráfico) | Total de transações (coluna lateral)
+ * 2) corpo: gráfico | 4 métricas (ticket, usuários, retido, conversão)
+ *    → Total de transações alinha verticalmente com a coluna dos indicadores
  * 3) histórico real (API de pagamento / PIX) com polling sem fake
  */
 export function AdminDashboardView() {
@@ -165,21 +154,7 @@ export function AdminDashboardView() {
   const [m, setMetrics] = useState<AdminMetrics>(adminMetricsMock);
   const [chartData, setChartData] = useState<
     Array<{ date: string; amount: number; grain?: "hour" | "day" }>
-  >(() => {
-    // 7 dias reais com 0 até a API carregar
-    const rows: Array<{ date: string; amount: number; grain: "day" }> = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setHours(12, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      rows.push({
-        date: d.toISOString().slice(0, 10),
-        amount: 0,
-        grain: "day",
-      });
-    }
-    return rows;
-  });
+  >(() => fillChartSeries("7d", []));
   const [dataSource, setDataSource] = useState<"mysql" | "mock">("mock");
 
   /** Só TXs reais do banco */
@@ -210,7 +185,7 @@ export function AdminDashboardView() {
         ledger?: AdminLedgerTx[];
       };
       if (json.metrics) setMetrics(json.metrics);
-      // Gráfico real (volume da API) sem métricas fictícias
+      // Gráfico real: preenche série contínua do período (15d → 15 datas)
       if (Array.isArray(json.volumeHistory)) {
         const cleaned = json.volumeHistory
           .map((p: { date?: string; amount?: number; grain?: "hour" | "day" }) => {
@@ -225,7 +200,9 @@ export function AdminDashboardView() {
             };
           })
           .filter((p: { date: string }) => /^\d{4}-\d{2}-\d{2}$/.test(p.date));
-        setChartData(cleaned);
+        setChartData(fillChartSeries(period.key, cleaned));
+      } else {
+        setChartData(fillChartSeries(period.key, []));
       }
 
       const rows: AdminLedgerTx[] = (json.ledger ?? [])
@@ -316,72 +293,81 @@ export function AdminDashboardView() {
       className="flex flex-col w-full min-w-0"
       style={{ gap: "var(--main-gap)" }}
     >
-      {/* Topo 3 indicadores */}
-      <div className="grid-kpi-3">
-        <KpiCard
-          icon={<IconDolarSymbol size={ICON} />}
-          label="Volume processado"
-          value={formatBRL(m.volumeProcessed)}
-        />
-        <KpiCard
-          icon={<IconMoneyFlying size={ICON} />}
-          label="Receita da plataforma"
-          value={formatBRL(m.platformRevenue)}
-        />
-        <KpiCard
-          icon={<IconTransferFilled size={ICON_TX} />}
-          label="Total de transações"
-          value={m.totalTransactions.toLocaleString("pt-BR")}
-        />
-      </div>
-
-      {/* Meio gráfico + métricas */}
-      <div className="grid-dash-main">
-        <div className="min-w-0" style={{ minHeight: 280 }}>
-          <RevenueChart
-            data={chartData}
-            period={period}
-            onPeriodChange={setPeriod}
-            title="Movimentações"
-            yAxisLabel="Volume"
-          />
+      {/*
+        Mesma proporção da dashboard do seller:
+        [ Volume | Receita | Total de transações ]  ← 3ª col = largura da lateral
+        [        Gráfico                        ]  [ Ticket | Usuários | Retido | Conversão ]
+      */}
+      <div className="dash-seller">
+        <div className="dash-seller__balances">
+          <div className="dash-balances">
+            <KpiCard
+              icon={<IconDolarSymbol size={ICON} />}
+              label="Volume processado"
+              value={formatBRL(m.volumeProcessed)}
+            />
+            <KpiCard
+              icon={<IconMoneyFlying size={ICON} />}
+              label="Receita da plataforma"
+              value={formatBRL(m.platformRevenue)}
+            />
+            <KpiCard
+              icon={<IconTransferFilled size={ICON_TX} />}
+              label="Total de transações"
+              value={m.totalTransactions.toLocaleString("pt-BR")}
+            />
+          </div>
         </div>
 
-        <div className="min-w-0 metrics-stack">
-          <div className="min-h-0 min-w-0">
-            <KpiCard
-              fill
-              icon={<IconPercentFilled size={ICON} />}
-              label="Ticket médio"
-              value={formatBRL(m.averageTicket)}
+        <div className="dash-seller__body">
+          <div className="dash-seller__chart min-w-0">
+            <RevenueChart
+              data={chartData}
+              period={period}
+              onPeriodChange={setPeriod}
+              title="Movimentações"
+              yAxisLabel="Volume"
             />
           </div>
-          <div className="min-h-0 min-w-0">
-            <KpiCard
-              fill
-              icon={<IconUsersFilled size={ICON} />}
-              label="Total de usuários"
-              value={String(m.totalUsers)}
-            />
-          </div>
-          <div className="min-h-0 min-w-0">
-            <KpiCard
-              fill
-              icon={<IconLockFilled size={ICON} />}
-              label="Saldo retido total"
-              value={formatBRL(m.totalHeldBalance)}
-            />
-          </div>
-          <div className="min-h-0 min-w-0">
-            <KpiCard
-              fill
-              icon={<IconCheckFilled size={ICON} />}
-              label="Taxa de conversão"
-              value={`${m.conversionRate.toLocaleString("pt-BR", {
-                minimumFractionDigits: 1,
-                maximumFractionDigits: 1,
-              })}%`}
-            />
+
+          <div className="dash-seller__metrics min-w-0">
+            <div className="metrics-stack w-full h-full">
+              <div className="metrics-stack__cell">
+                <KpiCard
+                  fill
+                  icon={<IconPercentFilled size={ICON} />}
+                  label="Ticket médio"
+                  value={formatBRL(m.averageTicket)}
+                />
+              </div>
+              <div className="metrics-stack__cell">
+                <KpiCard
+                  fill
+                  icon={<IconUsersFilled size={ICON} />}
+                  label="Total de usuários"
+                  value={String(m.totalUsers)}
+                />
+              </div>
+              <div className="metrics-stack__cell">
+                <KpiCard
+                  fill
+                  icon={<IconLockFilled size={ICON} />}
+                  label="Saldo retido total"
+                  value={formatBRL(m.totalHeldBalance)}
+                />
+              </div>
+              <div className="metrics-stack__cell">
+                <KpiCard
+                  fill
+                  icon={<IconCheckFilled size={ICON} />}
+                  label="Taxa de conversão"
+                  value={`${m.conversionRate.toLocaleString("pt-BR", {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                  })}%`}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

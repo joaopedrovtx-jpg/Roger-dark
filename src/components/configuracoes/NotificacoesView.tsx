@@ -205,6 +205,13 @@ export function NotificacoesView() {
     saveNotificationPrefs(next);
   }
 
+  /**
+   * Liga/desliga.
+   * Ao ligar, no MESMO clique do usuário:
+   * 1) Desbloqueia áudio (som da caixa) — gesto do browser
+   * 2) Pede autorização nativa de notificação (popup do Safari/Chrome)
+   * Só fica Ativo se o navegador conceder as notificações.
+   */
   async function handleMaster(wantOn: boolean) {
     if (busy) return;
 
@@ -221,11 +228,30 @@ export function NotificacoesView() {
 
     setBusy(true);
     try {
+      // 1) Som: desbloqueio + preload no mesmo gesto do clique
+      const {
+        primeCashRegisterSound,
+        ensureNotificationServiceWorker,
+      } = await import("@/lib/notifications");
       unlockNotificationAudio();
+      primeCashRegisterSound();
+      // SW para ícone da notificação (Dark Pay em vez da bússola do Safari)
+      void ensureNotificationServiceWorker();
+
+      // 2) Notificação: popup nativo Permitir / Bloquear (automático no clique)
       const perm = await requestNotificationPermission();
       setPermission(perm);
+
       if (perm === "granted") {
-        persist({ ...prefs, browserEnabled: true });
+        persist({
+          ...prefs,
+          browserEnabled: true,
+          vendaGerada: true,
+          vendaAprovada: true,
+        });
+        unlockNotificationAudio();
+        primeCashRegisterSound();
+        await ensureNotificationServiceWorker();
       } else {
         persist({ ...prefs, browserEnabled: false });
       }
@@ -350,7 +376,9 @@ export function NotificacoesView() {
               lineHeight: 1.4,
             }}
           >
-            {masterOn ? "Toque para desligar" : "Toque para ativar"}
+            {masterOn
+              ? "Toque para desligar"
+              : "Toque para ativar — o navegador pedirá permissão de notificação e o som será liberado"}
           </div>
         </div>
         <Switch

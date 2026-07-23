@@ -80,9 +80,9 @@ async function loadSellerFees(sellerId: string): Promise<{
     if (!u) return { feePercent: 3, feeFixed: 0 };
     const { assertSellerCanTransact } = await import("@/lib/server/mock-check");
     assertSellerCanTransact(u.status);
-    const feePercent = Number(u.saquePercent) > 0 ? Number(u.saquePercent) : 3;
-    const feeFixed = Number(u.saqueFixed) || 0;
-    return { feePercent, feeFixed };
+    const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
+    const plan = parseSellerFeePlan(u);
+    return { feePercent: plan.saquePercent, feeFixed: plan.saqueFixed };
   } catch (e) {
     if (e instanceof Error) throw e;
     return { feePercent: 3, feeFixed: 0 };

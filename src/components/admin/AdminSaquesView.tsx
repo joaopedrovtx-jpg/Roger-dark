@@ -15,7 +15,7 @@ import { AdminMetricCard } from "./AdminMetricCard";
 import { AdminStatusBadge } from "./AdminStatusBadge";
 import { AdminTd, AdminActionButton } from "./AdminTable";
 import { AdminSaqueDetailModal } from "./AdminSaqueDetailModal";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import {
   adminSaquesMock,
   saqueFeeAmount,
@@ -33,12 +33,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "pago", label: "Aprovados" },
   { id: "recusado", label: "Recusados" },
 ];
-
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
 
 const PENDING_YELLOW = "#f5a623";
 const RECUSADO_RED = "#ef4444";
@@ -117,9 +111,9 @@ export function AdminSaquesView() {
       );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Erro ao carregar");
-      // só mock se API falhar de verdade
-      setSaques(adminSaquesMock);
-      setSource("mock");
+      // Nunca seedar mock de demo em produção — lista vazia + erro
+      setSaques([]);
+      setSource("database");
     }
   };
 

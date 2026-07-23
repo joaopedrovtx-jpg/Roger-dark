@@ -87,8 +87,13 @@
   --radius-full: 9999px;
 
   /* Sizes — ícones e fundos dos cards maiores */
-  --kpi-icon-size: 48px;
-  --kpi-icon-glyph: 24px;
+  /* Saldos (topo): altura única e igual entre disponível/pendente/retido */
+  --kpi-card-height: 88px;
+  --kpi-action-width: 72px;
+  --kpi-icon-size: 42px;
+  --kpi-icon-glyph: 22px;
+  /* Altura mínima do bloco gráfico + lateral (4 métricas preenchem 100%) */
+  --dash-chart-min-h: 360px;
   --ring-size: 52px;
   --ring-stroke: 4.5px;
   --thumb-size: 36px;
@@ -320,11 +325,96 @@ body {
   }
 }
 
+/* KPI card — saldos: altura fixa; lateral do gráfico: .kpi-card--fill */
+.kpi-card {
+  width: 100% !important;
+  box-sizing: border-box;
+}
+
+.kpi-card:not(.kpi-card--fill) {
+  height: var(--kpi-card-height) !important;
+  min-height: var(--kpi-card-height) !important;
+  max-height: var(--kpi-card-height) !important;
+}
+
+.kpi-card--fill {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+/*
+ * Dashboard seller:
+ * 1) 3 saldos iguais (altura e largura)
+ * 2) Gráfico | 4 métricas do topo à base do gráfico
+ */
+.dash-seller {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kpi-gap);
+  width: 100%;
+}
+
+.dash-seller__balances {
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * Saldos: mesma altura; larguras alinhadas ao bloco do gráfico
+ * Disponível + Pendente = coluna do gráfico (mais estreitos cada um)
+ * Retido = coluna da lateral (mesma largura das 4 métricas)
+ */
+.dash-balances {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+  align-items: stretch;
+}
+
+.dash-balances > * {
+  min-width: 0;
+  width: 100%;
+}
+
+.dash-seller__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--kpi-gap);
+  width: 100%;
+  align-items: stretch;
+}
+
+.dash-seller__chart,
+.dash-seller__metrics {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--dash-chart-min-h);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Gráfico preenche a célula; métricas acompanham a mesma altura */
+.dash-seller__chart > *,
+.dash-seller__metrics > * {
+  flex: 1 1 auto;
+  min-height: var(--dash-chart-min-h);
+  height: 100%;
+}
+
 /* Grids utilitários responsivos */
 .grid-kpi-3 {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--kpi-gap);
+  width: 100%;
+  align-items: stretch;
+}
+
+/* 3 saldos: mesma altura e mesma largura de coluna */
+.grid-kpi-3 > * {
+  min-width: 0;
   width: 100%;
 }
 
@@ -349,13 +439,50 @@ body {
   width: 100%;
 }
 
-/* Métricas ao lado do gráfico */
+/* Gráfico de faturamento/volume: ocupa o card e não estoura o layout */
+.chart-card {
+  overflow: hidden;
+}
+
+.chart-plot {
+  position: relative;
+}
+
+.chart-plot::-webkit-scrollbar {
+  height: 4px;
+}
+
+.chart-plot::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+
+/* 4 métricas laterais: preenchem 100% da altura do gráfico (topo ↔ base) */
 .metrics-stack {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   gap: var(--kpi-gap);
   width: 100%;
+  height: 100%;
+  min-height: var(--dash-chart-min-h);
+  align-content: stretch;
   align-items: stretch;
+}
+
+.metrics-stack__cell {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.metrics-stack__cell > * {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
 }
 
 .grid-2 {
@@ -436,11 +563,44 @@ body {
     align-items: stretch;
   }
 
-  .grid-dash-main .metrics-stack {
-    grid-template-columns: 1fr;
-    grid-template-rows: repeat(4, minmax(72px, 1fr));
-    min-height: 320px;
+  /*
+   * Mesmas proporções em saldos e corpo:
+   * 1.6fr = gráfico (dividido em 2 → disponível + pendente)
+   * 0.85fr = lateral (retido + 4 métricas) → retido alinhado à lateral
+   */
+  .dash-balances {
+    grid-template-columns:
+      minmax(0, 0.8fr)
+      minmax(0, 0.8fr)
+      minmax(220px, 0.85fr);
+  }
+
+  .dash-seller__body {
+    grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.85fr);
+    align-items: stretch;
+    min-height: var(--dash-chart-min-h);
+  }
+
+  .dash-seller__chart,
+  .dash-seller__metrics {
     height: 100%;
+    min-height: var(--dash-chart-min-h);
+  }
+
+  .dash-seller__metrics .metrics-stack {
+    height: 100%;
+    min-height: 100%;
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Tablet: 3 saldos em linha (proporção parecida) */
+@media (min-width: 640px) and (max-width: 899px) {
+  .dash-balances {
+    grid-template-columns:
+      minmax(0, 0.8fr)
+      minmax(0, 0.8fr)
+      minmax(0, 0.85fr);
   }
 }
 

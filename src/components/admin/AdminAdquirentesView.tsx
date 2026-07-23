@@ -101,7 +101,7 @@ function rowColor(s: AdquirenteStatus): string {
 
 export function AdminAdquirentesView() {
   const [section, setSection] = useState<PageSection>("rota");
-  const [items, setItems] = useState<Adquirente[]>(adquirentesMock);
+  const [items, setItems] = useState<Adquirente[]>([]);
   const [tab, setTab] = useState<TabId>("todos");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Adquirente | null>(null);
@@ -115,9 +115,10 @@ export function AdminAdquirentesView() {
         const res = await authedFetch("/api/v1/admin/acquirers");
         if (!res.ok) return;
         const json = (await res.json()) as { items?: Adquirente[] };
-        if (!cancelled && json.items?.length) {
+        if (!cancelled) {
+          const list = Array.isArray(json.items) ? json.items : [];
           setItems(
-            json.items.map((a) => ({
+            list.map((a) => ({
               id: a.id,
               name: a.name,
               code: a.code,
@@ -133,7 +134,7 @@ export function AdminAdquirentesView() {
           );
         }
       } catch {
-        /* mock */
+        if (!cancelled) setItems([]);
       }
     })();
     return () => {

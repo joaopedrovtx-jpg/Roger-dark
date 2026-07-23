@@ -13,18 +13,27 @@ import { loadBranding } from "@/lib/branding";
 
 export const NOTIFICATIONS_STORAGE_KEY = "darkpay.notifications.v1";
 
-/** Favicon do site usado na notificação (versão 192px otimizada). */
+/**
+ * Ícone da notificação (192×192).
+ * Preferir sempre este arquivo — não o favicon genérico do Safari.
+ * Query ?v= força o browser a recarregar após troca de arte.
+ */
 export const SITE_NOTIFICATION_ICON_PATH = "/Fiveicon-notif.png";
+export const SITE_NOTIFICATION_ICON_VERSION = "v3";
 export const SITE_FAVICON_PATH = "/Fiveicon.png";
+
+function notificationIconAbsoluteUrl(origin: string): string {
+  return `${origin}${SITE_NOTIFICATION_ICON_PATH}?v=${SITE_NOTIFICATION_ICON_VERSION}`;
+}
 
 /**
  * Som de caixa registradora (venda gerada + venda aprovada).
- * Arquivo do usuário em public/sounds/cash-register.mp3
- * ?v= força o browser a não usar cache do WAV antigo.
+ * Fonte: public/sounds/cash-register.mp3
  * Só os primeiros CASH_REGISTER_MAX_SECONDS segundos tocam.
  */
 export const CASH_REGISTER_SOUND_PATH = "/sounds/cash-register.mp3";
-export const CASH_REGISTER_SOUND_URL = `${CASH_REGISTER_SOUND_PATH}?v=caixa-user-1`;
+/** Bump de query força refresh do cache do browser após troca do arquivo. */
+export const CASH_REGISTER_SOUND_URL = `${CASH_REGISTER_SOUND_PATH}?v=cash-register-mp3-v2`;
 /** Duração máxima do som da notificação (segundos). */
 export const CASH_REGISTER_MAX_SECONDS = 2;
 
@@ -191,10 +200,14 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * Lista de fontes do favicon do site (nunca hostname / logo genérico do projeto).
+ * Fontes do ícone da notificação.
+ * Prioridade: arte oficial 192px → branding → link rel=icon → favicon full.
  */
 function collectIconCandidates(origin: string): string[] {
   const out: string[] = [];
+
+  // 1) SEMPRE a arte oficial da notificação primeiro (Dark Pay)
+  out.push(notificationIconAbsoluteUrl(origin));
 
   try {
     const brand = loadBranding();
@@ -206,7 +219,7 @@ function collectIconCandidates(origin: string): string[] {
   if (typeof document !== "undefined") {
     document
       .querySelectorAll<HTMLLinkElement>(
-        "link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']"
+        "link[rel='apple-touch-icon'], link[rel='icon'], link[rel='shortcut icon']"
       )
       .forEach((link) => {
         const href = link.getAttribute("href") || link.href || "";
@@ -214,38 +227,61 @@ function collectIconCandidates(origin: string): string[] {
       });
   }
 
-  // Favicon oficial do site (otimizado + full)
-  out.push(SITE_NOTIFICATION_ICON_PATH, SITE_FAVICON_PATH);
+  out.push(`${origin}${SITE_FAVICON_PATH}`);
   return out
     .map((h) => toAbsoluteUrl(h, origin))
     .filter((h): h is string => Boolean(h));
 }
 
 /**
- * Carrega o favicon do site e devolve data:image/... (melhor suporte no Mac).
- * Síncrono de fallback: path absoluto.
+ * Fallback síncrono: URL HTTPS absoluta (Safari usa melhor que data:).
  */
 export function resolveNotificationIcon(): string | undefined {
   if (typeof window === "undefined") return undefined;
+  // Safari: NÃO preferir data URL no sync path
+  if (isSafariBrowser()) {
+    return notificationIconAbsoluteUrl(window.location.origin);
+  }
   if (cachedIconDataUrl) return cachedIconDataUrl;
-  return `${window.location.origin}${SITE_NOTIFICATION_ICON_PATH}`;
+  return notificationIconAbsoluteUrl(window.location.origin);
 }
 
+/**
+ * Resolve o ícone da notificação.
+ *
+ * Safari/macOS: data:image no option `icon` é IGNORADO e cai no ícone do Safari.
+ * Por isso no Safari usamos SEMPRE URL HTTPS absoluta do Fiveicon-notif.png.
+ *
+ * Chrome/Edge/Android: data URL embutido funciona bem e evita fetch na hora.
+ */
 export async function resolveNotificationIconAsync(): Promise<
   string | undefined
 > {
   if (typeof window === "undefined") return undefined;
+
+  const origin = window.location.origin;
+  const absoluteOfficial = notificationIconAbsoluteUrl(origin);
+
+  // Safari / Apple WebKit: URL absoluta HTTPS (não data:)
+  if (isSafariBrowser()) {
+    // Pré-aquece o cache do browser (não precisa data URL)
+    try {
+      await fetch(absoluteOfficial, { cache: "force-cache", mode: "cors" });
+    } catch {
+      /* ignore */
+    }
+    return absoluteOfficial;
+  }
+
   if (cachedIconDataUrl) return cachedIconDataUrl;
   if (iconLoadPromise) return iconLoadPromise;
 
   iconLoadPromise = (async () => {
-    const origin = window.location.origin;
     const candidates = collectIconCandidates(origin);
 
     for (const src of candidates) {
       try {
         if (src.startsWith("data:image/")) {
-          // data: muito grande falha no Safari — usa Fiveicon se > ~200KB
           if (src.length > 200_000) continue;
           cachedIconDataUrl = src;
           return src;
@@ -255,19 +291,24 @@ export async function resolveNotificationIconAsync(): Promise<
         if (!res.ok) continue;
         const blob = await res.blob();
         if (blob.size === 0) continue;
-        // content-type vazio em alguns static servers — ainda tenta
         if (blob.type && !blob.type.startsWith("image/")) continue;
-        // Limita tamanho embutido (Safari)
-        if (blob.size > 180_000) continue;
+        // Chrome: embute se pequeno
+        if (blob.size > 180_000) {
+          // usa URL absoluta se arquivo grande
+          if (src.startsWith("https://") || src.startsWith("http://")) {
+            return src;
+          }
+          continue;
+        }
         const dataUrl = await blobToDataUrl(blob);
         cachedIconDataUrl = dataUrl;
         return dataUrl;
       } catch {
-        // tenta próximo candidato
+        // tenta próximo
       }
     }
 
-    return `${origin}${SITE_NOTIFICATION_ICON_PATH}`;
+    return absoluteOfficial;
   })();
 
   try {
@@ -278,10 +319,13 @@ export async function resolveNotificationIconAsync(): Promise<
 }
 
 /**
- * Só o que importa na notificação:
+ * Conteúdo da notificação nativa:
  * - title: "Venda gerada" | "Venda aprovada"
- * - body: valor em R$ (ex.: "R$ 297,00")
- * Nunca inclui hostname, cliente, produto ou localhost.
+ * - body: "Valor da venda R$ 297,00" (mesma linha: texto + valor)
+ *
+ * Nota: no macOS/Safari o SO ainda mostra o domínio (darkpays.online)
+ * na barra do sistema — isso não é controlável pela Web Notification API.
+ * O body é o que o usuário lê como “parte de baixo” do conteúdo.
  */
 export function buildSaleNotificationCopy(payload: SaleNotifyPayload): {
   title: string;
@@ -293,23 +337,45 @@ export function buildSaleNotificationCopy(payload: SaleNotifyPayload): {
   const value = formatBRL(amount);
 
   return {
-    // Título limpo (sem domínio). Valor no body — o que o usuário lê.
     title: kindLabel,
-    body: value,
+    // Texto + valor na mesma linha (substitui o body que era só o R$)
+    body: `Valor da venda ${value}`,
   };
 }
 
-/** Player só para desbloqueio silencioso de autoplay (nunca toca o cha-ching sozinho). */
-let unlockAudio: HTMLAudioElement | null = null;
-let audioUnlocked = false;
 /**
- * Retry curto APÓS uma venda real (não fica pendente para sempre).
- * Evita o bug de tocar no clique/foco aleatório.
+ * Áudio de venda — regras anti “som fantasmas minutos depois”:
+ * 1) NUNCA deixar play() pendente (Safari/Chrome resolvem no próximo clique).
+ * 2) NUNCA re-tocar som no unlock de gesto do usuário.
+ * 3) Se play não confirmar em ~350ms, aborta o elemento (mata promise atrasada).
+ * 4) Som só no instante da notificação de venda.
  */
-let pendingSaleSoundUntil = 0;
+let unlockAudio: HTMLAudioElement | null = null;
+/** Pré-carrega bytes do MP3 (cache HTTP); não reutilizamos o mesmo element para play. */
+let primedCashAudio: HTMLAudioElement | null = null;
+let audioUnlocked = false;
 let cashStopTimer: ReturnType<typeof setTimeout> | null = null;
+/** Invalida plays atrasados (promise resolvendo depois de minutos). */
+let playGeneration = 0;
+/** Instância atual em reprodução (para matar ao abortar). */
+let activeSaleAudio: HTMLAudioElement | null = null;
 /** Dedupe: mesma venda (id+kind) não toca de novo */
 const playedSaleSoundKeys = new Set<string>();
+
+function killAudioElement(audio: HTMLAudioElement | null): void {
+  if (!audio) return;
+  try {
+    audio.pause();
+  } catch {
+    /* ignore */
+  }
+  try {
+    audio.removeAttribute("src");
+    audio.load();
+  } catch {
+    /* ignore */
+  }
+}
 
 function getUnlockAudio(): HTMLAudioElement | null {
   if (typeof window === "undefined" || typeof Audio === "undefined") {
@@ -324,14 +390,32 @@ function getUnlockAudio(): HTMLAudioElement | null {
   return unlockAudio;
 }
 
-/** Para o áudio exatamente em CASH_REGISTER_MAX_SECONDS (só os 2s iniciais). */
-function limitCashRegisterDuration(audio: HTMLAudioElement): void {
+/** Pré-carrega o MP3 em cache (chamado no unlock + bootstrap). Nunca toca sozinho. */
+export function primeCashRegisterSound(): void {
+  if (typeof window === "undefined" || typeof Audio === "undefined") return;
+  try {
+    if (!primedCashAudio) {
+      primedCashAudio = new Audio(CASH_REGISTER_SOUND_URL);
+      primedCashAudio.preload = "auto";
+      primedCashAudio.volume = 0;
+      primedCashAudio.muted = true;
+      primedCashAudio.setAttribute("playsinline", "true");
+    }
+    void primedCashAudio.load();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Para o áudio exatamente em CASH_REGISTER_MAX_SECONDS. */
+function limitCashRegisterDuration(audio: HTMLAudioElement, gen: number): void {
   if (cashStopTimer) {
     clearTimeout(cashStopTimer);
     cashStopTimer = null;
   }
 
   const stop = () => {
+    if (gen !== playGeneration) return;
     try {
       audio.pause();
       audio.currentTime = 0;
@@ -343,6 +427,7 @@ function limitCashRegisterDuration(audio: HTMLAudioElement): void {
       clearTimeout(cashStopTimer);
       cashStopTimer = null;
     }
+    if (activeSaleAudio === audio) activeSaleAudio = null;
   };
 
   const onTime = () => {
@@ -350,26 +435,18 @@ function limitCashRegisterDuration(audio: HTMLAudioElement): void {
   };
 
   audio.addEventListener("timeupdate", onTime);
-  cashStopTimer = setTimeout(stop, CASH_REGISTER_MAX_SECONDS * 1000 + 50);
+  cashStopTimer = setTimeout(stop, CASH_REGISTER_MAX_SECONDS * 1000 + 80);
 }
 
 /**
- * Só libera autoplay (silencioso). NÃO toca o som de venda por conta própria,
- * exceto se uma venda acabou de falhar autoplay (janela ~2.5s).
+ * Só libera autoplay (silencioso). NUNCA toca o cha-ching aqui.
+ * O bug antigo: retry de som no próximo clique → som “do nada” minutos depois.
  */
 export function unlockNotificationAudio(): void {
   if (typeof window === "undefined") return;
 
-  // Retry curto: só se uma venda pediu som agora pouco
-  const canRetrySaleSound = Date.now() < pendingSaleSoundUntil;
-
-  if (audioUnlocked) {
-    if (canRetrySaleSound) {
-      pendingSaleSoundUntil = 0;
-      playCashRegisterSoundRaw();
-    }
-    return;
-  }
+  primeCashRegisterSound();
+  if (audioUnlocked) return;
 
   const audio = getUnlockAudio();
   if (!audio) return;
@@ -377,24 +454,34 @@ export function unlockNotificationAudio(): void {
   try {
     audio.muted = true;
     audio.volume = 0;
-    audio.currentTime = 0;
+    try {
+      audio.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
     const p = audio.play();
     if (p && typeof p.then === "function") {
       void p
         .then(() => {
-          audio.pause();
-          audio.currentTime = 0;
-          audioUnlocked = true;
-          if (canRetrySaleSound && Date.now() < pendingSaleSoundUntil + 50) {
-            pendingSaleSoundUntil = 0;
-            playCashRegisterSoundRaw();
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+          } catch {
+            /* ignore */
           }
+          audioUnlocked = true;
+          primeCashRegisterSound();
+          // NÃO tocar som de venda aqui
         })
         .catch(() => {
-          /* ainda bloqueado */
+          /* ainda bloqueado — ok */
         });
     } else {
-      audio.pause();
+      try {
+        audio.pause();
+      } catch {
+        /* ignore */
+      }
       audioUnlocked = true;
     }
   } catch {
@@ -402,38 +489,82 @@ export function unlockNotificationAudio(): void {
   }
 }
 
-/** Toca o MP3 (2s). Sem marcar pendência eterna. */
+/**
+ * Toca o cha-ching AGORA ou desiste.
+ * Se o browser adiar o play (autoplay), abortamos em 350ms para a promise
+ * atrasada não tocar o som em outro momento/página.
+ */
 function playCashRegisterSoundRaw(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || typeof Audio === "undefined") return;
+
+  const gen = ++playGeneration;
+  // Mata qualquer play anterior (evita sobreposição e ghosts)
+  killAudioElement(activeSaleAudio);
+  activeSaleAudio = null;
+
+  const once = new Audio(CASH_REGISTER_SOUND_URL);
+  once.preload = "auto";
+  once.volume = 1;
+  once.muted = false;
+  once.setAttribute("playsinline", "true");
+  activeSaleAudio = once;
+
+  let settled = false;
+
+  const abortIfLate = () => {
+    if (settled || gen !== playGeneration) return;
+    settled = true;
+    // play não confirmou a tempo → mata o element (promise atrasada vira no-op)
+    killAudioElement(once);
+    if (activeSaleAudio === once) activeSaleAudio = null;
+  };
+
+  // Janela curta: ou toca junto com a notificação, ou não toca
+  const failSafe = window.setTimeout(abortIfLate, 350);
+
   try {
-    const once = new Audio(CASH_REGISTER_SOUND_URL);
-    once.preload = "auto";
-    once.volume = 1;
-    once.muted = false;
-    once.setAttribute("playsinline", "true");
+    try {
+      once.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
 
     const p = once.play();
     if (p && typeof p.then === "function") {
       void p
         .then(() => {
+          if (gen !== playGeneration) {
+            killAudioElement(once);
+            return;
+          }
+          settled = true;
+          window.clearTimeout(failSafe);
           audioUnlocked = true;
-          limitCashRegisterDuration(once);
+          limitCashRegisterDuration(once, gen);
         })
         .catch(() => {
-          // Autoplay bloqueado: permite 1 retry nos próximos 2.5s se o user interagir
-          pendingSaleSoundUntil = Date.now() + 2500;
+          // Autoplay bloqueado — desiste. NÃO agenda retry em clique futuro.
+          settled = true;
+          window.clearTimeout(failSafe);
+          killAudioElement(once);
+          if (activeSaleAudio === once) activeSaleAudio = null;
         });
     } else {
-      limitCashRegisterDuration(once);
+      settled = true;
+      window.clearTimeout(failSafe);
+      limitCashRegisterDuration(once, gen);
     }
   } catch {
-    pendingSaleSoundUntil = Date.now() + 2500;
+    settled = true;
+    window.clearTimeout(failSafe);
+    killAudioElement(once);
+    if (activeSaleAudio === once) activeSaleAudio = null;
   }
 }
 
 /**
- * Som de caixa registradora — SOMENTE venda gerada (pendente) ou aprovada (paga).
- * Nunca deve tocar “do nada” (clique, foco, troca de aba).
+ * Som de caixa — SOMENTE no mesmo instante da notificação de venda.
+ * Nunca em clique/foco/timer solto.
  */
 export function playCashRegisterSound(saleKey?: string): void {
   if (typeof window === "undefined") return;
@@ -441,7 +572,6 @@ export function playCashRegisterSound(saleKey?: string): void {
   if (saleKey) {
     if (playedSaleSoundKeys.has(saleKey)) return;
     playedSaleSoundKeys.add(saleKey);
-    // evita crescimento infinito
     if (playedSaleSoundKeys.size > 200) {
       const first = playedSaleSoundKeys.values().next().value;
       if (first) playedSaleSoundKeys.delete(first);
@@ -464,45 +594,144 @@ export function shouldAlertSale(
   return false;
 }
 
-async function createSystemNotification(
-  title: string,
-  body: string,
-  tag: string
-): Promise<Notification> {
-  const icon =
-    (await resolveNotificationIconAsync()) || resolveNotificationIcon();
+/** Service Worker que exibe notificação com ícone (melhor no Safari/macOS). */
+const NOTIF_SW_URL = "/sw-notifications.js";
+let notifSwReg: ServiceWorkerRegistration | null = null;
+let notifSwRegisterPromise: Promise<ServiceWorkerRegistration | null> | null =
+  null;
 
-  const opts: NotificationOptions = {
-    body,
-    tag,
-    // Nunca deixe o body vazio — no Mac o SO preenche com lixo/origem
-    lang: "pt-BR",
-    dir: "ltr",
-    // Silencia o ding padrão do SO: o som da venda é a caixa registradora
-    silent: true,
-    requireInteraction: false,
-  };
+/**
+ * Registra o SW de notificações (idempotente).
+ * Chamado no bootstrap do painel e ao ativar notificações.
+ */
+export async function ensureNotificationServiceWorker(): Promise<
+  ServiceWorkerRegistration | null
+> {
+  if (typeof window === "undefined") return null;
+  if (!("serviceWorker" in navigator)) return null;
+  if (notifSwReg) return notifSwReg;
+  if (notifSwRegisterPromise) return notifSwRegisterPromise;
 
-  if (icon) {
-    opts.icon = icon;
-    // Chrome Android/Windows: imagem de conteúdo
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (opts as any).image = icon;
-    // Android badge (monocromático ideal; colorido ainda ajuda em alguns)
-    opts.badge = icon;
-  }
+  notifSwRegisterPromise = (async () => {
+    try {
+      const reg = await navigator.serviceWorker.register(NOTIF_SW_URL, {
+        scope: "/",
+        updateViaCache: "none",
+      });
+      // Aguarda active (necessário para postMessage / showNotification)
+      if (reg.installing) {
+        await new Promise<void>((resolve) => {
+          const sw = reg.installing;
+          if (!sw) {
+            resolve();
+            return;
+          }
+          sw.addEventListener("statechange", () => {
+            if (sw.state === "activated" || sw.state === "redundant") {
+              resolve();
+            }
+          });
+        });
+      }
+      await navigator.serviceWorker.ready;
+      notifSwReg = reg;
+      return reg;
+    } catch (e) {
+      console.warn("[notif] service worker não registrado", e);
+      return null;
+    } finally {
+      notifSwRegisterPromise = null;
+    }
+  })();
 
-  return new Notification(title, opts);
+  return notifSwRegisterPromise;
 }
 
 /**
- * Notificação nativa do dispositivo.
- * @param options.force ignora prefs (botão Testar)
+ * Exibe notificação preferindo Service Worker (ícone Dark Pay).
+ * Fallback: `new Notification` (Chrome ok; Safari às vezes força ícone do browser).
+ */
+async function showSystemNotification(opts: {
+  title: string;
+  body: string;
+  tag: string;
+  icon?: string;
+}): Promise<"sw" | "window"> {
+  const icon =
+    opts.icon ||
+    (typeof window !== "undefined"
+      ? notificationIconAbsoluteUrl(window.location.origin)
+      : undefined);
+
+  // 1) Preferir SW.showNotification — melhor chance do ícone Dark Pay no Safari
+  //    (new Notification no macOS Safari quase sempre mostra a bússola)
+  try {
+    const reg = await ensureNotificationServiceWorker();
+    if (reg) {
+      await reg.showNotification(opts.title, {
+        body: opts.body,
+        tag: opts.tag,
+        icon,
+        badge: icon,
+        silent: true,
+        requireInteraction: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(isSafariBrowser() ? {} : ({ image: icon } as any)),
+        data: { url: "/transacoes" },
+      });
+      return "sw";
+    }
+  } catch {
+    /* cai no fallback */
+  }
+
+  // 2) Fallback clássico
+  const n = new Notification(opts.title, {
+    body: opts.body,
+    tag: opts.tag,
+    lang: "pt-BR",
+    dir: "ltr",
+    silent: true,
+    requireInteraction: false,
+    ...(icon
+      ? {
+          icon,
+          badge: icon,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(isSafariBrowser() ? {} : ({ image: icon } as any)),
+        }
+      : {}),
+  });
+
+  n.onclick = () => {
+    try {
+      window.focus();
+    } catch {
+      /* ignore */
+    }
+    try {
+      n.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      window.location.assign("/transacoes");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return "window";
+}
+
+/**
+ * Notificação nativa + som no MESMO instante síncrono.
+ * Ícone é resolvido antes; depois: playSound + new Notification juntos.
  */
 export async function showSaleBrowserNotification(
   prefs: NotificationPrefs,
   payload: SaleNotifyPayload,
-  options?: { force?: boolean }
+  options?: { force?: boolean; playSound?: boolean }
 ): Promise<NotifyResult> {
   if (!options?.force) {
     if (!prefs.browserEnabled) {
@@ -539,7 +768,6 @@ export async function showSaleBrowserNotification(
   }
 
   const { title, body } = buildSaleNotificationCopy(payload);
-  // tag sem origem/hostname — só tipo + id opcional
   const idPart =
     payload.id && !payload.id.startsWith("sim-")
       ? payload.id.slice(0, 24)
@@ -547,28 +775,18 @@ export async function showSaleBrowserNotification(
   const tag = `venda-${payload.kind}-${idPart}`;
 
   try {
-    // Som toca no SaleNotificationsProvider (automático) para não duplicar.
-    // Pré-aquece ícone antes de criar a notificação
-    await resolveNotificationIconAsync();
-    const n = await createSystemNotification(title, body, tag);
+    // 1) Ícone HTTPS + SW prontos (antes do tick som+notif)
+    const icon =
+      (await resolveNotificationIconAsync()) || resolveNotificationIcon();
+    await ensureNotificationServiceWorker();
 
-    n.onclick = () => {
-      try {
-        window.focus();
-      } catch {
-        // ignore
-      }
-      try {
-        n.close();
-      } catch {
-        // ignore
-      }
-      try {
-        window.location.assign("/transacoes");
-      } catch {
-        // ignore
-      }
-    };
+    // 2) Som + notificação no mesmo instante (SW tenta ícone Dark Pay)
+    if (options?.playSound !== false) {
+      const saleKey = `${payload.kind}:${payload.id || "no-id"}:${payload.amount}`;
+      playCashRegisterSound(saleKey);
+    }
+
+    await showSystemNotification({ title, body, tag, icon });
 
     return { ok: true };
   } catch (err) {

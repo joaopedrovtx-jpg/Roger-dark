@@ -21,6 +21,17 @@ export async function GET(req: Request) {
     const pageSize = Number(searchParams.get("pageSize") ?? 40);
     const sellerId = scope.sellerId;
 
+    // Reconcilia até 6 pendentes recentes com a adquirente antes de listar
+    // (timeouts individuais na Velana; falhas não derrubam a listagem).
+    try {
+      const { reconcilePendingPayments } = await import(
+        "@/lib/server/reconcile-payments"
+      );
+      await reconcilePendingPayments({ sellerId, limit: 6 });
+    } catch {
+      /* listagem segue mesmo se sync falhar */
+    }
+
     const fromDb = await listSellerTransactions(sellerId, {
       page,
       pageSize,

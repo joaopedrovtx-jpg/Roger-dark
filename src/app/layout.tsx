@@ -14,9 +14,21 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Dark Pay Payment Solutions",
   description: "Painel de controle Dark Pay",
+  manifest: "/site.webmanifest",
   icons: {
-    icon: "/Fiveicon.png",
-    apple: "/Fiveicon.png",
+    icon: [
+      { url: "/Fiveicon-notif.png", sizes: "192x192", type: "image/png" },
+      { url: "/Fiveicon.png", type: "image/png" },
+    ],
+    apple: [
+      { url: "/Fiveicon-notif.png", sizes: "192x192", type: "image/png" },
+      { url: "/Fiveicon.png", type: "image/png" },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Dark Pay",
+    statusBarStyle: "black-translucent",
   },
 };
 

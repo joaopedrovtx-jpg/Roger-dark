@@ -69,6 +69,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       setUser(null);
       clearClientToken();
+      // Cookie HMAC pode ainda existir (middleware deixa passar) mas a sessão
+      // no banco morreu/migrou — limpa cookie e manda pro login se estiver
+      // em rota protegida, evitando flood de 401 em /transactions e /documents.
+      try {
+        await fetch("/api/v1/auth/logout", {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        /* ignore */
+      }
+      if (typeof window !== "undefined") {
+        const path = window.location.pathname;
+        const publicPath =
+          path.startsWith("/login") ||
+          path.startsWith("/registro") ||
+          path.startsWith("/esqueci-senha") ||
+          path.startsWith("/redefinir-senha") ||
+          path.startsWith("/docs");
+        if (!publicPath) {
+          const next = encodeURIComponent(path + window.location.search);
+          window.location.replace(`/login?next=${next}`);
+          return;
+        }
+      }
     } finally {
       // Logo pulsando no mínimo 2s ao carregar a página / sessão
       await waitBrandLoadingMin(startedAt);
@@ -77,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // bug log global (window.error / unhandledrejection)
+    void import("@/lib/client/bug-report").then((m) =>
+      m.installClientBugHandlers()
+    );
     void refresh();
   }, [refresh]);
 

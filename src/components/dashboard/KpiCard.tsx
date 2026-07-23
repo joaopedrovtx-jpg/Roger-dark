@@ -4,28 +4,47 @@ interface KpiCardProps {
   icon: ReactNode;
   label: string;
   value: string;
-  /** Ação à direita, centralizada verticalmente (ex.: Sacar) */
+  /** Ação à direita (ex.: Sacar) */
   action?: ReactNode;
-  /** Preenche a altura do container (stack alinhado) */
+  /**
+   * Reserva a faixa da ação nos 3 saldos (mesma largura interna).
+   */
+  reserveAction?: boolean;
+  /**
+   * Preenche a célula (métricas laterais alinhadas à altura do gráfico).
+   */
   fill?: boolean;
 }
 
+/**
+ * Card de indicador unificado.
+ * - Saldos: altura fixa --kpi-card-height, 3 colunas iguais
+ * - Lateral do gráfico: fill = divide a altura do gráfico em 4 partes iguais
+ */
 export function KpiCard({
   icon,
   label,
   value,
   action,
+  reserveAction = false,
   fill = false,
 }: KpiCardProps) {
+  const showActionRail = Boolean(action) || reserveAction;
+
   return (
     <div
-      className="surface-card flex items-center gap-3.5 w-full"
+      className={`surface-card kpi-card flex items-center w-full min-w-0 ${
+        fill ? "kpi-card--fill" : ""
+      }`}
       style={{
-        padding: "16px 18px",
-        height: fill ? "100%" : 88,
-        minHeight: fill ? 0 : 88,
+        gap: 12,
+        padding: fill ? "0 14px" : "0 16px",
+        height: fill ? "100%" : "var(--kpi-card-height)",
+        minHeight: fill ? 0 : "var(--kpi-card-height)",
+        maxHeight: fill ? "none" : "var(--kpi-card-height)",
         borderRadius: "var(--radius-card)",
         boxSizing: "border-box",
+        width: "100%",
       }}
     >
       <span
@@ -39,22 +58,36 @@ export function KpiCard({
       >
         {icon}
       </span>
-      <div className="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
+
+      <div
+        className="min-w-0 flex-1 flex flex-col justify-center"
+        style={{ gap: 2 }}
+      >
         <span
           className="truncate"
-          style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 400 }}
+          style={{ fontSize: 11.5, color: "var(--text-2)", fontWeight: 400 }}
         >
           {label}
         </span>
         <span
           className="tabular truncate font-bold"
-          style={{ fontSize: 18, color: "var(--text-1)", lineHeight: 1.2 }}
+          style={{ fontSize: fill ? 15.5 : 16, color: "var(--text-1)", lineHeight: 1.15 }}
         >
           {value}
         </span>
       </div>
-      {action ? (
-        <div className="shrink-0 flex items-center self-center">{action}</div>
+
+      {showActionRail ? (
+        <div
+          className="shrink-0 flex items-center self-center justify-end"
+          style={{
+            width: "var(--kpi-action-width)",
+            minWidth: "var(--kpi-action-width)",
+            minHeight: 32,
+          }}
+        >
+          {action ?? null}
+        </div>
       ) : null}
     </div>
   );

@@ -244,7 +244,7 @@ export function RegisterForm() {
             ...authButtonStyle,
             marginTop: 2,
             cursor: loading ? "wait" : "pointer",
-            opacity: loading ? 0.7 : 1,
+            opacity: loading ? 0.55 : 1,
           }}
         >
           {loading ? "Criando conta…" : "Criar minha conta"}

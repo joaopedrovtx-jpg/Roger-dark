@@ -435,6 +435,18 @@ export function WebhooksView() {
                 Cadastre Callback URLs para receber eventos de pagamento e
                 transferências em tempo real.
               </p>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  color: "#f5a623",
+                }}
+              >
+                Aviso: o cadastro fica neste navegador (local). A entrega
+                server-side dos eventos está em implementação — os postbacks
+                reais da adquirente usam as rotas internas do DarkPay.
+              </p>
             </div>
           </div>
           <button

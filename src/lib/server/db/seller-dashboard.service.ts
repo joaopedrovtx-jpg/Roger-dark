@@ -1,5 +1,12 @@
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import type { PeriodKey, SellerDashboard } from "@/lib/domain/types";
+import {
+  chartBucketKey,
+  daysForPeriod,
+  fillChartSeries,
+  type ChartGrain,
+} from "@/lib/chart-series";
+import { endOfZonedDay, startOfZonedDay } from "@/lib/timezone";
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -20,34 +27,36 @@ async function dbOk() {
   }
 }
 
-function periodStart(period: PeriodKey): Date {
-  const now = new Date();
-  const d = new Date(now);
-  switch (period) {
-    case "today":
-      d.setHours(0, 0, 0, 0);
-      return d;
-    case "yesterday": {
-      d.setDate(d.getDate() - 1);
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
-    case "7d":
-      d.setDate(d.getDate() - 7);
-      return d;
-    case "15d":
-      d.setDate(d.getDate() - 15);
-      return d;
-    case "30d":
-      d.setDate(d.getDate() - 30);
-      return d;
-    case "60d":
-      d.setDate(d.getDate() - 60);
-      return d;
-    default:
-      d.setDate(d.getDate() - 7);
-      return d;
+/**
+ * Janela do período em America/Sao_Paulo (alinhada ao gráfico).
+ * Vendas pagas usam paidAt (fallback date) para bater com o dia do recebimento.
+ */
+function periodWindow(period: PeriodKey): {
+  from: Date;
+  to: Date;
+  grain: ChartGrain;
+} {
+  if (period === "today") {
+    return {
+      from: startOfZonedDay(0),
+      to: endOfZonedDay(0),
+      grain: "hour",
+    };
   }
+  if (period === "yesterday") {
+    return {
+      from: startOfZonedDay(1),
+      to: endOfZonedDay(1),
+      grain: "hour",
+    };
+  }
+  const days = daysForPeriod(period);
+  // N dias incluindo hoje → início = meia-noite de (N-1) dias atrás
+  return {
+    from: startOfZonedDay(days - 1),
+    to: endOfZonedDay(0),
+    grain: "day",
+  };
 }
 
 export async function getSellerDashboard(
@@ -59,67 +68,78 @@ export async function getSellerDashboard(
   const user = await prisma.user.findUnique({ where: { id: sellerId } });
   if (!user) return null;
 
-  const from = periodStart(period);
-  const to = new Date();
-  if (period === "yesterday") {
-    to.setHours(0, 0, 0, 0);
-  }
+  const { from, to, grain } = periodWindow(period);
 
-  const saleWhere = {
+  // Métricas e gráfico: vendas pagas cujo instante de pagamento (ou criação)
+  // cai no período em SP.
+  const paidInPeriod = await prisma.transaction.findMany({
+    where: {
+      sellerId,
+      kind: "venda",
+      status: "aprovada",
+      OR: [
+        { paidAt: { gte: from, lte: to } },
+        // legado: pago sem paidAt → usa date
+        { paidAt: null, date: { gte: from, lte: to } },
+      ],
+    },
+    select: {
+      date: true,
+      paidAt: true,
+      amount: true,
+      netAmount: true,
+    },
+    orderBy: { date: "asc" },
+    take: 5000,
+  });
+
+  // Contagens do período (todas as vendas criadas no range) para conversão
+  const saleWhereCreated = {
     sellerId,
     kind: "venda" as const,
     date: { gte: from, lte: to },
   };
 
-  const [paidAgg, totalCount, decidedCount, totalOutAgg, paidForSeries] =
-    await Promise.all([
-      prisma.transaction.aggregate({
-        where: { ...saleWhere, status: "aprovada" },
-        _sum: { amount: true, netAmount: true },
-        _count: true,
-      }),
-      prisma.transaction.count({ where: saleWhere }),
-      prisma.transaction.count({
-        where: {
-          ...saleWhere,
-          status: { in: ["aprovada", "recusada", "reembolsada"] },
-        },
-      }),
-      prisma.withdrawal.aggregate({
-        where: {
-          sellerId,
-          status: "pago",
-          date: { gte: from, lte: to },
-        },
-        _sum: { amount: true },
-      }),
-      prisma.transaction.findMany({
-        where: { ...saleWhere, status: "aprovada" },
-        select: { date: true, amount: true },
-        orderBy: { date: "asc" },
-        take: 2000,
-      }),
-    ]);
+  const [totalCount, decidedCount, totalOutAgg] = await Promise.all([
+    prisma.transaction.count({ where: saleWhereCreated }),
+    prisma.transaction.count({
+      where: {
+        ...saleWhereCreated,
+        status: { in: ["aprovada", "recusada", "reembolsada"] },
+      },
+    }),
+    prisma.withdrawal.aggregate({
+      where: {
+        sellerId,
+        status: "pago",
+        date: { gte: from, lte: to },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
 
-  const volume = n(paidAgg._sum.amount);
-  const sellerProfit = n(paidAgg._sum.netAmount);
-  const paidCount = paidAgg._count;
+  let volume = 0;
+  let sellerProfit = 0;
+  const byBucket = new Map<string, number>();
+
+  for (const t of paidInPeriod) {
+    const when = t.paidAt ?? t.date;
+    volume += n(t.amount);
+    sellerProfit += n(t.netAmount);
+    const key = chartBucketKey(when, grain);
+    byBucket.set(key, (byBucket.get(key) ?? 0) + n(t.amount));
+  }
+
+  const paidCount = paidInPeriod.length;
   const totalOut = n(totalOutAgg._sum.amount);
   const conversionRate =
     decidedCount > 0 ? (paidCount / decidedCount) * 100 : 0;
 
-  const byDay = new Map<string, number>();
-  for (const t of paidForSeries) {
-    const key = t.date.toISOString().slice(0, 10);
-    byDay.set(key, (byDay.get(key) ?? 0) + n(t.amount));
-  }
-  const revenueHistory = [...byDay.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, amount]) => ({
-      date,
-      amount,
-      grain: "day" as const,
-    }));
+  const sparse = [...byBucket.entries()].map(([date, amount]) => ({
+    date,
+    amount,
+  }));
+  const revenueHistory = fillChartSeries(period, sparse);
 
   return {
     user: {
@@ -133,9 +153,6 @@ export async function getSellerDashboard(
       held: n(user.balanceHeld),
     },
     metrics: {
-      // Lucro líquido do seller (soma de netAmount das vendas aprovadas).
-      // Se não houver vendas no período, retorna 0 (não cai no
-      // platformProfit, que é receita da plataforma e pertence ao admin).
       netProfit: sellerProfit,
       transactionCount: totalCount,
       averageTicket: paidCount ? volume / paidCount : 0,

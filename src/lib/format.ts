@@ -1,8 +1,65 @@
+/** Fuso do produto (Brasil). Sempre usar ao exibir instantes ISO da API. */
+export const APP_TIMEZONE = "America/Sao_Paulo";
+
 export function formatBRL(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(value);
+}
+
+/**
+ * Data + hora no fuso de Brasília (dd/mm/aaaa HH:mm).
+ * Corrige o bug de mostrar o horário UTC cru do ISO (`T21:49:03.000Z` → 18:49 BRT).
+ */
+export function formatDateTime(
+  iso: string | null | undefined
+): string {
+  if (iso == null) return "-";
+  const raw = String(iso).trim();
+  if (
+    !raw ||
+    raw === "undefined" ||
+    raw === "null" ||
+    raw.includes("undefined") ||
+    raw.includes("null")
+  ) {
+    return "-";
+  }
+
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return "-";
+  const dt = new Date(t);
+  if (!Number.isFinite(dt.getTime()) || dt.getFullYear() <= 1970) return "-";
+
+  try {
+    const parts = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: APP_TIMEZONE,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(dt);
+
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? "";
+
+    const day = get("day");
+    const month = get("month");
+    const year = get("year");
+    let hour = get("hour");
+    const minute = get("minute");
+    // Alguns engines devolvem "24" para meia-noite com hour12:false
+    if (hour === "24") hour = "00";
+
+    if (!day || !month || !year) return "-";
+    if (!hour || !minute) return `${day}/${month}/${year}`;
+    return `${day}/${month}/${year} ${hour}:${minute}`;
+  } catch {
+    return "-";
+  }
 }
 
 export function formatCompactK(value: number): string {

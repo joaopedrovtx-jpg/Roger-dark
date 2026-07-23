@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -17,6 +17,7 @@ import {
   formatChartDate,
   formatChartLabel,
 } from "@/lib/format";
+import { fillChartSeries, daysForPeriod } from "@/lib/chart-series";
 import { PeriodFilter, type PeriodValue } from "./PeriodFilter";
 
 interface RevenueChartProps {
@@ -83,7 +84,8 @@ function toBucketPoints(
     const d = formatChartDate(sorted[i].date);
     if (!dateRanges[bucket]) dateRanges[bucket] = d;
     else if (d !== "-") {
-      dateRanges[bucket] = `${dateRanges[bucket].split(" ")[0]} ${d}`;
+      const first = dateRanges[bucket].split(" – ")[0] || dateRanges[bucket];
+      dateRanges[bucket] = `${first} – ${d}`;
     }
   }
 
@@ -103,9 +105,35 @@ function toMonthlyPoints(data: RevenuePoint[]): ChartRow[] {
   return toBucketPoints(data, MONTH_LABELS);
 }
 
+function mapToChartRows(
+  points: Array<{ date: string; amount: number; grain?: "hour" | "day" }>,
+  isHourly: boolean
+): ChartRow[] {
+  return points.map((d) => {
+    const grain = d.grain ?? (isHourly ? "hour" : "day");
+    let label = formatChartLabel(d.date, grain);
+    if (label === "-" || /undefined|null/i.test(label)) {
+      const m = String(d.date || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+      label = m ? `${m[3]}/${m[2]}` : "-";
+    }
+    const fullDate =
+      grain === "hour"
+        ? `${formatChartDate(d.date)} · ${label}`
+        : formatChartDate(d.date) !== "-"
+          ? formatChartDate(d.date)
+          : label;
+    return {
+      amount: Number.isFinite(Number(d.amount)) ? Number(d.amount) : 0,
+      label,
+      fullDate,
+      _sortKey: String(d.date || ""),
+    } satisfies ChartRow;
+  });
+}
+
 /**
  * Gráfico padrão da plataforma (seller e admin).
- * Visual único: card, tipografia, curva, eixos, tooltip, filtro.
+ * Série contínua por período · eixos legíveis · tooltip com data · responsivo.
  */
 export function RevenueChart({
   data,
@@ -118,92 +146,61 @@ export function RevenueChart({
   hidePeriodFilter = false,
 }: RevenueChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [isNarrow, setIsNarrow] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const apply = () => setIsNarrow(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  const periodKey = period?.key ?? "7d";
 
   const isHourly =
-    period?.key === "today" ||
-    period?.key === "yesterday" ||
+    periodKey === "today" ||
+    periodKey === "yesterday" ||
     data.some((d) => d.grain === "hour");
 
-  const isMonthlyWeeks = period?.key === "30d";
-  const isSixtyMonths = period?.key === "60d";
+  const isMonthlyWeeks = periodKey === "30d";
+  const isSixtyMonths = periodKey === "60d";
   const isBucketed = isMonthlyWeeks || isSixtyMonths;
+  const isDailyContinuous =
+    periodKey === "7d" || periodKey === "15d" || (!isHourly && !isBucketed);
 
   const chartData = useMemo(() => {
-    if (isMonthlyWeeks) return toWeeklyPoints(data);
-    if (isSixtyMonths) return toMonthlyPoints(data);
-
-    let points = data.map((d) => {
-      const grain = d.grain ?? (isHourly ? "hour" : "day");
-      let label = formatChartLabel(d.date, grain);
-      if (label === "-" || /undefined|null/i.test(label)) {
-        const m = String(d.date || "").match(/(\d{4})-(\d{2})-(\d{2})/);
-        label = m ? `${m[3]}/${m[2]}` : "-";
-      }
-      const fullDate =
-        grain === "hour"
-          ? label
-          : formatChartDate(d.date) !== "-"
-            ? formatChartDate(d.date)
-            : label;
-      return {
-        amount: Number.isFinite(Number(d.amount)) ? Number(d.amount) : 0,
-        label,
-        fullDate,
-        _sortKey: String(d.date || "").slice(0, 10),
-      } satisfies ChartRow;
-    });
-
-    // Série diária/horária: sempre da esquerda → direita (cronológico)
-    if (period?.key === "7d" || period?.key === "15d") {
-      const take = period.key === "7d" ? 7 : 15;
-      points = [...points]
-        .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
-        .slice(0, take)
-        .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
-      return points.filter((d) => d.label !== "-");
+    if (isMonthlyWeeks) {
+      // Preenche 30 dias e agrega em 4 semanas
+      const filled = fillChartSeries("30d", data);
+      return toWeeklyPoints(filled);
+    }
+    if (isSixtyMonths) {
+      const filled = fillChartSeries("60d", data);
+      return toMonthlyPoints(filled);
     }
 
-    if (!isHourly && points.length > 1) {
-      points = [...points].sort((a, b) =>
-        a._sortKey.localeCompare(b._sortKey)
-      );
-    }
-
-    return points.filter((d) => d.label !== "-");
-  }, [data, isHourly, isMonthlyWeeks, isSixtyMonths, period?.key]);
+    // Hoje / ontem / 7d / 15d: série contínua (nunca some dia do eixo)
+    const filled = fillChartSeries(periodKey, data);
+    return mapToChartRows(filled, isHourly).filter((d) => d.label !== "-");
+  }, [data, isHourly, isMonthlyWeeks, isSixtyMonths, periodKey]);
 
   const displayData = useMemo(() => {
     if (chartData.length > 0) return chartData;
+    // Fallback seguro: série zero do período
     if (isMonthlyWeeks) return toWeeklyPoints([]);
     if (isSixtyMonths) return toMonthlyPoints([]);
-    const now = new Date();
-    const rows: ChartRow[] = [];
-    // Fallback: últimos 7 dias em ordem cronológica (esq → dir)
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setHours(12, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
-      rows.push({
-        amount: 0,
-        label: formatChartLabel(iso, "day"),
-        fullDate: formatChartDate(iso),
-        _sortKey: iso,
-      });
-    }
-    return rows;
-  }, [chartData, isMonthlyWeeks, isSixtyMonths]);
+    const filled = fillChartSeries(periodKey, []);
+    return mapToChartRows(filled, isHourly);
+  }, [chartData, isHourly, isMonthlyWeeks, isSixtyMonths, periodKey]);
 
   const amounts = displayData.map((d) => d.amount);
-  const minRaw = amounts.length ? Math.min(...amounts) : 0;
   const maxRaw = amounts.length ? Math.max(...amounts) : 0;
-  const pad = Math.max(50, (maxRaw - minRaw) * 0.12 || 100);
-  // Lateral: escala de faturamento a partir de 0 até o topo dos valores
+  const pad = Math.max(50, maxRaw * 0.12 || 100);
   const minY = 0;
   const maxY =
     maxRaw <= 0 ? 100 : Math.ceil((maxRaw + pad) / 50) * 50 || 100;
 
-  /** Ticks do eixo Y (0, …, valores de faturamento) */
   const yTicks = useMemo(() => {
     const steps = 4;
     const out: number[] = [];
@@ -213,20 +210,21 @@ export function RevenueChart({
     return out;
   }, [maxY]);
 
-  // Altura do plot + espaço p/ datas + texto "Período"
-  const plotHeight = 290;
-  /**
-   * Paleta só branco/cinza.
-   * Linha da curva e eixos bem finos (mesma “finura” da lateral).
-   */
+  // Altura: mais espaço no mobile para datas; desktop alinha ao card de métricas
+  const dayCount = daysForPeriod(periodKey);
+  const plotHeight = isNarrow
+    ? periodKey === "15d"
+      ? 300
+      : 270
+    : periodKey === "15d"
+      ? 310
+      : 290;
+
   const line = "#ffffff";
   const axisStroke = "#ffffff";
-  /** Mesma espessura da lateral e da base */
   const axisWidth = 1;
-  /** Curva do faturamento — fina (antes 2.5 ficava grossa no zero) */
   const curveWidth = 1.25;
   const tickFill = "#ffffff";
-  /** Grade na cor do fundo do ícone dos indicadores */
   const gridStroke = "var(--bg-card-inner-icon)";
   const zeroLine = "var(--bg-card-inner-icon)";
   const dotFill = "#ffffff";
@@ -241,33 +239,47 @@ export function RevenueChart({
         ? "Meses"
         : "Período";
 
-  const manyXTicks = displayData.length > 12;
-  const xInterval = isHourly
-    ? 2
-    : isBucketed
-      ? 0
-      : manyXTicks
-        ? "preserveStartEnd"
-        : 0;
+  /**
+   * Eixo X:
+   * - 7d / 15d / buckets → todos os ticks (interval 0)
+   * - horário → a cada 2h no mobile, 1h no desktop largo
+   * - minTickGap baixo para não sumir label no 15d
+   */
+  const xInterval = useMemo(() => {
+    if (isBucketed) return 0;
+    if (isHourly) return isNarrow ? 3 : 2;
+    // 7d e 15d: mostrar TODAS as datas do período
+    if (periodKey === "7d" || periodKey === "15d") return 0;
+    if (displayData.length > 20) return Math.ceil(displayData.length / 12) - 1;
+    return 0;
+  }, [displayData.length, isBucketed, isHourly, isNarrow, periodKey]);
+
+  const xAngle =
+    isBucketed || isHourly ? 0 : periodKey === "15d" || dayCount > 10 ? -42 : -32;
+  const xTextAnchor = isBucketed || isHourly ? "middle" : "end";
+  const xHeight =
+    isBucketed || isHourly ? 36 : periodKey === "15d" ? (isNarrow ? 58 : 54) : 48;
+  const xFontSize =
+    isBucketed ? 11 : periodKey === "15d" ? (isNarrow ? 9 : 9.5) : 10.5;
 
   return (
     <div
-      className={`surface-card flex flex-col w-full min-w-0 ${className ?? ""}`}
+      className={`surface-card flex flex-col w-full min-w-0 chart-card ${className ?? ""}`}
       style={{
-        padding: "16px 16px 10px",
+        padding: isNarrow ? "14px 12px 8px" : "16px 16px 10px",
         borderRadius: "var(--radius-card)",
         height: "100%",
-        minHeight: plotHeight + 72,
+        minHeight: plotHeight + 80,
       }}
     >
       {/* Cabeçalho: título | filtro de período */}
-      <div className="mb-2 shrink-0 flex items-start justify-between gap-3">
+      <div className="mb-2 shrink-0 flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
           <h2
             className="font-semibold"
             style={{
               margin: 0,
-              fontSize: 16,
+              fontSize: isNarrow ? 15 : 16,
               fontWeight: 600,
               color: "#ffffff",
               lineHeight: 1.3,
@@ -294,185 +306,217 @@ export function RevenueChart({
         ) : null}
       </div>
 
-      {/*
-        Estrutura de eixos:
-        - lateral: Faturamento + escala de valores (0 → …)
-        - embaixo: datas + texto "Período"
-        - linhas brancas em L
-      */}
       <div
-        className="w-full min-w-0"
-        style={{ height: plotHeight, minHeight: plotHeight }}
+        className="w-full min-w-0 chart-plot"
+        style={{
+          height: plotHeight,
+          minHeight: plotHeight,
+          // Scroll horizontal só se o card ficar muito estreito (mobile + 15d)
+          overflowX: isNarrow && periodKey === "15d" ? "auto" : "visible",
+          WebkitOverflowScrolling: "touch",
+        }}
       >
-        <ResponsiveContainer width="100%" height={plotHeight}>
-          <AreaChart
-            data={displayData}
-            margin={{ top: 12, right: 14, left: 10, bottom: 36 }}
-            onMouseMove={(state) => {
-              const idx =
-                typeof state?.activeTooltipIndex === "number"
-                  ? state.activeTooltipIndex
-                  : null;
-              setHoverIndex(idx);
-            }}
-            onMouseLeave={() => setHoverIndex(null)}
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ffffff" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+        <div
+          style={{
+            width: "100%",
+            minWidth:
+              isNarrow && periodKey === "15d"
+                ? Math.max(320, displayData.length * 28)
+                : undefined,
+            height: plotHeight,
+          }}
+        >
+          <ResponsiveContainer width="100%" height={plotHeight}>
+            <AreaChart
+              data={displayData}
+              margin={{
+                top: 12,
+                right: isNarrow ? 8 : 14,
+                left: isNarrow ? 2 : 10,
+                bottom: isNarrow && periodKey === "15d" ? 8 : 36,
+              }}
+              onMouseMove={(state) => {
+                const idx =
+                  typeof state?.activeTooltipIndex === "number"
+                    ? state.activeTooltipIndex
+                    : null;
+                setHoverIndex(idx);
+              }}
+              onMouseLeave={() => setHoverIndex(null)}
+            >
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity={0.22} />
+                  <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
+                </linearGradient>
+              </defs>
 
-            {/* Grade cinza clara (quadriculado) */}
-            <CartesianGrid
-              stroke={gridStroke}
-              strokeWidth={0.75}
-              horizontal
-              vertical
-              strokeDasharray="0"
-            />
+              <CartesianGrid
+                stroke={gridStroke}
+                strokeWidth={0.75}
+                horizontal
+                vertical
+                strokeDasharray="0"
+              />
 
-            <ReferenceLine y={0} stroke={zeroLine} strokeWidth={0.75} />
+              <ReferenceLine y={0} stroke={zeroLine} strokeWidth={0.75} />
 
-            <XAxis
-              dataKey="label"
-              type="category"
-              tick={{
-                fill: tickFill,
-                fontSize: isBucketed ? 11 : 10.5,
-                fontWeight: 500,
-              }}
-              // Linha de cima das datas — mesma finura da lateral
-              axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
-              tickLine={false}
-              dy={8}
-              angle={isBucketed || isHourly ? 0 : -35}
-              textAnchor={isBucketed || isHourly ? "middle" : "end"}
-              height={isBucketed || isHourly ? 36 : 52}
-              interval={xInterval}
-              minTickGap={isHourly ? 10 : 2}
-              padding={{ left: 8, right: 8 }}
-              label={{
-                value: xAxisTitle,
-                position: "insideBottom",
-                offset: -2,
-                fill: tickFill,
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-            />
+              <XAxis
+                dataKey="label"
+                type="category"
+                tick={{
+                  fill: tickFill,
+                  fontSize: xFontSize,
+                  fontWeight: 500,
+                }}
+                axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
+                tickLine={false}
+                dy={8}
+                angle={xAngle}
+                textAnchor={xTextAnchor}
+                height={xHeight}
+                interval={xInterval}
+                minTickGap={0}
+                padding={{ left: 6, right: 6 }}
+                label={{
+                  value: xAxisTitle,
+                  position: "insideBottom",
+                  offset: -2,
+                  fill: tickFill,
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              />
 
-            <YAxis
-              domain={[minY, maxY]}
-              ticks={yTicks}
-              tick={{
-                fill: tickFill,
-                fontSize: 11,
-                fontWeight: 500,
-              }}
-              // Linha lateral (escala de faturamento)
-              axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
-              tickLine={false}
-              width={48}
-              tickFormatter={(v) => {
-                const n = Number(v) || 0;
-                if (n >= 1_000_000) {
-                  const m = n / 1_000_000;
-                  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
-                }
-                if (n >= 1000) {
-                  const k = n / 1000;
-                  return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
-                }
-                return String(n);
-              }}
-              allowDecimals={false}
-              label={{
-                value: yAxisLabel,
-                angle: -90,
-                position: "insideLeft",
-                offset: 4,
-                fill: tickFill,
-                fontSize: 11,
-                fontWeight: 600,
-                style: { textAnchor: "middle" },
-              }}
-            />
+              <YAxis
+                domain={[minY, maxY]}
+                ticks={yTicks}
+                tick={{
+                  fill: tickFill,
+                  fontSize: isNarrow ? 10 : 11,
+                  fontWeight: 500,
+                }}
+                axisLine={{ stroke: axisStroke, strokeWidth: axisWidth }}
+                tickLine={false}
+                width={isNarrow ? 40 : 48}
+                tickFormatter={(v) => {
+                  const n = Number(v) || 0;
+                  if (n >= 1_000_000) {
+                    const m = n / 1_000_000;
+                    return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+                  }
+                  if (n >= 1000) {
+                    const k = n / 1000;
+                    return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+                  }
+                  return String(n);
+                }}
+                allowDecimals={false}
+                label={{
+                  value: yAxisLabel,
+                  angle: -90,
+                  position: "insideLeft",
+                  offset: 4,
+                  fill: tickFill,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  style: { textAnchor: "middle" },
+                }}
+              />
 
-            <Tooltip
-              // Coluna do hover: escura (nunca verde)
-              cursor={{
-                stroke: "var(--bg-card-inner-icon)",
-                strokeWidth: 1.25,
-                strokeOpacity: 1,
-              }}
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const value = Number(payload[0]?.value ?? 0);
-                return (
-                  <div
-                    style={{
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border-card)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "8px 12px",
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                    }}
-                  >
+              <Tooltip
+                cursor={{
+                  stroke: "var(--bg-card-inner-icon)",
+                  strokeWidth: 1.25,
+                  strokeOpacity: 1,
+                }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const row = payload[0]?.payload as ChartRow | undefined;
+                  const value = Number(payload[0]?.value ?? 0);
+                  return (
                     <div
                       style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: "#ffffff",
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border-card)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "8px 12px",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                        minWidth: 112,
                       }}
                     >
-                      {formatBRL(value)}
+                      {row?.fullDate ? (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: "var(--text-3)",
+                            marginBottom: 4,
+                          }}
+                        >
+                          {row.fullDate}
+                        </div>
+                      ) : null}
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "#ffffff",
+                        }}
+                      >
+                        {formatBRL(value)}
+                      </div>
                     </div>
-                  </div>
-                );
-              }}
-            />
+                  );
+                }}
+              />
 
-            <Area
-              type="monotone"
-              dataKey="amount"
-              stroke={line}
-              strokeWidth={curveWidth}
-              fill={`url(#${gradientId})`}
-              isAnimationActive
-              animationDuration={500}
-              animationEasing="ease-out"
-              activeDot={{
-                r: 3.5,
-                fill: dotFill,
-                stroke: dotStroke,
-                strokeWidth: 1.25,
-              }}
-              dot={(props) => {
-                const { cx, cy, index } = props as {
-                  cx?: number;
-                  cy?: number;
-                  index?: number;
-                };
-                if (cx == null || cy == null) return null;
-                const active = hoverIndex === index;
-                return (
-                  <circle
-                    key={`dot-${index}`}
-                    cx={cx}
-                    cy={cy}
-                    r={active ? 3.5 : 2.75}
-                    fill={dotFill}
-                    stroke={dotStroke}
-                    strokeWidth={1.25}
-                    style={{ cursor: "pointer" }}
-                  />
-                );
-              }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+              <Area
+                type="monotone"
+                dataKey="amount"
+                stroke={line}
+                strokeWidth={curveWidth}
+                fill={`url(#${gradientId})`}
+                isAnimationActive
+                animationDuration={450}
+                animationEasing="ease-out"
+                activeDot={{
+                  r: 4,
+                  fill: dotFill,
+                  stroke: dotStroke,
+                  strokeWidth: 1.25,
+                }}
+                dot={(props) => {
+                  const { cx, cy, index } = props as {
+                    cx?: number;
+                    cy?: number;
+                    index?: number;
+                  };
+                  if (cx == null || cy == null) return <g key={`dot-empty-${index}`} />;
+                  const active = hoverIndex === index;
+                  // Em 15+ pontos, só destaca o ponto ativo (menos poluição visual)
+                  const showAlways =
+                    isDailyContinuous && displayData.length <= 10;
+                  if (!showAlways && !active) {
+                    return <g key={`dot-hide-${index}`} />;
+                  }
+                  return (
+                    <circle
+                      key={`dot-${index}`}
+                      cx={cx}
+                      cy={cy}
+                      r={active ? 3.75 : 2.5}
+                      fill={dotFill}
+                      stroke={dotStroke}
+                      strokeWidth={1.25}
+                      style={{ cursor: "pointer" }}
+                    />
+                  );
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );

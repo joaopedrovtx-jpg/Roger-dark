@@ -14,9 +14,13 @@ import { isImpersonating } from "@/lib/client/impersonate";
 
 interface KpiGridProps {
   data: DashboardData;
+  /** Após saque bem-sucedido — recarrega dashboard */
+  onBalancesRefresh?: () => void;
+  feePercent?: number;
+  feeFixed?: number;
 }
 
-const ICON = 24;
+const ICON = 22;
 
 function WithdrawButton({
   onClick,
@@ -32,9 +36,9 @@ function WithdrawButton({
       disabled={disabled}
       className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90 whitespace-nowrap"
       style={{
-        height: 32,
-        minWidth: 72,
-        padding: "0 16px",
+        height: 30,
+        minWidth: 68,
+        padding: "0 14px",
         fontSize: 12,
         border: "none",
         borderRadius: "10px",
@@ -55,8 +59,15 @@ function WithdrawButton({
   );
 }
 
-/** Linha de cima: disponível | pendente | retido (3 colunas iguais) */
-export function KpiGrid({ data }: KpiGridProps) {
+/**
+ * 3 saldos com a mesma altura e largura (grid 3 colunas iguais).
+ */
+export function KpiGrid({
+  data,
+  onBalancesRefresh,
+  feePercent = 3,
+  feeFixed = 0,
+}: KpiGridProps) {
   const [saqueOpen, setSaqueOpen] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
 
@@ -69,37 +80,11 @@ export function KpiGrid({ data }: KpiGridProps) {
     return () => window.removeEventListener("darkpay:impersonate", sync);
   }, []);
 
-  const items: Array<{
-    key: string;
-    icon: ReactNode;
-    label: string;
-    value: string;
-    action?: ReactNode;
-  }> = [
-    {
-      key: "available",
-      icon: <IconDolarSymbol size={ICON} />,
-      label: "Saldo disponível",
-      value: formatBRL(data.balances.available),
-      action: viewOnly ? (
-        <WithdrawButton onClick={() => undefined} disabled />
-      ) : (
-        <WithdrawButton onClick={() => setSaqueOpen(true)} />
-      ),
-    },
-    {
-      key: "pending",
-      icon: <IconClockFilled size={ICON} />,
-      label: "Saldo pendente",
-      value: formatBRL(data.balances.pending),
-    },
-    {
-      key: "held",
-      icon: <IconLockFilled size={ICON} />,
-      label: "Saldo retido",
-      value: formatBRL(data.balances.held),
-    },
-  ];
+  const availableAction: ReactNode = viewOnly ? (
+    <WithdrawButton onClick={() => undefined} disabled />
+  ) : (
+    <WithdrawButton onClick={() => setSaqueOpen(true)} />
+  );
 
   return (
     <>
@@ -108,19 +93,35 @@ export function KpiGrid({ data }: KpiGridProps) {
           open={saqueOpen}
           onClose={() => setSaqueOpen(false)}
           available={data.balances.available}
+          feePercent={feePercent}
+          feeFixed={feeFixed}
+          onSuccess={() => onBalancesRefresh?.()}
         />
       ) : null}
 
-      <div className="grid-kpi-3">
-        {items.map((item) => (
-          <KpiCard
-            key={item.key}
-            icon={item.icon}
-            label={item.label}
-            value={item.value}
-            action={item.action}
-          />
-        ))}
+      {/*
+        Desktop: disponível+pendente mais estreitos (área do gráfico);
+        retido mais largo = mesma largura da coluna das 4 métricas.
+      */}
+      <div className="dash-balances">
+        <KpiCard
+          icon={<IconDolarSymbol size={ICON} />}
+          label="Saldo disponível"
+          value={formatBRL(data.balances.available)}
+          action={availableAction}
+          reserveAction
+        />
+        <KpiCard
+          icon={<IconClockFilled size={ICON} />}
+          label="Saldo pendente"
+          value={formatBRL(data.balances.pending)}
+          reserveAction
+        />
+        <KpiCard
+          icon={<IconLockFilled size={ICON} />}
+          label="Saldo retido"
+          value={formatBRL(data.balances.held)}
+        />
       </div>
     </>
   );

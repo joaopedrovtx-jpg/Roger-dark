@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 import { Loader2, X } from "lucide-react";
-import { formatBRL, formatChartDate } from "@/lib/format";
+import { formatBRL, formatDateTime } from "@/lib/format";
 import type {
   TransacoesMetrics,
   VendaStatus,
@@ -77,12 +77,6 @@ function toneForStatus(status: VendaStatus): {
         iconTone: "black",
       };
   }
-}
-
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? (iso.split("T")[1] || "").slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
 }
 
 const ICON = 24;
@@ -359,6 +353,27 @@ function TxDetailModal({
   );
 }
 
+function mapTxItems(
+  items: Array<{
+    id: string;
+    date: string;
+    customer?: string;
+    product?: string;
+    amount: number;
+    status: string;
+  }>
+): VendaTransaction[] {
+  return items.map((t) => ({
+    id: t.id,
+    date: t.date,
+    customer: t.customer ?? "-",
+    product: t.product ?? "-",
+    method: "PIX" as const,
+    amount: t.amount,
+    status: t.status as VendaStatus,
+  }));
+}
+
 export function TransacoesView() {
   const [rows, setRows] = useState<VendaTransaction[]>([]);
   const [metrics, setMetrics] = useState<TransacoesMetrics>(EMPTY_METRICS);
@@ -367,42 +382,82 @@ export function TransacoesView() {
 
   useEffect(() => {
     let cancelled = false;
+
+    async function loadList(): Promise<VendaTransaction[]> {
+      const { authedFetch } = await import("@/lib/client/session");
+      const res = await authedFetch("/api/v1/transactions?pageSize=100");
+      if (!res.ok) {
+        if (!cancelled) {
+          setRows([]);
+          setMetrics(EMPTY_METRICS);
+        }
+        return [];
+      }
+      const json = (await res.json()) as {
+        items?: Array<{
+          id: string;
+          date: string;
+          customer?: string;
+          product?: string;
+          amount: number;
+          status: string;
+        }>;
+        metrics?: TransacoesMetrics;
+      };
+      if (cancelled) return [];
+      const items = mapTxItems(json.items ?? []);
+      setRows(items);
+      setMetrics(json.metrics ?? EMPTY_METRICS);
+      return items;
+    }
+
+    /**
+     * Sincroniza PIX pendentes com a adquirente (Velana/PodPay).
+     * Corrige o caso em que o webhook não atualizou e a venda já está "paid".
+     */
+    async function syncPending(list: VendaTransaction[]) {
+      const pending = list
+        .filter((t) => t.status === "pendente")
+        .slice(0, 12);
+      if (pending.length === 0) return false;
+
+      const { authedFetch } = await import("@/lib/client/session");
+      let anyPaid = false;
+      // Em paralelo limitado (lotes de 4)
+      for (let i = 0; i < pending.length; i += 4) {
+        if (cancelled) return anyPaid;
+        const batch = pending.slice(i, i + 4);
+        const results = await Promise.all(
+          batch.map(async (t) => {
+            try {
+              const res = await authedFetch(
+                `/api/v1/payments/${encodeURIComponent(t.id)}/sync`,
+                { method: "POST" }
+              );
+              if (!res.ok) return false;
+              const json = (await res.json()) as { status?: string };
+              return (
+                json.status === "paid" ||
+                json.status === "aprovada"
+              );
+            } catch {
+              return false;
+            }
+          })
+        );
+        if (results.some(Boolean)) anyPaid = true;
+      }
+      return anyPaid;
+    }
+
     (async () => {
       try {
-        const { authedFetch } = await import("@/lib/client/session");
-        const res = await authedFetch("/api/v1/transactions?pageSize=100");
-        if (!res.ok) {
-          if (!cancelled) {
-            setRows([]);
-            setMetrics(EMPTY_METRICS);
-          }
-          return;
+        const items = await loadList();
+        // Após carregar, tenta atualizar pendentes → pagos na adquirente
+        const changed = await syncPending(items);
+        if (!cancelled && changed) {
+          await loadList();
         }
-        const json = (await res.json()) as {
-          items?: Array<{
-            id: string;
-            date: string;
-            customer?: string;
-            product?: string;
-            amount: number;
-            status: string;
-          }>;
-          metrics?: TransacoesMetrics;
-        };
-        if (cancelled) return;
-        const items = json.items ?? [];
-        setRows(
-          items.map((t) => ({
-            id: t.id,
-            date: t.date,
-            customer: t.customer ?? "-",
-            product: t.product ?? "-",
-            method: "PIX" as const,
-            amount: t.amount,
-            status: t.status as VendaStatus,
-          }))
-        );
-        setMetrics(json.metrics ?? EMPTY_METRICS);
       } catch {
         if (!cancelled) {
           setRows([]);
@@ -412,8 +467,74 @@ export function TransacoesView() {
         if (!cancelled) setLoading(false);
       }
     })();
+
+    // Enquanto houver pendentes na tela, re-sincroniza a cada 12s
+    const poll = window.setInterval(() => {
+      if (cancelled) return;
+      void (async () => {
+        try {
+          const { authedFetch } = await import("@/lib/client/session");
+          const res = await authedFetch("/api/v1/transactions?pageSize=100");
+          if (!res.ok || cancelled) return;
+          const json = (await res.json()) as {
+            items?: Array<{
+              id: string;
+              date: string;
+              customer?: string;
+              product?: string;
+              amount: number;
+              status: string;
+            }>;
+            metrics?: TransacoesMetrics;
+          };
+          const items = mapTxItems(json.items ?? []);
+          const pending = items.filter((t) => t.status === "pendente");
+          if (pending.length === 0) {
+            if (!cancelled) {
+              setRows(items);
+              setMetrics(json.metrics ?? EMPTY_METRICS);
+            }
+            return;
+          }
+          // sync top 6 pendentes
+          await Promise.all(
+            pending.slice(0, 6).map(async (t) => {
+              try {
+                await authedFetch(
+                  `/api/v1/payments/${encodeURIComponent(t.id)}/sync`,
+                  { method: "POST" }
+                );
+              } catch {
+                /* ignore */
+              }
+            })
+          );
+          if (cancelled) return;
+          const res2 = await authedFetch("/api/v1/transactions?pageSize=100");
+          if (!res2.ok || cancelled) return;
+          const json2 = (await res2.json()) as {
+            items?: Array<{
+              id: string;
+              date: string;
+              customer?: string;
+              product?: string;
+              amount: number;
+              status: string;
+            }>;
+            metrics?: TransacoesMetrics;
+          };
+          if (cancelled) return;
+          setRows(mapTxItems(json2.items ?? []));
+          setMetrics(json2.metrics ?? EMPTY_METRICS);
+        } catch {
+          /* ignore poll errors */
+        }
+      })();
+    }, 12_000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
     };
   }, []);
 

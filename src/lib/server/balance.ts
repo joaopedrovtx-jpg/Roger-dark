@@ -84,7 +84,7 @@ export async function creditPaidSaleIdempotent(opts: {
   sellerId: string;
   amount: number;
   feeAmount: number;
-}): Promise<{ credited: boolean }> {
+}): Promise<{ credited: boolean; transactionId?: string | null }> {
   if (!isDatabaseConfigured()) return { credited: false };
 
   const amount = roundMoney(opts.amount);
@@ -180,7 +180,7 @@ export async function creditPaidSaleIdempotent(opts: {
         },
       });
 
-      return { credited: true };
+      return { credited: true, transactionId: txId };
     });
     credited = result.credited;
     return result;
@@ -190,5 +190,222 @@ export async function creditPaidSaleIdempotent(opts: {
     if (credited && opts.sellerId && opts.amount > 0) {
       notifySaleApproved(opts.sellerId, opts.amount).catch(() => {});
     }
+  }
+}
+
+/**
+ * Cancela / marca recusada uma venda ainda pendente (CAS).
+ * Só decrementa balancePending se a TX passou de pendente → recusada.
+ */
+export async function rejectPendingSaleIdempotent(opts: {
+  transactionId: string;
+  sellerId: string;
+  amount: number;
+  chargeStatus?: "cancelled" | "refunded";
+  providerId?: string | null;
+}): Promise<{ applied: boolean }> {
+  if (!isDatabaseConfigured()) return { applied: false };
+  const amount = roundMoney(opts.amount);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const r = await tx.transaction.updateMany({
+        where: { id: opts.transactionId, status: "pendente" },
+        data: { status: "recusada" },
+      });
+      if (r.count === 0) return { applied: false };
+
+      await tx.user.update({
+        where: { id: opts.sellerId },
+        data: { balancePending: { decrement: amount } },
+      });
+
+      if (opts.providerId) {
+        await tx.paymentCharge.updateMany({
+          where: {
+            OR: [
+              { providerId: opts.providerId },
+              { id: `vl_${opts.providerId}` },
+              { id: `pp_${opts.providerId}` },
+              { transactionId: opts.transactionId },
+            ],
+            status: "waiting_payment",
+          },
+          data: { status: opts.chargeStatus || "cancelled" },
+        });
+      } else {
+        await tx.paymentCharge.updateMany({
+          where: {
+            transactionId: opts.transactionId,
+            status: "waiting_payment",
+          },
+          data: { status: opts.chargeStatus || "cancelled" },
+        });
+      }
+
+      return { applied: true };
+    });
+  } catch {
+    return { applied: false };
+  }
+}
+
+/**
+ * Reembolso de venda:
+ * - Se ainda pendente: CAS pendente → reembolsada + decrementa pending
+ * - Se já aprovada: CAS aprovada → reembolsada + debita available (líquido)
+ */
+export async function refundSaleIdempotent(opts: {
+  transactionId: string;
+  sellerId: string;
+  amount: number;
+  feeAmount: number;
+  netAmount?: number;
+  providerId?: string | null;
+}): Promise<{ applied: boolean; path?: "pending" | "paid" }> {
+  if (!isDatabaseConfigured()) return { applied: false };
+  const amount = roundMoney(opts.amount);
+  const fee = roundMoney(opts.feeAmount);
+  const net = roundMoney(
+    opts.netAmount != null ? opts.netAmount : Math.max(0, amount - fee)
+  );
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // 1) Ainda pendente
+      const pend = await tx.transaction.updateMany({
+        where: { id: opts.transactionId, status: "pendente" },
+        data: { status: "reembolsada", refundedAt: new Date() },
+      });
+      if (pend.count === 1) {
+        await tx.user.update({
+          where: { id: opts.sellerId },
+          data: { balancePending: { decrement: amount } },
+        });
+        await tx.paymentCharge.updateMany({
+          where: {
+            OR: [
+              ...(opts.providerId
+                ? [
+                    { providerId: opts.providerId },
+                    { id: `vl_${opts.providerId}` },
+                    { id: `pp_${opts.providerId}` },
+                  ]
+                : []),
+              { transactionId: opts.transactionId },
+            ],
+          },
+          data: { status: "refunded" },
+        });
+        return { applied: true, path: "pending" as const };
+      }
+
+      // 2) Já paga → estorna available
+      const paid = await tx.transaction.updateMany({
+        where: { id: opts.transactionId, status: "aprovada" },
+        data: { status: "reembolsada", refundedAt: new Date() },
+      });
+      if (paid.count === 0) return { applied: false };
+
+      const userUp = await tx.user.updateMany({
+        where: {
+          id: opts.sellerId,
+          balanceAvailable: { gte: net },
+        },
+        data: {
+          balanceAvailable: { decrement: net },
+          volumeTotal: { decrement: amount },
+        },
+      });
+      // Se não tinha saldo suficiente, ainda marca reembolsada e tenta debitar o que der
+      if (userUp.count === 0) {
+        await tx.user.update({
+          where: { id: opts.sellerId },
+          data: {
+            balanceAvailable: { decrement: net },
+            volumeTotal: { decrement: amount },
+          },
+        });
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: opts.sellerId },
+        select: { balanceAvailable: true },
+      });
+
+      await tx.paymentCharge.updateMany({
+        where: {
+          OR: [
+            ...(opts.providerId
+              ? [
+                  { providerId: opts.providerId },
+                  { id: `vl_${opts.providerId}` },
+                  { id: `pp_${opts.providerId}` },
+                ]
+              : []),
+            { transactionId: opts.transactionId },
+          ],
+        },
+        data: { status: "refunded" },
+      });
+
+      await tx.balanceLedger.create({
+        data: {
+          id: newLedgerId(),
+          userId: opts.sellerId,
+          type: "debit_refund",
+          amount: -net,
+          bucket: "available",
+          balanceAfter: Number(user?.balanceAvailable ?? 0),
+          referenceType: "transaction",
+          referenceId: opts.transactionId,
+          description: "Estorno venda reembolsada",
+        },
+      });
+
+      return { applied: true, path: "paid" as const };
+    });
+  } catch {
+    return { applied: false };
+  }
+}
+
+/**
+ * Após crédito bem-sucedido: notifica UTMify (server-side tracking).
+ * Chame fora da $transaction Prisma.
+ */
+export async function notifyUtmifyAfterPaid(opts: {
+  sellerId: string;
+  orderId: string;
+  amount: number;
+  feeAmount: number;
+  description?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  customerDocument?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: Date | string | null;
+}): Promise<void> {
+  try {
+    const { pushSaleToUtmifyBackground } = await import(
+      "@/lib/integrations/utmify/service"
+    );
+    const net = Math.max(0, roundMoney(opts.amount - opts.feeAmount));
+    pushSaleToUtmifyBackground({
+      sellerId: opts.sellerId,
+      orderId: opts.orderId,
+      status: "paid",
+      amount: opts.amount,
+      feeAmount: opts.feeAmount,
+      netAmount: net,
+      description: opts.description,
+      customerName: opts.customerName,
+      customerEmail: opts.customerEmail,
+      customerDocument: opts.customerDocument,
+      metadata: opts.metadata,
+      createdAt: opts.createdAt || new Date(),
+      approvedDate: new Date(),
+    });
+  } catch {
+    /* silencioso */
   }
 }

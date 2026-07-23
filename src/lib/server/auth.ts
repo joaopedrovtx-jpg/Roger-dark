@@ -285,7 +285,7 @@ export async function logoutByToken(token: string | undefined) {
   if (!token) return;
   try {
     await assertDatabase();
-    // Cookie assinado (payload.sig) ou legado: sempre apaga o rawToken no DB
+    // Cookie assinado (payload.sig) ou legado: apaga hash e raw (pré-migração)
     let raw = token.trim();
     try {
       const { unpackSessionCookie } = await import("@/lib/server/signed-token");
@@ -295,10 +295,43 @@ export async function logoutByToken(token: string | undefined) {
       /* legado */
     }
     const tokenHash = hashSessionToken(raw);
-    await prisma.session.deleteMany({ where: { token: tokenHash } });
+    await prisma.session.deleteMany({
+      where: { OR: [{ token: tokenHash }, { token: raw }] },
+    });
   } catch {
     /* cookie ainda é limpo na route */
   }
+}
+
+/**
+ * Resolve sessão no DB.
+ * Após o hardening, tokens são gravados como SHA-256; sessões antigas ainda
+ * podem ter o raw `tok_…`. Aceitamos os dois e migramos o legado para hash.
+ */
+async function findSessionByRawToken(raw: string) {
+  const tokenHash = hashSessionToken(raw);
+  let ses = await prisma.session.findUnique({
+    where: { token: tokenHash },
+    include: { user: true },
+  });
+  if (ses) return ses;
+
+  // Legado pré-hash: token gravado em claro
+  ses = await prisma.session.findUnique({
+    where: { token: raw },
+    include: { user: true },
+  });
+  if (ses) {
+    try {
+      await prisma.session.update({
+        where: { id: ses.id },
+        data: { token: tokenHash },
+      });
+    } catch {
+      /* outro request pode ter migrado no mesmo instante */
+    }
+  }
+  return ses;
 }
 
 export async function getUserBySessionToken(
@@ -327,11 +360,7 @@ export async function getUserBySessionToken(
     /* continue */
   }
 
-  const tokenHash = hashSessionToken(raw);
-  const ses = await prisma.session.findUnique({
-    where: { token: tokenHash },
-    include: { user: true },
-  });
+  const ses = await findSessionByRawToken(raw);
   if (!ses) return null;
   if (ses.expiresAt.getTime() < Date.now()) {
     await prisma.session.delete({ where: { id: ses.id } }).catch(() => null);

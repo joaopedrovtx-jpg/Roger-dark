@@ -3,7 +3,11 @@ import type { PodPayWebhookPayload } from "@/lib/acquirers/podpay/types";
 import { applyPodPayWebhook } from "@/lib/acquirers/podpay/gateway";
 import { verifyPodPaySignature } from "@/lib/server/hmac";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
-import { creditPaidSaleIdempotent } from "@/lib/server/balance";
+import {
+  creditPaidSaleIdempotent,
+  refundSaleIdempotent,
+  rejectPendingSaleIdempotent,
+} from "@/lib/server/balance";
 
 /**
  * POST /api/v1/webhooks/podpay
@@ -41,15 +45,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // Memória síncrona leve; MySQL em fila inline (atômico com a resposta).
     const result = applyPodPayWebhook(payload);
 
-    // Outbox: grava o evento bruto antes de aplicar. Se o apply falhar,
-    // o evento fica registrado em audit_logs (status=pending) e pode
-    // ser reprocessado manualmente.
     const data = payload.data as Record<string, unknown>;
     const remoteId = String(data.id ?? data.transactionId ?? "");
-    const { recordInbox, markInbox } = await import("@/lib/server/webhook-inbox");
+    const { recordInbox, markInbox } = await import(
+      "@/lib/server/webhook-inbox"
+    );
     const inbox = await recordInbox({
       provider: "podpay",
       eventId: payload.eventId,
@@ -63,10 +65,6 @@ export async function POST(req: Request) {
         const { enqueueWebhookJob } = await import(
           "@/lib/server/webhook-queue"
         );
-        // O worker atual roda inline no mesmo processo. Await é obrigatório:
-        // sem ele a resposta 200 volta à adquirente ANTES do apply rodar,
-        // e um restart nesse meio tempo perde o evento. Em produção, trocar
-        // por worker durável (Redis/SQS + outbox).
         await enqueueWebhookJob("podpay", async () => {
           await applyWebhookToMysql(payload);
         });
@@ -84,7 +82,14 @@ export async function POST(req: Request) {
     }
 
     const { log } = await import("@/lib/server/logger");
-    log.info({ message: result.message, event: String(payload.event || ""), queued: true }, "podpay_webhook");
+    log.info(
+      {
+        message: result.message,
+        event: String(payload.event || ""),
+        queued: true,
+      },
+      "podpay_webhook"
+    );
 
     return NextResponse.json({
       success: true,
@@ -116,12 +121,18 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
     if (!status) return;
 
     const tx = await prisma.transaction.findFirst({
-      where: { providerId: remoteId },
+      where: {
+        OR: [
+          { providerId: remoteId, provider: "podpay" },
+          { providerId: remoteId },
+        ],
+      },
     });
+    if (!tx) return;
 
-    if (status === "aprovada" && tx) {
-      // Crédito idempotente: só aplica se TX ainda pendente
-      await creditPaidSaleIdempotent({
+    if (status === "aprovada") {
+      const { notifyUtmifyAfterPaid } = await import("@/lib/server/balance");
+      const credit = await creditPaidSaleIdempotent({
         transactionId: tx.id,
         providerId: remoteId,
         provider: "podpay",
@@ -129,36 +140,43 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
         amount: Number(tx.amount),
         feeAmount: Number(tx.feeAmount),
       });
-    } else if (tx) {
-      await prisma.transaction.updateMany({
-        where: { id: tx.id, status: "pendente" },
-        data: {
-          status,
-          refundedAt: status === "reembolsada" ? new Date() : undefined,
-        },
-      });
-      if (
-        (status === "recusada" || status === "reembolsada") &&
-        tx.status === "pendente"
-      ) {
-        await prisma.user.update({
-          where: { id: tx.sellerId },
-          data: {
-            balancePending: { decrement: Number(tx.amount) },
-          },
+      if (credit.credited) {
+        await notifyUtmifyAfterPaid({
+          sellerId: tx.sellerId,
+          orderId: tx.id,
+          amount: Number(tx.amount),
+          feeAmount: Number(tx.feeAmount),
+          description: tx.description,
+          customerName: tx.customer,
+          customerEmail: tx.customerEmail,
+          customerDocument: tx.customerDocument,
+          createdAt: tx.createdAt,
         });
       }
-      await prisma.paymentCharge.updateMany({
-        where: { providerId: remoteId },
-        data: {
-          status:
-            status === "reembolsada"
-              ? "refunded"
-              : status === "recusada"
-                ? "cancelled"
-                : "waiting_payment",
-        },
+      return;
+    }
+
+    if (status === "recusada") {
+      await rejectPendingSaleIdempotent({
+        transactionId: tx.id,
+        sellerId: tx.sellerId,
+        amount: Number(tx.amount),
+        providerId: remoteId,
+        chargeStatus: "cancelled",
       });
+      return;
+    }
+
+    if (status === "reembolsada") {
+      await refundSaleIdempotent({
+        transactionId: tx.id,
+        sellerId: tx.sellerId,
+        amount: Number(tx.amount),
+        feeAmount: Number(tx.feeAmount),
+        netAmount: Number(tx.netAmount),
+        providerId: remoteId,
+      });
+      return;
     }
   }
 

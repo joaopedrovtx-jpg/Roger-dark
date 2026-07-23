@@ -163,7 +163,7 @@ export function LoginForm() {
         >
           {challenge
             ? "Digite o código do app autenticador ou um backup code."
-            : "Faça login na sua conta real (MySQL)."}
+            : "Faça login na sua conta."}
         </p>
 
       </div>
@@ -234,7 +234,7 @@ export function LoginForm() {
           disabled={loading}
           style={{
             ...authButtonStyle,
-            opacity: loading ? 0.7 : 1,
+            opacity: loading ? 0.55 : 1,
             cursor: loading ? "wait" : "pointer",
           }}
         >

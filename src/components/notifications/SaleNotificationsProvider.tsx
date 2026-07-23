@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import {
   emitSaleEvent,
+  ensureNotificationServiceWorker,
   loadNotificationPrefs,
-  playCashRegisterSound,
+  primeCashRegisterSound,
   resolveNotificationIconAsync,
   shouldAlertSale,
   showSaleBrowserNotification,
@@ -19,17 +20,29 @@ const POLL_INTERVAL_MS = 8000;
 type PollTx = {
   id: string;
   date: string;
-  kind: string;
+  kind?: string;
   amount: number;
   status: string;
   description?: string;
-  sellerId?: string;
+  userName?: string;
 };
 
+type MeUser = {
+  roles?: string[];
+};
+
+function isStaffRoles(roles: string[] | undefined): boolean {
+  if (!roles?.length) return false;
+  return roles.some((r) => r === "admin" || r === "manager");
+}
+
 /**
- * Escuta eventos reais `darkpay:sale` (venda gerada / venda paga).
- * Também faz polling de novas transações aprovadas para disparar notificações.
- * Som de caixa: só nesses eventos — nunca em clique/foco/timer solto.
+ * Escuta `darkpay:sale` + polling de novas vendas.
+ * - Seller: `/api/v1/transactions`
+ * - Admin/gerente: ledger de `/api/v1/admin/dashboard` (vendas da plataforma)
+ *
+ * Som: public/sounds/cash-register.mp3 (via CASH_REGISTER_SOUND_URL).
+ * Som + notificação nativa no mesmo tick.
  */
 export function SaleNotificationsProvider({
   children,
@@ -39,12 +52,21 @@ export function SaleNotificationsProvider({
   const prefsRef = useRef<NotificationPrefs>(loadNotificationPrefs());
   const lastTxIdRef = useRef<string>("");
   const lastPaidIdRef = useRef<string>("");
+  const isStaffRef = useRef(false);
+  const roleReadyRef = useRef(false);
+  /** Para de poluir o console/rede se a sessão caiu (401). */
+  const authDeadRef = useRef(false);
+  const authFailCountRef = useRef(0);
 
   useEffect(() => {
     prefsRef.current = loadNotificationPrefs();
+    authDeadRef.current = false;
+    authFailCountRef.current = 0;
     void resolveNotificationIconAsync();
+    primeCashRegisterSound();
+    // SW: notificação com ícone Dark Pay (Safari costuma ignorar new Notification icon)
+    void ensureNotificationServiceWorker();
 
-    // Desbloqueio silencioso de autoplay (1º gesto). Não toca o cha-ching.
     const unlockOnce = () => unlockNotificationAudio();
     const unlockEvents: Array<keyof WindowEventMap> = [
       "pointerdown",
@@ -70,44 +92,88 @@ export function SaleNotificationsProvider({
       const prefs = prefsRef.current;
       if (!shouldAlertSale(prefs, detail, false)) return;
 
-      const saleKey = `${detail.kind}:${detail.id || "no-id"}:${detail.amount}`;
-      playCashRegisterSound(saleKey);
-
-      void showSaleBrowserNotification(prefs, detail, { force: false });
+      void showSaleBrowserNotification(prefs, detail, {
+        force: false,
+        playSound: true,
+      });
     }
 
-    async function pollTransactions() {
+    function markAuthOk() {
+      authFailCountRef.current = 0;
+      authDeadRef.current = false;
+    }
+
+    function markAuthFail(status: number) {
+      if (status !== 401 && status !== 403) return;
+      authFailCountRef.current += 1;
+      if (authFailCountRef.current >= 2) {
+        authDeadRef.current = true;
+      }
+    }
+
+    async function resolveRole() {
       try {
-        const res = await authedFetch(
-          `/api/v1/transactions?pageSize=10&page=1`
-        );
-        if (!res.ok) return;
-        const json = (await res.json()) as {
-          items?: PollTx[];
-          source?: string;
-        };
-        if (!json.items?.length) return;
-
-        const paid = json.items.filter(
-          (t) =>
-            t.kind === "venda" && t.status === "aprovada"
-        );
-
-        const newestPaid = paid[0];
-        if (newestPaid && newestPaid.id !== lastPaidIdRef.current) {
-          if (lastPaidIdRef.current) {
-            emitSaleEvent({
-              kind: "aprovada",
-              amount: newestPaid.amount,
-              customer: newestPaid.description,
-              product: newestPaid.description,
-              id: newestPaid.id,
-            });
-          }
-          lastPaidIdRef.current = newestPaid.id;
+        const res = await authedFetch("/api/v1/auth/me");
+        if (!res.ok) {
+          markAuthFail(res.status);
+          return;
         }
+        markAuthOk();
+        // /api/v1/auth/me devolve o user no root (não { user })
+        const json = (await res.json()) as MeUser & { user?: MeUser };
+        const roles = json.roles ?? json.user?.roles;
+        isStaffRef.current = isStaffRoles(roles);
+      } catch {
+        isStaffRef.current = false;
+      } finally {
+        roleReadyRef.current = true;
+      }
+    }
 
-        const newestTx = json.items[0];
+    function handleNewest(
+      items: PollTx[],
+      mode: "seller" | "admin"
+    ) {
+      if (!items.length) return;
+
+      const paid = items.filter((t) => {
+        if (mode === "admin") {
+          // ledger admin: venda aprovada ou status "aprovada"
+          return (
+            (t.kind === "venda" || !t.kind) &&
+            (t.status === "aprovada" || t.status === "pago")
+          );
+        }
+        return t.kind === "venda" && t.status === "aprovada";
+      });
+
+      // Preferir vendas (entrada) no admin ledger
+      const paidSales =
+        mode === "admin"
+          ? items.filter(
+              (t) =>
+                t.kind === "venda" &&
+                (t.status === "aprovada" || t.status === "pago")
+            )
+          : paid;
+
+      const newestPaid = paidSales[0] || paid[0];
+      if (newestPaid && newestPaid.id !== lastPaidIdRef.current) {
+        if (lastPaidIdRef.current) {
+          emitSaleEvent({
+            kind: "aprovada",
+            amount: newestPaid.amount,
+            customer:
+              newestPaid.userName || newestPaid.description || undefined,
+            product: newestPaid.description,
+            id: newestPaid.id,
+          });
+        }
+        lastPaidIdRef.current = newestPaid.id;
+      }
+
+      if (mode === "seller") {
+        const newestTx = items[0];
         if (
           newestTx &&
           newestTx.status === "pendente" &&
@@ -123,13 +189,73 @@ export function SaleNotificationsProvider({
           }
           lastTxIdRef.current = newestTx.id;
         }
-      } catch {
-        // polling silencioso
+      } else {
+        // Admin: venda pendente no ledger
+        const newestPending = items.find(
+          (t) => t.kind === "venda" && t.status === "pendente"
+        );
+        if (
+          newestPending &&
+          newestPending.id !== lastTxIdRef.current
+        ) {
+          if (lastTxIdRef.current) {
+            emitSaleEvent({
+              kind: "gerada",
+              amount: newestPending.amount,
+              customer:
+                newestPending.userName ||
+                newestPending.description ||
+                undefined,
+              id: newestPending.id,
+            });
+          }
+          lastTxIdRef.current = newestPending.id;
+        }
       }
     }
 
+    async function pollTransactions() {
+      if (!roleReadyRef.current || authDeadRef.current) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+      try {
+        if (isStaffRef.current) {
+          const res = await authedFetch(
+            `/api/v1/admin/dashboard?period=7d`
+          );
+          if (!res.ok) {
+            markAuthFail(res.status);
+            return;
+          }
+          markAuthOk();
+          const json = (await res.json()) as { ledger?: PollTx[] };
+          if (!json.ledger?.length) return;
+          handleNewest(json.ledger, "admin");
+          return;
+        }
+
+        const res = await authedFetch(
+          `/api/v1/transactions?pageSize=10&page=1`
+        );
+        if (!res.ok) {
+          markAuthFail(res.status);
+          return;
+        }
+        markAuthOk();
+        const json = (await res.json()) as { items?: PollTx[] };
+        if (!json.items?.length) return;
+        handleNewest(json.items, "seller");
+      } catch {
+        // polling silencioso (rede offline, etc.)
+      }
+    }
+
+    void resolveRole().then(() => {
+      pollTransactions();
+    });
+
     const pollTimer = setInterval(pollTransactions, POLL_INTERVAL_MS);
-    pollTransactions();
 
     window.addEventListener("darkpay:notifications", onPrefs);
     window.addEventListener("darkpay:sale", onSale);

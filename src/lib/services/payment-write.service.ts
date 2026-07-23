@@ -94,6 +94,17 @@ export async function createPixCharge(
   async function viaVelana() {
     const config = await resolveVelanaConfigServer();
     if (!config?.secretKey) return null;
+    // Taxas impostas na conta do seller (Admin)
+    let feePercent: number | undefined;
+    let feeFixed: number | undefined;
+    try {
+      const { getSellerSaleFees } = await import("@/lib/server/seller-fees");
+      const plan = await getSellerSaleFees(input.sellerId);
+      feePercent = plan.mdrPercent;
+      feeFixed = plan.mdrFixed;
+    } catch {
+      /* gateway usa default */
+    }
     const charge = await createChargeViaVelana({
       sellerId: input.sellerId,
       amount: input.amount,
@@ -104,6 +115,8 @@ export async function createPixCharge(
       customerPhone: input.customerPhone,
       externalRef: input.metadata?.orderId || input.metadata?.externalRef,
       config,
+      feePercent,
+      feeFixed,
     });
     return { ...charge, provider: "velana" as const, ...routeMeta };
   }
@@ -212,7 +225,7 @@ async function createPixChargeMock(input: CreateChargeInput): Promise<PaymentCha
   return charge;
 }
 
-export function markChargePaid(chargeId: string): PaymentCharge {
+export async function markChargePaid(chargeId: string): Promise<PaymentCharge> {
   const store = getStore();
   const charge = store.charges.find((c) => c.id === chargeId);
   if (!charge) throw new Error("Cobrança não encontrada");
@@ -224,9 +237,16 @@ export function markChargePaid(chargeId: string): PaymentCharge {
   charge.status = "paid";
   charge.paidAt = new Date().toISOString();
 
-  const feePercent = Number(process.env.PLATFORM_FEE_PERCENT) || 3;
-  const feeFixed = Number(process.env.PLATFORM_FEE_FIXED) || 0.15;
-  const fee = round2(charge.amount * (feePercent / 100) + feeFixed);
+  // mock path: mesma regra PIX (≤50 = R$1; >50 = 3%)
+  let fee = round2(
+    charge.amount <= 50 ? 1 : (charge.amount * 3) / 100
+  );
+  try {
+    const { computeSaleFeeAmount } = await import("@/lib/server/seller-fees");
+    fee = computeSaleFeeAmount(charge.amount);
+  } catch {
+    /* fallback acima */
+  }
   const net = Math.max(0, round2(charge.amount - fee));
 
   adjustBalance(charge.sellerId, {

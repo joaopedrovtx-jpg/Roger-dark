@@ -13,7 +13,7 @@ import {
 import { AdminMetricCard } from "./AdminMetricCard";
 import { AdminTd, AdminActionButton } from "./AdminTable";
 import { AdminUserDetailModal } from "./AdminUserDetailModal";
-import { formatChartDate } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import {
   adminUsersMock,
   type AdminUser,
@@ -39,12 +39,6 @@ function dayStart(iso: string): number {
   return new Date(iso.slice(0, 10) + "T00:00:00").getTime();
 }
 
-function formatDateTime(iso: string): string {
-  const date = formatChartDate(iso);
-  const time = iso.includes("T") ? iso.split("T")[1].slice(0, 5) : "";
-  return time ? `${date} ${time}` : date;
-}
-
 /** CPF ou CNPJ prioriza CNPJ da empresa quando existir */
 function documentLabel(u: AdminUser): string {
   if (u.cnpj?.trim()) return u.cnpj;
@@ -52,7 +46,8 @@ function documentLabel(u: AdminUser): string {
 }
 
 export function AdminUsuariosView() {
-  const [users, setUsers] = useState<AdminUser[]>(adminUsersMock);
+  /** Em produção nunca seedar com mock — lista vazia até a API responder */
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [tab, setTab] = useState<TabId>("todos");
   const [search, setSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
@@ -69,8 +64,12 @@ export function AdminUsuariosView() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/v1/admin/users?pageSize=200");
-        if (!res.ok) return;
+        const { authedFetch } = await import("@/lib/client/session");
+        const res = await authedFetch("/api/v1/admin/users?pageSize=200");
+        if (!res.ok) {
+          if (!cancelled) setUsers([]);
+          return;
+        }
         const json = (await res.json()) as {
           items?: AdminUser[];
           metrics?: {
@@ -83,10 +82,10 @@ export function AdminUsuariosView() {
           };
         };
         if (cancelled) return;
-        if (json.items?.length) setUsers(json.items as AdminUser[]);
+        setUsers(Array.isArray(json.items) ? (json.items as AdminUser[]) : []);
         if (json.metrics) setApiCounts(json.metrics);
       } catch {
-        /* mock local */
+        if (!cancelled) setUsers([]);
       }
     })();
     return () => {
@@ -126,13 +125,17 @@ export function AdminUsuariosView() {
 
   async function setStatus(id: string, status: UserStatus) {
     try {
-      await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
+      const { authedFetch } = await import("@/lib/client/session");
+      const res = await authedFetch(
+        `/api/v1/admin/users/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        }
+      );
+      if (!res.ok) return;
     } catch {
-      /* local */
+      return;
     }
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, status } : u))

@@ -38,10 +38,9 @@ export async function getSellerFinance(sellerId: string) {
     .filter((w) => w.status === "pago")
     .reduce((a, w) => a + n(w.amount), 0);
 
-  const saquePercent = n(user.saquePercent) > 0 ? n(user.saquePercent) : 3;
-  const saqueFixed = n(user.saqueFixed);
-  const mdrPercent = n(user.mdrPercent) > 0 ? n(user.mdrPercent) : 3;
-  const mdrFixed = n(user.mdrFixed) || 0.15;
+  // Taxas da conta (Admin → Usuário). 0 é válido; defaults só se inválido.
+  const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
+  const plan = parseSellerFeePlan(user);
 
   return {
     balances: {
@@ -50,10 +49,10 @@ export async function getSellerFinance(sellerId: string) {
       held: n(user.balanceHeld),
     },
     fees: {
-      saquePercent,
-      saqueFixed,
-      mdrPercent,
-      mdrFixed,
+      saquePercent: plan.saquePercent,
+      saqueFixed: plan.saqueFixed,
+      mdrPercent: plan.mdrPercent,
+      mdrFixed: plan.mdrFixed,
     },
     withdrawals: withdrawals.map((w) => ({
       id: w.id,
@@ -94,8 +93,10 @@ export async function createSellerWithdrawalDb(
     );
   }
 
-  const feePercent = n(user.saquePercent) > 0 ? n(user.saquePercent) : 3;
-  const feeFixed = n(user.saqueFixed);
+  const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
+  const plan = parseSellerFeePlan(user);
+  const feePercent = plan.saquePercent;
+  const feeFixed = plan.saqueFixed;
   const feeAmount =
     Math.round(((amount * feePercent) / 100 + feeFixed) * 100) / 100;
   if (feeAmount >= amount) {
