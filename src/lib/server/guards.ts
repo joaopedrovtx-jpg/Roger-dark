@@ -275,7 +275,7 @@ export async function requireAdmin(
       };
     }
   } catch {
-    /* policy best-effort */
+    console.warn("[guards] admin-2fa-policy não disponível — ignorando verificação 2FA");
   }
 
   return r;

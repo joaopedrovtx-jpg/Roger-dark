@@ -80,7 +80,7 @@ export async function POST(req: Request) {
     const session = await registerWithPassword(
       {
         name,
-        email: body.email,
+        email,
         phone: body.phone ?? "",
         password: body.password,
       },

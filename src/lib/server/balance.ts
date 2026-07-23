@@ -316,15 +316,8 @@ export async function refundSaleIdempotent(opts: {
           volumeTotal: { decrement: amount },
         },
       });
-      // Se não tinha saldo suficiente, ainda marca reembolsada e tenta debitar o que der
       if (userUp.count === 0) {
-        await tx.user.update({
-          where: { id: opts.sellerId },
-          data: {
-            balanceAvailable: { decrement: net },
-            volumeTotal: { decrement: amount },
-          },
-        });
+        throw new Error("saldo_insuficiente_para_reembolso");
       }
 
       const user = await tx.user.findUnique({

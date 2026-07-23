@@ -112,7 +112,7 @@ export async function getSellerDashboard(
       where: {
         sellerId,
         status: "pago",
-        date: { gte: from, lte: to },
+        reviewedAt: { gte: from, lte: to },
       },
       _sum: { amount: true },
     }),

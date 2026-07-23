@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { isGuardFail, requireAuth } from "@/lib/server/guards";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import {
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
         enabled: false,
         enabledAt: null,
         secret: null,
-        backupCodes: undefined,
+        backupCodes: Prisma.DbNull,
       },
     });
     return NextResponse.json({ enabled: false });

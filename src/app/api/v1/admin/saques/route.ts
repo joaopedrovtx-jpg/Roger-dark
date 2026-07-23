@@ -12,18 +12,22 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") ?? undefined;
+    const page = Number(searchParams.get("page") ?? 1);
+    const pageSize = Number(searchParams.get("pageSize") ?? 50);
 
-    const [metrics, items] = await Promise.all([
+    const [metrics, result] = await Promise.all([
       getAdminSaquesMetrics(),
-      listAdminWithdrawals(status),
+      listAdminWithdrawals(status, page, pageSize),
     ]);
 
-    if (metrics && items) {
+    if (metrics && result) {
       return NextResponse.json({
         source: "mysql",
         metrics,
-        items,
-        total: items.length,
+        items: result.items,
+        total: result.total,
+        page,
+        pageSize,
       });
     }
 

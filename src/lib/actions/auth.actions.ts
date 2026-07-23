@@ -1,6 +1,6 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import {
   loginWithPassword,
   registerWithPassword,
@@ -20,9 +20,12 @@ export async function loginAction(formData: FormData) {
   }
 
   try {
+    const hdrs = await headers();
+    const ip = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "unknown";
+    const ua = hdrs.get("user-agent") ?? undefined;
     const session = await loginWithPassword(
       { email, password },
-      { ip: "server-action", userAgent: "server-action" }
+      { ip, userAgent: ua }
     );
     const jar = await cookies();
     const cookie = sessionCookieOptions(session.token);
@@ -50,9 +53,12 @@ export async function registerAction(formData: FormData) {
   }
 
   try {
+    const hdrs = await headers();
+    const ip = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "unknown";
+    const ua = hdrs.get("user-agent") ?? undefined;
     const session = await registerWithPassword(
       { name, email, phone: phone ?? "", password },
-      { ip: "server-action", userAgent: "server-action" }
+      { ip, userAgent: ua }
     );
     const jar = await cookies();
     const cookie = sessionCookieOptions(session.token);

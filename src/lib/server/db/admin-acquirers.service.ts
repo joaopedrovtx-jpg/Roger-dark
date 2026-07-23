@@ -277,7 +277,7 @@ export async function dbSaveAcquirerCredentials(
         code: "PODPAY",
         status: "ativo",
         priority: 1,
-        isPrimary: true,
+        isPrimary: !!data.setPrimary,
         enabled: true,
         env: data.env === "live" ? "live" : "sandbox",
         publicKey: (data.publicKey ?? "").trim() || null,

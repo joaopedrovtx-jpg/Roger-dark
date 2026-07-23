@@ -1,9 +1,9 @@
 /**
  * Tokens assinados (HMAC) para middleware / challenges sem DB no Edge.
  */
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 
-const WEAK_FALLBACK = "darkpay-dev-session-secret-min-16";
+const WEAK_FALLBACK = `dev-insecure-${randomBytes(12).toString("hex")}`;
 
 export function resolveSessionSecret(): {
   secret: string;

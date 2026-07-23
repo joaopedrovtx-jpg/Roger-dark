@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
 function n(v: unknown): number {
@@ -10,8 +11,6 @@ function n(v: unknown): number {
 }
 
 function newId(prefix: string) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require("crypto") as typeof import("crypto");
   return `${prefix}_${randomBytes(12).toString("base64url")}`;
 }
 

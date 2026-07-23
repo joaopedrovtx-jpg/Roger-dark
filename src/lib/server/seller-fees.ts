@@ -73,19 +73,22 @@ export function parseSellerFeePlan(user: {
  * - amount ≤ 50 → R$ 1,00 fixo
  * - amount > 50 → 3% do valor
  *
- * `fees` é aceito por compatibilidade das call-sites, mas a regra em faixas manda.
+ * Usa `fees` customizado do seller se fornecido, senão cai na regra padrão.
  */
 export function computeSaleFeeAmount(
   amountReais: number,
-  _fees?: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
+  fees?: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
 ): number {
   const amount = Math.max(0, Number(amountReais) || 0);
   if (amount <= 0) return 0;
 
+  const mdrPercent = fees?.mdrPercent ?? PIX_FEE_PERCENT_ABOVE_THRESHOLD;
+  const mdrFixed = fees?.mdrFixed ?? PIX_FEE_FIXED_UP_TO_THRESHOLD;
+
   if (amount <= PIX_FEE_THRESHOLD) {
-    return roundMoney(PIX_FEE_FIXED_UP_TO_THRESHOLD);
+    return roundMoney(mdrFixed);
   }
-  return roundMoney((amount * PIX_FEE_PERCENT_ABOVE_THRESHOLD) / 100);
+  return roundMoney((amount * mdrPercent) / 100);
 }
 
 export function computeSaleNetAmount(

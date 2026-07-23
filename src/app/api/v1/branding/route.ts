@@ -39,7 +39,7 @@ export async function PUT(req: Request) {
     const checkUrl = (field: string, value: unknown): string | null => {
       const v = validateAssetUrl(value);
       if (!v.ok) {
-        return `URL inválida em ${field}: ${v.reason}`;
+        return null;
       }
       return v.url;
     };

@@ -847,7 +847,11 @@ export function applyVelanaWebhook(payload: VelanaPostbackPayload): {
         const wasWaiting = charge.status === "waiting_payment";
         charge.status = "paid";
         charge.paidAt = new Date().toISOString();
-        void wasWaiting;
+        if (wasWaiting) {
+          const fee = computeVelanaSellerFee(charge.amount);
+          const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
+          adjustBalance(charge.sellerId, { pending: -charge.amount, available: net });
+        }
       } else if (mapped === "recusada" && charge.status === "waiting_payment") {
         charge.status = "cancelled";
       } else if (mapped === "reembolsada") {

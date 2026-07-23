@@ -308,6 +308,16 @@ async function persistChargeToMysql(
         where: { id: input.sellerId },
         data: { balancePending: { increment: charge.amount } },
       });
+    } else if (mappedStatus === "aprovada") {
+      const fee = computePodPaySellerFee(charge.amount);
+      const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
+      await db.user.update({
+        where: { id: input.sellerId },
+        data: {
+          balanceAvailable: { increment: net },
+          volumeTotal: { increment: charge.amount },
+        },
+      });
     }
   });
 }
@@ -710,7 +720,7 @@ export function applyPodPayWebhook(payload: PodPayWebhookPayload): {
         if (wasWaiting) {
           const fee = computePodPaySellerFee(charge.amount);
           const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
-          void net;
+          adjustBalance(charge.sellerId, { pending: -charge.amount, available: net });
         }
       } else if (mapped === "recusada" && charge.status === "waiting_payment") {
         charge.status = "cancelled";

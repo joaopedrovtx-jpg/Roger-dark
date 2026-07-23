@@ -70,8 +70,10 @@ export async function getAdminSaquesMetrics() {
   };
 }
 
-export async function listAdminWithdrawals(status?: string) {
+export async function listAdminWithdrawals(status?: string, page = 1, pageSize = 50) {
   if (!(await dbAvailable())) return null;
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.min(Math.max(1, pageSize), 200);
   const where = status && status !== "todos" ? { status } : {};
   const statusMap: Record<string, string> = {
     processando: "processando",
@@ -80,23 +82,31 @@ export async function listAdminWithdrawals(status?: string) {
   };
   const w = status && statusMap[status] ? { status: statusMap[status] } : where;
 
-  const items = await prisma.withdrawal.findMany({
-    where: w,
-    orderBy: { date: "desc" },
-  });
-  return items.map((s) => ({
-    id: s.id,
-    userId: s.sellerId,
-    userName: s.sellerName,
-    date: s.date.toISOString(),
-    amount: n(s.amount),
-    method: s.method,
-    destination: s.destination,
-    status: s.status,
-    feePercent: n(s.feePercent),
-    feeFixed: n(s.feeFixed),
-    feeAmount: n(s.feeAmount),
-  }));
+  const [items, total] = await Promise.all([
+    prisma.withdrawal.findMany({
+      where: w,
+      orderBy: { date: "desc" },
+      take: safePageSize,
+      skip: (safePage - 1) * safePageSize,
+    }),
+    prisma.withdrawal.count({ where: w }),
+  ]);
+  return {
+    items: items.map((s) => ({
+      id: s.id,
+      userId: s.sellerId,
+      userName: s.sellerName,
+      date: s.date.toISOString(),
+      amount: n(s.amount),
+      method: s.method,
+      destination: s.destination,
+      status: s.status,
+      feePercent: n(s.feePercent),
+      feeFixed: n(s.feeFixed),
+      feeAmount: n(s.feeAmount),
+    })),
+    total,
+  };
 }
 
 export async function dbSetWithdrawalStatus(

@@ -72,7 +72,7 @@ export async function PATCH(
       if (
         body.publicKey === undefined &&
         body.privateKey === undefined &&
-        body.makePrimary === true
+        (body.makePrimary === true || body.setPrimary === true)
       ) {
         const r = await dbSetAcquirerPrimary(id);
         return NextResponse.json({

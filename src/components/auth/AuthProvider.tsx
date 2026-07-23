@@ -170,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         !!user?.roles.includes("manager"),
       isSuperAdmin: !!user?.roles.includes("admin"),
       isManager: !!user?.roles.includes("manager"),
-      isSeller: !!user?.roles.includes("seller") || !!user,
+      isSeller: !!user?.roles.includes("seller"),
     }),
     [user, loading, login, register, logout, refresh]
   );

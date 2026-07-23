@@ -19,10 +19,8 @@ export function getCharge(
 
 export async function getChargeAsync(
   id: string,
-  sellerId?: string
+  sellerId: string
 ): Promise<PaymentCharge | null> {
-  // Memória: filtra por sellerId (se passado) para evitar leak entre sellers
-  // que porventura conheçam o ID de cobrança de outro.
   const local = getCharge(id, sellerId);
   if (local) return local;
 
@@ -32,7 +30,7 @@ export async function getChargeAsync(
     const row = await prisma.paymentCharge.findFirst({
       where: {
         OR: [{ id }, { providerId: id }],
-        ...(sellerId ? { sellerId } : {}),
+        sellerId,
       },
     });
     if (!row) return null;

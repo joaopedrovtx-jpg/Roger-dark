@@ -199,6 +199,32 @@ async function fetchVelanaRemoteStatus(
   }
 }
 
+async function fetchVelanaRemoteTransferStatus(
+  remoteId: string
+): Promise<{ ok: boolean; status?: string; mapped?: string }> {
+  try {
+    const { resolveVelanaConfigServer } = await import(
+      "@/lib/acquirers/velana/config"
+    );
+    const { velanaClient } = await import("@/lib/acquirers/velana/client");
+    const config = await resolveVelanaConfigServer();
+    if (!config?.secretKey) return { ok: false, status: "no_config" };
+    const remote = await velanaClient.getTransfer(remoteId, config);
+    const st = String(remote.status || "");
+    return { ok: true, status: st, mapped: mapVelanaTransferStatus(st) };
+  } catch (e) {
+    const { log } = await import("@/lib/server/logger");
+    log.warn(
+      {
+        remoteId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+      "velana_fetch_transfer_status_failed"
+    );
+    return { ok: false, status: "fetch_error" };
+  }
+}
+
 async function applyWebhookToMysql(
   payload: VelanaPostbackPayload,
   opts: { signedOk: boolean }
@@ -330,8 +356,12 @@ async function applyWebhookToMysql(
   if (type === "transfer") {
     let mapped = mapVelanaTransferStatus(String(data.status || ""));
 
-    // Sem HMAC: só aplica se a transfer existir localmente (não inventa saque)
     if (!opts.signedOk) {
+      const remote = await fetchVelanaRemoteTransferStatus(remoteId);
+      if (!remote.ok) {
+        return { ok: false, retry: true, reason: remote.status || "confirm_failed" };
+      }
+      mapped = (remote.mapped as typeof mapped) || mapped;
       const local = await prisma.withdrawal.findFirst({
         where: {
           OR: [{ providerId: remoteId }, { id: remoteId }],
@@ -341,14 +371,11 @@ async function applyWebhookToMysql(
       if (!local) {
         return { ok: false, reason: "withdrawal_not_found" };
       }
-      // Não promove processando→pago sem assinatura forte;
-      // só espelha se já conhecido no providerId
     }
 
     await prisma.withdrawal.updateMany({
       where: {
         OR: [{ providerId: remoteId }, { id: remoteId }],
-        // não sobrescreve se já terminal localmente? permite update
       },
       data: { status: mapped, reviewedAt: new Date() },
     });

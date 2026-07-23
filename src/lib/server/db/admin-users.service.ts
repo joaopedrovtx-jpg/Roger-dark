@@ -298,13 +298,13 @@ export async function dbSetUserDocumentsStatus(
     },
   });
   if (status === "aprovado") {
-    await prisma.user.update({
-      where: { id: userId },
+    await prisma.user.updateMany({
+      where: { id: userId, status: { not: "bloqueado" } },
       data: { status: "ativo" },
     });
   } else if (status === "rejeitado") {
-    await prisma.user.update({
-      where: { id: userId },
+    await prisma.user.updateMany({
+      where: { id: userId, status: { not: "bloqueado" } },
       data: { status: "pendente" },
     });
   }

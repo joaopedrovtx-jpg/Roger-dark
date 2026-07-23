@@ -66,7 +66,7 @@ export async function createPixCharge(
   }
 > {
   if (!input.sellerId) throw new Error("sellerId obrigatório");
-  if (!input.amount || input.amount < 1) {
+  if (typeof input.amount !== "number" || !Number.isFinite(input.amount) || input.amount < 1) {
     throw new Error("Valor mínimo: R$ 1,00");
   }
 

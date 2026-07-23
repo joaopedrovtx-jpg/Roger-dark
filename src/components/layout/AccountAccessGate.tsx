@@ -38,7 +38,10 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) return;
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
     if (skipGate) return;
     if (!locked) return;
     if (allowed) return;

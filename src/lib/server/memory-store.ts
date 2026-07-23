@@ -128,10 +128,7 @@ export function resetStore() {
 
 export function getSellerBalance(sellerId: string): Balances {
   const store = getStore();
-  if (!store.balances[sellerId]) {
-    store.balances[sellerId] = { available: 0, pending: 0, held: 0 };
-  }
-  return store.balances[sellerId];
+  return store.balances[sellerId] ?? { available: 0, pending: 0, held: 0 };
 }
 
 export function adjustBalance(

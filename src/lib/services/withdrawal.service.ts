@@ -46,7 +46,7 @@ export function isValidPixKey(key: string): boolean {
   }
   const digits = k.replace(/\D/g, "");
   if (digits === k) {
-    if (digits.length === 11) return /^[1-9]\d{9}$/.test(digits) || /^[1-9]{2}9?\d{8}$/.test(digits);
+    if (digits.length === 11) return /^[1-9]\d{10}$/.test(digits) || /^[1-9]{2}9?\d{8}$/.test(digits);
     if (digits.length === 14) return /^\d{14}$/.test(digits);
     if (digits.length === 10 || digits.length === 11) return true; // telefone
     if (digits.length === 32) return /^[a-fA-F0-9]{32}$/.test(digits); // EVP hex
@@ -147,7 +147,8 @@ export async function createWithdrawal(
   }
   if (input.amount < 5) throw new Error("Saque mínimo: R$ 5,00");
   // Cap razoável: R$ 100.000,00 por saque. Configurável via env se precisar.
-  const WITHDRAWAL_MAX = Number(process.env.WITHDRAWAL_MAX_AMOUNT) || 100000;
+  const raw = process.env.WITHDRAWAL_MAX_AMOUNT;
+  const WITHDRAWAL_MAX = raw != null && raw !== "" ? Number(raw) : 100000;
   if (input.amount > WITHDRAWAL_MAX) {
     throw new Error(`Saque máximo: R$ ${WITHDRAWAL_MAX.toFixed(2)}`);
   }
@@ -253,8 +254,8 @@ export async function createWithdrawal(
       await persistWithdrawalDb(w, {
         feePercent,
         feeFixed,
-        feeAmount: w.feeFixed || feeAmount,
-        netAmount: round2(w.amount - (w.feeFixed || feeAmount)),
+        feeAmount: w.feeFixed ?? feeAmount,
+        netAmount: round2(w.amount - (w.feeFixed ?? feeAmount)),
         provider,
         providerId: w.id,
       });

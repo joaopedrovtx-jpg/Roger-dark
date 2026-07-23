@@ -15,7 +15,7 @@
  * (Redis/SQS + outbox pattern).
  */
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { log } from "@/lib/server/logger";
 
@@ -42,7 +42,6 @@ function newId(prefix: string) {
 function deriveEntityId(evt: InboxEvent): string {
   if (evt.eventId) return evt.eventId;
   // fallback estável: provider + remoteId + eventName
-  const { createHash } = require("crypto") as typeof import("crypto");
   return createHash("sha256")
     .update(`${evt.provider}:${evt.remoteId ?? ""}:${evt.eventName}`)
     .digest("hex")

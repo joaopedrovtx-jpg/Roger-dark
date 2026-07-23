@@ -18,11 +18,10 @@ export type ReconcileResult = {
 };
 
 /**
- * Sincroniza até `limit` cobranças pendentes (mais recentes primeiro).
- * Se sellerId for passado, só daquele seller.
+ * Sincroniza até `limit` cobranças pendentes (mais recentes primeiro) de um seller específico.
  */
-export async function reconcilePendingPayments(opts?: {
-  sellerId?: string;
+export async function reconcilePendingPayments(opts: {
+  sellerId: string;
   limit?: number;
 }): Promise<ReconcileResult> {
   const result: ReconcileResult = {

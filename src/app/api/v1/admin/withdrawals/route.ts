@@ -11,17 +11,19 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") ?? undefined;
+    const page = Number(searchParams.get("page") ?? 1);
+    const pageSize = Number(searchParams.get("pageSize") ?? 50);
 
-    const [metrics, items] = await Promise.all([
+    const [metrics, result] = await Promise.all([
       getAdminSaquesMetrics(),
-      listAdminWithdrawals(status),
+      listAdminWithdrawals(status, page, pageSize),
     ]);
 
-    if (items) {
+    if (result) {
       return NextResponse.json({
         source: "database",
         metrics: metrics ?? undefined,
-        items: items.map((s) => ({
+        items: result.items.map((s) => ({
           id: s.id,
           sellerId: s.userId,
           sellerName: s.userName,
@@ -39,7 +41,9 @@ export async function GET(req: Request) {
                   ((s.amount * s.feePercent) / 100 + s.feeFixed) * 100
                 ) / 100,
         })),
-        total: items.length,
+        total: result.total,
+        page,
+        pageSize,
       });
     }
 
