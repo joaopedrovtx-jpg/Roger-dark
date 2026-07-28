@@ -3,15 +3,85 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatBRL } from "@/lib/format";
 import type { Adquirente } from "@/lib/mock/admin";
-import { AdminStatusBadge } from "./AdminStatusBadge";
-import { AdminTd } from "./AdminTable";
+
+/** Alinhado a schemas + withdrawal.service (Saque mínimo: R$ 5,00) */
+export const SAQUE_MINIMO_REAIS = 5;
+
+/**
+ * Custo de PIX out cobrado pela adquirente (referência no painel).
+ * Velana: R$ 2,00 por saque (pedido do produto).
+ */
+function payoutFeeLabel(a: Adquirente): string {
+  const id = String(a.id || "").toLowerCase();
+  const code = String(a.code || "").toLowerCase();
+  if (id === "velana" || code === "velana") {
+    return `${formatBRL(2)} / saque`;
+  }
+  // Outras: se tiver taxa fixa cadastrada, mostra; senão —
+  if (a.feeFixed > 0 && a.feePercent <= 0) {
+    return `${formatBRL(a.feeFixed)} / saque`;
+  }
+  if (a.feePercent > 0) {
+    const fixed = a.feeFixed > 0 ? ` + ${formatBRL(a.feeFixed)}` : "";
+    return `${a.feePercent}%${fixed}`;
+  }
+  return "—";
+}
+
+/** Switch Ativar/Desativar (mesmo padrão Usuários → Adquirentes) */
+function ToggleSwitch({
+  on,
+  onToggle,
+  disabled,
+  ariaLabel,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onToggle}
+      className="relative shrink-0 transition-colors"
+      style={{
+        width: 46,
+        height: 26,
+        borderRadius: 999,
+        border: "none",
+        padding: 0,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
+        background: on ? "#ffffff" : "var(--bg-elevated)",
+        boxShadow: on ? "none" : "inset 0 0 0 1px var(--border-card)",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 3,
+          left: on ? 23 : 3,
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: on ? "var(--bg-card)" : "#ffffff",
+          transition: "left 0.18s ease",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+        }}
+      />
+    </button>
+  );
+}
 
 /**
  * Admin → Adquirentes → Saque
- *
- * Escolhe a adquirente WHITE de PIX out. Todos os saques da plataforma
- * (seller site, saque automático, aprovação admin) saem por ela —
- * independente da adquirente de cobrança do seller.
+ * UI enxuta: switch + nome + taxa + mínimo global.
  */
 export function AdminSaqueAcquirerView() {
   const [items, setItems] = useState<Adquirente[]>([]);
@@ -66,11 +136,7 @@ export function AdminSaqueAcquirerView() {
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(json.error || "Falha ao salvar");
       await reload();
-      setMsg(
-        enable
-          ? "Adquirente de saque definida. Todos os saques sairão por ela."
-          : "Adquirente de saque desativada. Saques voltam à principal de cobrança."
-      );
+      setMsg(enable ? "Ativa para saque." : "Saque desativado nesta adquirente.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erro ao salvar");
     } finally {
@@ -78,57 +144,37 @@ export function AdminSaqueAcquirerView() {
     }
   }
 
+  const fieldShell: React.CSSProperties = {
+    background: "var(--bg-elevated)",
+    border: "1px solid var(--border-card)",
+    borderRadius: "var(--radius-md)",
+    padding: "10px 14px",
+  };
+
   return (
-    <div className="flex flex-col" style={{ gap: 16 }}>
+    <div className="flex flex-col" style={{ gap: 14 }}>
+      {/* Resumo mínimo — sem texto longo */}
       <div
-        className="surface-card"
+        className="flex flex-wrap items-center gap-3"
         style={{
-          padding: "16px 18px",
-          borderRadius: "var(--radius-card)",
+          ...fieldShell,
+          minHeight: 48,
         }}
       >
-        <p
-          className="font-semibold"
-          style={{ margin: 0, fontSize: 15, color: "var(--text-1)" }}
-        >
-          Adquirente de saque (white)
-        </p>
-        <p
-          style={{
-            margin: "8px 0 0",
-            fontSize: 13,
-            color: "var(--text-2)",
-            lineHeight: 1.45,
-          }}
-        >
-          Escolha a adquirente exclusiva de PIX out. Todo saque dos sellers
-          (site, automático ou aprovação no painel) sai por ela — não pela
-          adquirente em que o seller recebe as vendas.
-        </p>
-        {payoutPrimary ? (
-          <p
-            style={{
-              margin: "12px 0 0",
-              fontSize: 13,
-              color: "#22c55e",
-              fontWeight: 600,
-            }}
+        <div className="flex flex-col min-w-0" style={{ gap: 2, flex: 1 }}>
+          <span
+            className="font-semibold"
+            style={{ fontSize: 14, color: "var(--text-1)" }}
           >
-            Ativa agora: {payoutPrimary.name} ({payoutPrimary.code})
-          </p>
-        ) : (
-          <p
-            style={{
-              margin: "12px 0 0",
-              fontSize: 13,
-              color: "#fbbf24",
-              fontWeight: 500,
-            }}
-          >
-            Nenhuma white de saque definida — saques usam a principal de
-            cobrança (#1 do Gerenciamento).
-          </p>
-        )}
+            Adquirente de saque
+          </span>
+          <span style={{ fontSize: 12.5, color: "var(--text-3)" }}>
+            Mínimo de saque {formatBRL(SAQUE_MINIMO_REAIS)}
+            {payoutPrimary
+              ? ` · Ativa: ${payoutPrimary.name}`
+              : " · Nenhuma ativa"}
+          </span>
+        </div>
       </div>
 
       {err ? (
@@ -138,179 +184,103 @@ export function AdminSaqueAcquirerView() {
         <p style={{ margin: 0, fontSize: 13, color: "#22c55e" }}>{msg}</p>
       ) : null}
 
-      <div
-        className="surface-card overflow-hidden"
-        style={{ borderRadius: "var(--radius-card)" }}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {[
-                  "Adquirente",
-                  "Código",
-                  "Status",
-                  "Taxa",
-                  "Credenciais",
-                  "Saque white",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 font-medium text-center"
+      {/* Lista estilo Usuários → Adquirentes (switch + nome) */}
+      <div className="flex flex-col" style={{ gap: 10 }}>
+        {loading ? (
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              color: "var(--text-3)",
+              textAlign: "center",
+              padding: 24,
+            }}
+          >
+            Carregando…
+          </p>
+        ) : items.length === 0 ? (
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              color: "var(--text-3)",
+              textAlign: "center",
+              padding: 24,
+            }}
+          >
+            Nenhuma adquirente cadastrada
+          </p>
+        ) : (
+          items.map((a) => {
+            const on = !!a.isPayoutPrimary;
+            const busy = savingId === a.id;
+            const hasKey = !!a.hasPrivateKey;
+            const canEnable = hasKey || on;
+            return (
+              <div
+                key={a.id}
+                className="flex items-center gap-3 w-full"
+                style={{
+                  ...fieldShell,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  minHeight: 52,
+                }}
+              >
+                <ToggleSwitch
+                  on={on}
+                  disabled={busy || !canEnable}
+                  onToggle={() => void setPayoutPrimary(a.id, !on)}
+                  ariaLabel={
+                    on
+                      ? `Desativar ${a.name} para saque`
+                      : `Ativar ${a.name} para saque`
+                  }
+                />
+                <div className="flex flex-col min-w-0 flex-1" style={{ gap: 2 }}>
+                  <span
+                    className="font-medium truncate"
+                    style={{ fontSize: 14, color: "var(--text-1)" }}
+                  >
+                    {a.name}
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--text-3)",
+                      }}
+                    >
+                      {a.code}
+                    </span>
+                  </span>
+                  <span
+                    className="tabular"
+                    style={{ fontSize: 12, color: "var(--text-3)" }}
+                  >
+                    Taxa saque {payoutFeeLabel(a)}
+                    {!hasKey ? " · Sem chave" : ""}
+                  </span>
+                </div>
+                {on ? (
+                  <span
                     style={{
-                      fontSize: 12,
-                      color: "var(--text-3)",
-                      borderBottom: "1px solid var(--border-card)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#0a0f0c",
+                      background: "#ffffff",
+                      borderRadius: 8,
+                      padding: "2px 7px",
+                      flexShrink: 0,
                     }}
                   >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-10 text-center"
-                    style={{ fontSize: 13, color: "var(--text-3)" }}
-                  >
-                    Carregando…
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-10 text-center"
-                    style={{ fontSize: 13, color: "var(--text-3)" }}
-                  >
-                    Nenhuma adquirente cadastrada
-                  </td>
-                </tr>
-              ) : (
-                items.map((a) => {
-                  const on = !!a.isPayoutPrimary;
-                  const busy = savingId === a.id;
-                  const hasKey = !!a.hasPrivateKey;
-                  return (
-                    <tr key={a.id}>
-                      <AdminTd>
-                        <span
-                          className="font-semibold"
-                          style={{ color: "var(--text-1)" }}
-                        >
-                          {a.name}
-                          {a.isPrimary ? (
-                            <span
-                              style={{
-                                marginLeft: 8,
-                                fontSize: 11,
-                                color: "var(--text-3)",
-                                fontWeight: 500,
-                              }}
-                            >
-                              · #1 cobrança
-                            </span>
-                          ) : null}
-                        </span>
-                      </AdminTd>
-                      <AdminTd nowrap>
-                        <span
-                          className="tabular"
-                          style={{ fontSize: 13, color: "var(--text-2)" }}
-                        >
-                          {a.code}
-                        </span>
-                      </AdminTd>
-                      <AdminTd>
-                        <AdminStatusBadge
-                          tone={
-                            a.status === "ativo"
-                              ? "success"
-                              : a.status === "manutencao"
-                                ? "warning"
-                                : "danger"
-                          }
-                          label={
-                            a.status === "ativo"
-                              ? "Ativo"
-                              : a.status === "manutencao"
-                                ? "Manutenção"
-                                : "Inativo"
-                          }
-                        />
-                      </AdminTd>
-                      <AdminTd nowrap>
-                        <span
-                          className="tabular"
-                          style={{ fontSize: 13, color: "var(--text-2)" }}
-                        >
-                          {a.feePercent > 0
-                            ? `${a.feePercent}%`
-                            : ""}
-                          {a.feePercent > 0 && a.feeFixed > 0 ? " + " : ""}
-                          {a.feeFixed > 0 ? formatBRL(a.feeFixed) : ""}
-                          {a.feePercent <= 0 && a.feeFixed <= 0 ? "—" : ""}
-                        </span>
-                      </AdminTd>
-                      <AdminTd>
-                        <span
-                          style={{
-                            fontSize: 12.5,
-                            color: hasKey ? "#22c55e" : "#fbbf24",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {hasKey ? "OK" : "Sem chave"}
-                        </span>
-                      </AdminTd>
-                      <AdminTd>
-                        <button
-                          type="button"
-                          disabled={busy || (!hasKey && !on)}
-                          onClick={() => void setPayoutPrimary(a.id, !on)}
-                          title={
-                            !hasKey && !on
-                              ? "Salve as credenciais antes de ativar"
-                              : on
-                                ? "Desativar como white de saque"
-                                : "Ativar como white de saque"
-                          }
-                          className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
-                          style={{
-                            height: 34,
-                            minWidth: 110,
-                            padding: "0 14px",
-                            borderRadius: "var(--radius-md)",
-                            border: on
-                              ? "none"
-                              : "1px solid var(--border-muted)",
-                            background: on ? "#22c55e" : "var(--bg-elevated)",
-                            color: on ? "#0a0f0c" : "var(--text-1)",
-                            fontSize: 12.5,
-                            cursor:
-                              busy || (!hasKey && !on)
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity: busy || (!hasKey && !on) ? 0.5 : 1,
-                          }}
-                        >
-                          {busy
-                            ? "Salvando…"
-                            : on
-                              ? "Ativa no saque"
-                              : "Usar no saque"}
-                        </button>
-                      </AdminTd>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                    Ativa para saque
+                  </span>
+                ) : null}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
