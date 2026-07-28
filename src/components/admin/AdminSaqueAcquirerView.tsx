@@ -9,17 +9,16 @@ export const SAQUE_MINIMO_REAIS = 5;
 
 /**
  * Custo de PIX out cobrado pela adquirente (referência no painel).
- * Velana: R$ 2,00 por saque (pedido do produto).
+ * Velana: R$ 2,00 por saque.
  */
 function payoutFeeLabel(a: Adquirente): string {
   const id = String(a.id || "").toLowerCase();
   const code = String(a.code || "").toLowerCase();
   if (id === "velana" || code === "velana") {
-    return `${formatBRL(2)} / saque`;
+    return formatBRL(2);
   }
-  // Outras: se tiver taxa fixa cadastrada, mostra; senão —
   if (a.feeFixed > 0 && a.feePercent <= 0) {
-    return `${formatBRL(a.feeFixed)} / saque`;
+    return formatBRL(a.feeFixed);
   }
   if (a.feePercent > 0) {
     const fixed = a.feeFixed > 0 ? ` + ${formatBRL(a.feeFixed)}` : "";
@@ -28,7 +27,10 @@ function payoutFeeLabel(a: Adquirente): string {
   return "—";
 }
 
-/** Switch Ativar/Desativar (mesmo padrão Usuários → Adquirentes) */
+/**
+ * Switch: ativo = fundo escuro + bolinha branca
+ *         off  = fundo branco + bolinha escura
+ */
 function ToggleSwitch({
   on,
   onToggle,
@@ -57,8 +59,11 @@ function ToggleSwitch({
         padding: 0,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.45 : 1,
-        background: on ? "#ffffff" : "var(--bg-elevated)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--border-card)",
+        /* ON: fundo escuro · OFF: fundo branco */
+        background: on ? "var(--bg-card)" : "#ffffff",
+        boxShadow: on
+          ? "inset 0 0 0 1px var(--border-card)"
+          : "0 1px 2px rgba(0,0,0,0.12)",
       }}
     >
       <span
@@ -70,7 +75,8 @@ function ToggleSwitch({
           width: 20,
           height: 20,
           borderRadius: "50%",
-          background: on ? "var(--bg-card)" : "#ffffff",
+          /* ON: bolinha branca · OFF: bolinha escura */
+          background: on ? "#ffffff" : "var(--bg-card)",
           transition: "left 0.18s ease",
           boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
         }}
@@ -81,7 +87,7 @@ function ToggleSwitch({
 
 /**
  * Admin → Adquirentes → Saque
- * UI enxuta: switch + nome + taxa + mínimo global.
+ * Card enxuto: nome | taxa de saque | switch à direita
  */
 export function AdminSaqueAcquirerView() {
   const [items, setItems] = useState<Adquirente[]>([]);
@@ -114,8 +120,6 @@ export function AdminSaqueAcquirerView() {
     void reload();
   }, [reload]);
 
-  const payoutPrimary = items.find((a) => a.isPayoutPrimary) || null;
-
   async function setPayoutPrimary(id: string, enable: boolean) {
     setSavingId(id);
     setMsg(null);
@@ -144,38 +148,29 @@ export function AdminSaqueAcquirerView() {
     }
   }
 
-  const fieldShell: React.CSSProperties = {
+  const cardStyle: React.CSSProperties = {
     background: "var(--bg-elevated)",
     border: "1px solid var(--border-card)",
     borderRadius: "var(--radius-md)",
-    padding: "10px 14px",
+    padding: "12px 16px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 0.8fr) auto",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 52,
   };
 
   return (
-    <div className="flex flex-col" style={{ gap: 14 }}>
-      {/* Resumo mínimo — sem texto longo */}
-      <div
-        className="flex flex-wrap items-center gap-3"
+    <div className="flex flex-col" style={{ gap: 10 }}>
+      <p
         style={{
-          ...fieldShell,
-          minHeight: 48,
+          margin: 0,
+          fontSize: 12.5,
+          color: "var(--text-3)",
         }}
       >
-        <div className="flex flex-col min-w-0" style={{ gap: 2, flex: 1 }}>
-          <span
-            className="font-semibold"
-            style={{ fontSize: 14, color: "var(--text-1)" }}
-          >
-            Adquirente de saque
-          </span>
-          <span style={{ fontSize: 12.5, color: "var(--text-3)" }}>
-            Mínimo de saque {formatBRL(SAQUE_MINIMO_REAIS)}
-            {payoutPrimary
-              ? ` · Ativa: ${payoutPrimary.name}`
-              : " · Nenhuma ativa"}
-          </span>
-        </div>
-      </div>
+        Mínimo de saque {formatBRL(SAQUE_MINIMO_REAIS)}
+      </p>
 
       {err ? (
         <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{err}</p>
@@ -184,104 +179,73 @@ export function AdminSaqueAcquirerView() {
         <p style={{ margin: 0, fontSize: 13, color: "#22c55e" }}>{msg}</p>
       ) : null}
 
-      {/* Lista estilo Usuários → Adquirentes (switch + nome) */}
-      <div className="flex flex-col" style={{ gap: 10 }}>
-        {loading ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 13,
-              color: "var(--text-3)",
-              textAlign: "center",
-              padding: 24,
-            }}
-          >
-            Carregando…
-          </p>
-        ) : items.length === 0 ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 13,
-              color: "var(--text-3)",
-              textAlign: "center",
-              padding: 24,
-            }}
-          >
-            Nenhuma adquirente cadastrada
-          </p>
-        ) : (
-          items.map((a) => {
-            const on = !!a.isPayoutPrimary;
-            const busy = savingId === a.id;
-            const hasKey = !!a.hasPrivateKey;
-            const canEnable = hasKey || on;
-            return (
-              <div
-                key={a.id}
-                className="flex items-center gap-3 w-full"
+      {loading ? (
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: "var(--text-3)",
+            textAlign: "center",
+            padding: 24,
+          }}
+        >
+          Carregando…
+        </p>
+      ) : items.length === 0 ? (
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: "var(--text-3)",
+            textAlign: "center",
+            padding: 24,
+          }}
+        >
+          Nenhuma adquirente cadastrada
+        </p>
+      ) : (
+        items.map((a) => {
+          const on = !!a.isPayoutPrimary;
+          const busy = savingId === a.id;
+          const hasKey = !!a.hasPrivateKey;
+          const canEnable = hasKey || on;
+          return (
+            <div key={a.id} style={cardStyle}>
+              {/* Col 1: nome */}
+              <span
+                className="font-medium truncate"
+                style={{ fontSize: 14, color: "var(--text-1)" }}
+              >
+                {a.name}
+              </span>
+
+              {/* Col 2: taxa de saque */}
+              <span
+                className="tabular"
                 style={{
-                  ...fieldShell,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  minHeight: 52,
+                  fontSize: 13,
+                  color: "var(--text-2)",
+                  textAlign: "left",
                 }}
               >
-                <ToggleSwitch
-                  on={on}
-                  disabled={busy || !canEnable}
-                  onToggle={() => void setPayoutPrimary(a.id, !on)}
-                  ariaLabel={
-                    on
-                      ? `Desativar ${a.name} para saque`
-                      : `Ativar ${a.name} para saque`
-                  }
-                />
-                <div className="flex flex-col min-w-0 flex-1" style={{ gap: 2 }}>
-                  <span
-                    className="font-medium truncate"
-                    style={{ fontSize: 14, color: "var(--text-1)" }}
-                  >
-                    {a.name}
-                    <span
-                      style={{
-                        marginLeft: 8,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: "var(--text-3)",
-                      }}
-                    >
-                      {a.code}
-                    </span>
-                  </span>
-                  <span
-                    className="tabular"
-                    style={{ fontSize: 12, color: "var(--text-3)" }}
-                  >
-                    Taxa saque {payoutFeeLabel(a)}
-                    {!hasKey ? " · Sem chave" : ""}
-                  </span>
-                </div>
-                {on ? (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: "#0a0f0c",
-                      background: "#ffffff",
-                      borderRadius: 8,
-                      padding: "2px 7px",
-                      flexShrink: 0,
-                    }}
-                  >
-                    Ativa para saque
-                  </span>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
+                Taxa de saque {payoutFeeLabel(a)}
+              </span>
+
+              {/* Col 3: switch à direita */}
+              <ToggleSwitch
+                on={on}
+                disabled={busy || !canEnable}
+                onToggle={() => void setPayoutPrimary(a.id, !on)}
+                ariaLabel={
+                  on
+                    ? `Desativar ${a.name} para saque`
+                    : `Ativar ${a.name} para saque`
+                }
+              />
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
