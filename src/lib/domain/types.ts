@@ -150,6 +150,8 @@ export interface Transaction {
   status: VendaStatus | SaqueStatus | string;
   customer?: string;
   product?: string;
+  /** ID remoto na adquirente (anti-duplicata de notificação) */
+  providerId?: string;
 }
 
 export interface Withdrawal {
