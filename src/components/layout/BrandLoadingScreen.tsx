@@ -65,9 +65,9 @@ export function BrandLoadingScreen({
         alt=""
         className="brand-logo-pulse"
         style={{
-          height: 72,
+          height: 104,
           width: "auto",
-          maxWidth: "min(280px, 70vw)",
+          maxWidth: "min(360px, 78vw)",
           objectFit: "contain",
           display: "block",
           userSelect: "none",

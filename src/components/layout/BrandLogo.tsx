@@ -18,11 +18,11 @@ export function BrandLogo() {
       <img
         src={branding.logoUrl}
         alt="Dark Pay"
-        height={44}
+        height={58}
         style={{
-          height: 44,
+          height: 58,
           width: "auto",
-          maxWidth: 220,
+          maxWidth: 280,
           objectFit: "contain",
           objectPosition: "left center",
           display: "block",

@@ -65,9 +65,9 @@ export function ForgotPasswordForm() {
           src={branding.logoUrl}
           alt="Dark Pay"
           style={{
-            height: 48,
+            height: 68,
             width: "auto",
-            maxWidth: 220,
+            maxWidth: 280,
             objectFit: "contain",
           }}
         />
