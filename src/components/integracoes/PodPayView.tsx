@@ -279,7 +279,16 @@ export function PodPayView() {
       setPayResult(JSON.stringify(json.data, null, 2));
       const id = (json.data as { id?: string })?.id;
       if (id) setTxId(id);
-      emitSaleEvent({ kind: "gerada", amount, customer: payName, id });
+      // id da PodPay + possível transactionId local (anti-duplicata com poll)
+      const txLocal =
+        (json.data as { transactionId?: string })?.transactionId || undefined;
+      emitSaleEvent({
+        kind: "gerada",
+        amount,
+        customer: payName,
+        id: txLocal || id,
+        aliasIds: [txLocal, id].filter(Boolean) as string[],
+      });
       setMsg("Cobrança PIX criada (POST /v1/transactions).");
     });
   }

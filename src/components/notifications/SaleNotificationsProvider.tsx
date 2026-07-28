@@ -5,6 +5,7 @@ import {
   emitSaleEvent,
   ensureNotificationServiceWorker,
   loadNotificationPrefs,
+  markSaleNotificationSeen,
   primeCashRegisterSound,
   resolveNotificationIconAsync,
   shouldAlertSale,
@@ -24,7 +25,12 @@ type PollTx = {
   amount: number;
   status: string;
   description?: string;
+  product?: string;
+  customer?: string;
   userName?: string;
+  /** charge id / provider id quando a API expuser */
+  providerId?: string;
+  chargeId?: string;
 };
 
 type MeUser = {
@@ -36,13 +42,40 @@ function isStaffRoles(roles: string[] | undefined): boolean {
   return roles.some((r) => r === "admin" || r === "manager");
 }
 
+function isSaleRow(t: PollTx, mode: "seller" | "admin"): boolean {
+  if (mode === "seller") {
+    // API de transações do seller só lista vendas; kind pode vir omitido
+    return !t.kind || t.kind === "venda";
+  }
+  return t.kind === "venda" || !t.kind;
+}
+
+function isPendingSale(t: PollTx, mode: "seller" | "admin"): boolean {
+  return isSaleRow(t, mode) && t.status === "pendente";
+}
+
+function isPaidSale(t: PollTx, mode: "seller" | "admin"): boolean {
+  if (!isSaleRow(t, mode)) return false;
+  return t.status === "aprovada" || t.status === "pago";
+}
+
+function aliasIdsFor(t: PollTx): string[] {
+  const out: string[] = [];
+  if (t.id) out.push(t.id);
+  if (t.providerId) out.push(t.providerId);
+  if (t.chargeId) out.push(t.chargeId);
+  return out;
+}
+
 /**
  * Escuta `darkpay:sale` + polling de novas vendas.
  * - Seller: `/api/v1/transactions`
  * - Admin/gerente: ledger de `/api/v1/admin/dashboard` (vendas da plataforma)
  *
- * Som: public/sounds/cash-register.mp3 (via CASH_REGISTER_SOUND_URL).
- * Som + notificação nativa no mesmo tick.
+ * Anti-duplicata:
+ * - Bootstrap: 1º poll só marca IDs vistos (não notifica histórico)
+ * - Depois: percorre TODAS as linhas da página (não só a #1)
+ * - claimSaleNotification unifica charge.id ↔ transactionId (localStorage)
  */
 export function SaleNotificationsProvider({
   children,
@@ -50,21 +83,22 @@ export function SaleNotificationsProvider({
   children: React.ReactNode;
 }) {
   const prefsRef = useRef<NotificationPrefs>(loadNotificationPrefs());
-  const lastTxIdRef = useRef<string>("");
-  const lastPaidIdRef = useRef<string>("");
+  const bootstrappedRef = useRef(false);
   const isStaffRef = useRef(false);
   const roleReadyRef = useRef(false);
   /** Para de poluir o console/rede se a sessão caiu (401). */
   const authDeadRef = useRef(false);
   const authFailCountRef = useRef(0);
+  /** Evita poll paralelo (reconcile lento + interval). */
+  const pollInFlightRef = useRef(false);
 
   useEffect(() => {
     prefsRef.current = loadNotificationPrefs();
     authDeadRef.current = false;
     authFailCountRef.current = 0;
+    bootstrappedRef.current = false;
     void resolveNotificationIconAsync();
     primeCashRegisterSound();
-    // SW: notificação com ícone Dark Pay (Safari costuma ignorar new Notification icon)
     void ensureNotificationServiceWorker();
 
     const unlockOnce = () => unlockNotificationAudio();
@@ -119,7 +153,6 @@ export function SaleNotificationsProvider({
           return;
         }
         markAuthOk();
-        // /api/v1/auth/me devolve o user no root (não { user })
         const json = (await res.json()) as MeUser & { user?: MeUser };
         const roles = json.roles ?? json.user?.roles;
         isStaffRef.current = isStaffRoles(roles);
@@ -130,95 +163,80 @@ export function SaleNotificationsProvider({
       }
     }
 
-    function handleNewest(
-      items: PollTx[],
-      mode: "seller" | "admin"
-    ) {
-      if (!items.length) return;
-
-      const paid = items.filter((t) => {
-        if (mode === "admin") {
-          // ledger admin: venda aprovada ou status "aprovada"
-          return (
-            (t.kind === "venda" || !t.kind) &&
-            (t.status === "aprovada" || t.status === "pago")
-          );
-        }
-        return t.kind === "venda" && t.status === "aprovada";
-      });
-
-      // Preferir vendas (entrada) no admin ledger
-      const paidSales =
-        mode === "admin"
-          ? items.filter(
-              (t) =>
-                t.kind === "venda" &&
-                (t.status === "aprovada" || t.status === "pago")
-            )
-          : paid;
-
-      const newestPaid = paidSales[0] || paid[0];
-      if (newestPaid && newestPaid.id !== lastPaidIdRef.current) {
-        if (lastPaidIdRef.current) {
-          emitSaleEvent({
-            kind: "aprovada",
-            amount: newestPaid.amount,
-            customer:
-              newestPaid.userName || newestPaid.description || undefined,
-            product: newestPaid.description,
-            id: newestPaid.id,
-          });
-        }
-        lastPaidIdRef.current = newestPaid.id;
+    /**
+     * Processa lote de transações.
+     * 1º ciclo: só seed (não notifica o que já existia).
+     * Próximos: emite gerada/aprovada só para IDs novos (claim global).
+     */
+    function handleBatch(items: PollTx[], mode: "seller" | "admin") {
+      if (!items.length) {
+        bootstrappedRef.current = true;
+        return;
       }
 
-      if (mode === "seller") {
-        const newestTx = items[0];
-        if (
-          newestTx &&
-          newestTx.status === "pendente" &&
-          newestTx.id !== lastTxIdRef.current
-        ) {
-          if (lastTxIdRef.current) {
-            emitSaleEvent({
-              kind: "gerada",
-              amount: newestTx.amount,
-              customer: newestTx.description,
-              id: newestTx.id,
-            });
-          }
-          lastTxIdRef.current = newestTx.id;
+      const pending = items.filter((t) => isPendingSale(t, mode));
+      const paid = items.filter((t) => isPaidSale(t, mode));
+
+      if (!bootstrappedRef.current) {
+        for (const t of pending) {
+          markSaleNotificationSeen("gerada", {
+            id: t.id,
+            aliasIds: aliasIdsFor(t),
+          });
         }
-      } else {
-        // Admin: venda pendente no ledger
-        const newestPending = items.find(
-          (t) => t.kind === "venda" && t.status === "pendente"
-        );
-        if (
-          newestPending &&
-          newestPending.id !== lastTxIdRef.current
-        ) {
-          if (lastTxIdRef.current) {
-            emitSaleEvent({
-              kind: "gerada",
-              amount: newestPending.amount,
-              customer:
-                newestPending.userName ||
-                newestPending.description ||
-                undefined,
-              id: newestPending.id,
-            });
-          }
-          lastTxIdRef.current = newestPending.id;
+        for (const t of paid) {
+          // Pago já existente: marca gerada+aprovada pra não “acordar” com cha-ching
+          markSaleNotificationSeen("gerada", {
+            id: t.id,
+            aliasIds: aliasIdsFor(t),
+          });
+          markSaleNotificationSeen("aprovada", {
+            id: t.id,
+            aliasIds: aliasIdsFor(t),
+          });
         }
+        bootstrappedRef.current = true;
+        return;
+      }
+
+      // Geradas: qualquer pendente nova na página (não só items[0])
+      for (const t of pending) {
+        emitSaleEvent({
+          kind: "gerada",
+          amount: t.amount,
+          customer: t.customer || t.userName || t.description || undefined,
+          product: t.product || t.description,
+          id: t.id,
+          aliasIds: aliasIdsFor(t),
+        });
+      }
+
+      // Aprovadas: qualquer paga nova
+      for (const t of paid) {
+        // Se a TX nunca passou por “gerada” neste browser, marca gerada
+        // para não disparar gerada depois se status oscilar na listagem
+        markSaleNotificationSeen("gerada", {
+          id: t.id,
+          aliasIds: aliasIdsFor(t),
+        });
+        emitSaleEvent({
+          kind: "aprovada",
+          amount: t.amount,
+          customer: t.customer || t.userName || t.description || undefined,
+          product: t.product || t.description,
+          id: t.id,
+          aliasIds: aliasIdsFor(t),
+        });
       }
     }
 
     async function pollTransactions() {
       if (!roleReadyRef.current || authDeadRef.current) return;
+      if (pollInFlightRef.current) return;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         return;
       }
+      pollInFlightRef.current = true;
       try {
         if (isStaffRef.current) {
           const res = await authedFetch(
@@ -230,13 +248,16 @@ export function SaleNotificationsProvider({
           }
           markAuthOk();
           const json = (await res.json()) as { ledger?: PollTx[] };
-          if (!json.ledger?.length) return;
-          handleNewest(json.ledger, "admin");
+          if (!json.ledger?.length) {
+            bootstrappedRef.current = true;
+            return;
+          }
+          handleBatch(json.ledger, "admin");
           return;
         }
 
         const res = await authedFetch(
-          `/api/v1/transactions?pageSize=10&page=1`
+          `/api/v1/transactions?pageSize=15&page=1`
         );
         if (!res.ok) {
           markAuthFail(res.status);
@@ -244,10 +265,15 @@ export function SaleNotificationsProvider({
         }
         markAuthOk();
         const json = (await res.json()) as { items?: PollTx[] };
-        if (!json.items?.length) return;
-        handleNewest(json.items, "seller");
+        if (!json.items?.length) {
+          bootstrappedRef.current = true;
+          return;
+        }
+        handleBatch(json.items, "seller");
       } catch {
-        // polling silencioso (rede offline, etc.)
+        // polling silencioso
+      } finally {
+        pollInFlightRef.current = false;
       }
     }
 
@@ -257,6 +283,14 @@ export function SaleNotificationsProvider({
 
     const pollTimer = setInterval(pollTransactions, POLL_INTERVAL_MS);
 
+    // Outra aba marcou seen → só recarrega prefs (claim já está no localStorage)
+    function onStorage(e: StorageEvent) {
+      if (e.key === "darkpay.notifications.v1") {
+        prefsRef.current = loadNotificationPrefs();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+
     window.addEventListener("darkpay:notifications", onPrefs);
     window.addEventListener("darkpay:sale", onSale);
     return () => {
@@ -264,6 +298,7 @@ export function SaleNotificationsProvider({
       for (const ev of unlockEvents) {
         window.removeEventListener(ev, unlockOnce, true);
       }
+      window.removeEventListener("storage", onStorage);
       window.removeEventListener("darkpay:notifications", onPrefs);
       window.removeEventListener("darkpay:sale", onSale);
     };

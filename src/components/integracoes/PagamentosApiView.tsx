@@ -328,12 +328,17 @@ export function PagamentosApiView() {
             prev.status !== "paid" &&
             prev.status !== "aprovada";
           if (wasPending) {
+            const txId =
+              (json as { transactionId?: string }).transactionId ||
+              prev.transactionId;
+            // Preferir transactionId (mesmo id do poll /transacoes)
             emitSaleEvent({
               kind: "aprovada",
               amount: json.amount ?? prev.amount ?? 0,
               customer: undefined,
               product: prev.message,
-              id: chargeId,
+              id: txId || chargeId,
+              aliasIds: [txId, chargeId].filter(Boolean) as string[],
             });
           }
         }
@@ -447,13 +452,14 @@ export function PagamentosApiView() {
         throw new Error(msg);
       }
       setResult(json);
-      // Notificação real: cobrança PIX gerada nesta sessão de Pagamentos
+      // Notificação: unifica charge.id + transactionId (poll usa TX id)
       emitSaleEvent({
         kind: "gerada",
         amount: json.amount,
         customer: customerName || undefined,
         product: description || undefined,
-        id: json.id,
+        id: json.transactionId || json.id,
+        aliasIds: [json.transactionId, json.id].filter(Boolean) as string[],
       });
       await refreshList();
     } catch (e) {

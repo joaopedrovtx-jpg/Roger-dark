@@ -155,7 +155,14 @@ export interface SaleNotifyPayload {
   amount: number;
   customer?: string;
   product?: string;
+  /** ID principal (preferir transactionId da venda no banco) */
   id?: string;
+  /**
+   * IDs equivalentes da mesma venda (ex.: charge.id + transactionId).
+   * Usados só no anti-duplicata — evita 2 notificações quando o poll
+   * vê TX e o playground emite charge id.
+   */
+  aliasIds?: string[];
 }
 
 function formatBRL(value: number): string {
@@ -768,11 +775,12 @@ export async function showSaleBrowserNotification(
   }
 
   const { title, body } = buildSaleNotificationCopy(payload);
+  // Tag estável por kind+id → o SO substitui notificação duplicada em vez de empilhar
   const idPart =
     payload.id && !payload.id.startsWith("sim-")
-      ? payload.id.slice(0, 24)
-      : `${Date.now()}`;
-  const tag = `venda-${payload.kind}-${idPart}`;
+      ? payload.id.slice(0, 48)
+      : `amt-${Math.round(safeAmount(payload.amount) * 100)}`;
+  const tag = `darkpay-venda-${payload.kind}-${idPart}`;
 
   try {
     // 1) Ícone HTTPS + SW prontos (antes do tick som+notif)
@@ -781,8 +789,14 @@ export async function showSaleBrowserNotification(
     await ensureNotificationServiceWorker();
 
     // 2) Som + notificação no mesmo instante (SW tenta ícone Dark Pay)
+    //    saleKey inclui aliases para o som não dobrar charge vs TX
     if (options?.playSound !== false) {
-      const saleKey = `${payload.kind}:${payload.id || "no-id"}:${payload.amount}`;
+      const aliasPart = (payload.aliasIds || [])
+        .map((a) => normalizeSaleId(a))
+        .filter(Boolean)
+        .sort()
+        .join("|");
+      const saleKey = `${payload.kind}:${normalizeSaleId(payload.id) || "no-id"}:${aliasPart}:${payload.amount}`;
       playCashRegisterSound(saleKey);
     }
 
@@ -798,28 +812,134 @@ export async function showSaleBrowserNotification(
   }
 }
 
-/** Dedupe de eventos de venda (evita double-fire do React setState/Strict Mode) */
-const recentSaleEvents = new Map<string, number>();
+/**
+ * Anti-duplicata de notificação de venda.
+ * - Persistido em localStorage (multi-aba)
+ * - Claim atômico por kind + todos os alias IDs
+ * - Sem id: fallback curto por kind+amount+minuto (evita flood)
+ */
+const SALE_SEEN_STORAGE_KEY = "darkpay.sale_notify_seen.v2";
+const SALE_SEEN_MAX = 400;
+const SALE_SEEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+
+function normalizeSaleId(raw: string | undefined | null): string {
+  return String(raw || "")
+    .trim()
+    .slice(0, 128);
+}
+
+function collectSaleKeys(
+  kind: SaleNotifyKind,
+  id?: string,
+  aliasIds?: string[]
+): string[] {
+  const ids = new Set<string>();
+  const primary = normalizeSaleId(id);
+  if (primary) ids.add(primary);
+  for (const a of aliasIds || []) {
+    const n = normalizeSaleId(a);
+    if (n) ids.add(n);
+  }
+  if (ids.size === 0) return [];
+  return [...ids].map((i) => `${kind}:${i}`);
+}
+
+function loadSaleSeenMap(): Map<string, number> {
+  const map = new Map<string, number>();
+  if (typeof window === "undefined") return map;
+  try {
+    const raw = window.localStorage.getItem(SALE_SEEN_STORAGE_KEY);
+    if (!raw) return map;
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    const now = Date.now();
+    for (const [k, ts] of Object.entries(parsed)) {
+      if (typeof ts === "number" && now - ts < SALE_SEEN_TTL_MS) {
+        map.set(k, ts);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return map;
+}
+
+function saveSaleSeenMap(map: Map<string, number>): void {
+  if (typeof window === "undefined") return;
+  try {
+    // Mantém os mais recentes
+    const entries = [...map.entries()].sort((a, b) => b[1] - a[1]);
+    const trimmed = entries.slice(0, SALE_SEEN_MAX);
+    const obj: Record<string, number> = {};
+    for (const [k, ts] of trimmed) obj[k] = ts;
+    window.localStorage.setItem(SALE_SEEN_STORAGE_KEY, JSON.stringify(obj));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+/**
+ * Tenta reservar a notificação. `true` = primeira vez (pode notificar).
+ * `false` = já notificado (ou alias já visto) — silencia.
+ * Sempre grava todos os alias IDs para unificar charge ↔ transaction.
+ */
+export function claimSaleNotification(
+  kind: SaleNotifyKind,
+  opts: { id?: string; aliasIds?: string[]; amount?: number }
+): boolean {
+  if (typeof window === "undefined") return false;
+  if (kind !== "gerada" && kind !== "aprovada") return false;
+
+  let keys = collectSaleKeys(kind, opts.id, opts.aliasIds);
+  if (keys.length === 0) {
+    // Sem id: janela de 2 min por valor (evita flood; 2 vendas iguais no mesmo minuto
+    // ainda podem colidir — mas QR real sempre tem id).
+    const amt = Math.round((Number(opts.amount) || 0) * 100);
+    const bucket = Math.floor(Date.now() / 120_000);
+    keys = [`${kind}:amt:${amt}:t:${bucket}`];
+  }
+
+  const seen = loadSaleSeenMap();
+  const already = keys.some((k) => seen.has(k));
+  const now = Date.now();
+  for (const k of keys) seen.set(k, now);
+  saveSaleSeenMap(seen);
+  return !already;
+}
+
+/** Marca IDs como já vistos sem notificar (bootstrap do poll). */
+export function markSaleNotificationSeen(
+  kind: SaleNotifyKind,
+  opts: { id?: string; aliasIds?: string[] }
+): void {
+  if (typeof window === "undefined") return;
+  const keys = collectSaleKeys(kind, opts.id, opts.aliasIds);
+  if (!keys.length) return;
+  const seen = loadSaleSeenMap();
+  const now = Date.now();
+  for (const k of keys) seen.set(k, now);
+  saveSaleSeenMap(seen);
+}
 
 /** Emite evento de venda real (gerada | aprovada). Sem simulação. */
 export function emitSaleEvent(payload: SaleNotifyPayload): void {
   if (typeof window === "undefined") return;
   if (payload.kind !== "gerada" && payload.kind !== "aprovada") return;
+  if (payload.id?.startsWith("sim-")) return;
 
   const detail: SaleNotifyPayload = {
     ...payload,
     amount: safeAmount(payload.amount),
   };
 
-  // Dedup por id+kind em 8s (polling / strict mode)
-  const key = `${detail.kind}:${detail.id || `${detail.amount}-${Math.floor(Date.now() / 1000)}`}`;
-  const now = Date.now();
-  const prev = recentSaleEvents.get(key);
-  if (prev && now - prev < 8000) return;
-  recentSaleEvents.set(key, now);
-  if (recentSaleEvents.size > 100) {
-    const oldest = recentSaleEvents.keys().next().value;
-    if (oldest) recentSaleEvents.delete(oldest);
+  // Claim global (localStorage + aliases) — 1 notificação por venda/kind
+  if (
+    !claimSaleNotification(detail.kind, {
+      id: detail.id,
+      aliasIds: detail.aliasIds,
+      amount: detail.amount,
+    })
+  ) {
+    return;
   }
 
   window.dispatchEvent(new CustomEvent("darkpay:sale", { detail }));

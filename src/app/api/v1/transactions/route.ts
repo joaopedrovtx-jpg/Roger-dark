@@ -81,6 +81,8 @@ export async function GET(req: Request) {
         method: "PIX" as const,
         amount: t.amount,
         status: t.status,
+        kind: "venda" as const,
+        providerId: t.providerId ?? undefined,
       })),
       total: items.length,
       page,

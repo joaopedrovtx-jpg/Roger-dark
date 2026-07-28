@@ -88,6 +88,9 @@ export async function listSellerTransactions(
       method: "PIX" as const,
       amount: n(t.amount),
       status: t.status,
+      kind: "venda" as const,
+      // aliases p/ anti-duplicata de notificação (poll ↔ charge id)
+      providerId: t.providerId ?? undefined,
     })),
     total,
     page,
