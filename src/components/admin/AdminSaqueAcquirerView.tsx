@@ -4,9 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { formatBRL } from "@/lib/format";
 import type { Adquirente } from "@/lib/mock/admin";
 
-/** Alinhado a schemas + withdrawal.service (Saque mínimo: R$ 5,00) */
-export const SAQUE_MINIMO_REAIS = 5;
-
 /**
  * Custo de PIX out cobrado pela adquirente (referência no painel).
  * Velana: R$ 2,00 por saque.
@@ -162,16 +159,6 @@ export function AdminSaqueAcquirerView() {
 
   return (
     <div className="flex flex-col" style={{ gap: 10 }}>
-      <p
-        style={{
-          margin: 0,
-          fontSize: 12.5,
-          color: "var(--text-3)",
-        }}
-      >
-        Mínimo de saque {formatBRL(SAQUE_MINIMO_REAIS)}
-      </p>
-
       {err ? (
         <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{err}</p>
       ) : null}
@@ -211,13 +198,35 @@ export function AdminSaqueAcquirerView() {
           const canEnable = hasKey || on;
           return (
             <div key={a.id} style={cardStyle}>
-              {/* Col 1: nome */}
-              <span
-                className="font-medium truncate"
-                style={{ fontSize: 14, color: "var(--text-1)" }}
+              {/* Col 1: nome + badge Ativo (só se for a white de saque) */}
+              <div
+                className="flex items-center min-w-0"
+                style={{ gap: 8 }}
               >
-                {a.name}
-              </span>
+                <span
+                  className="font-medium truncate"
+                  style={{ fontSize: 14, color: "var(--text-1)" }}
+                >
+                  {a.name}
+                </span>
+                {on ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#0a0f0c",
+                      background: "#ffffff",
+                      borderRadius: 8,
+                      padding: "2px 7px",
+                      flexShrink: 0,
+                      lineHeight: 1.3,
+                      letterSpacing: "0.01em",
+                    }}
+                  >
+                    Ativo
+                  </span>
+                ) : null}
+              </div>
 
               {/* Col 2: taxa de saque */}
               <span
