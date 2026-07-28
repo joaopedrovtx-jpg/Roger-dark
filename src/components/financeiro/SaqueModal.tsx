@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import { X } from "lucide-react";
-import { formatBRL } from "@/lib/format";
+import { feeNumber, formatBRL, formatFeeLabel } from "@/lib/format";
 import { api } from "@/lib/api/client";
 
 const SAQUE_MINIMO = 5;
@@ -11,7 +11,7 @@ interface SaqueModalProps {
   open: boolean;
   onClose: () => void;
   available: number;
-  /** Taxa % configurada no admin para o seller (ex.: 3) */
+  /** Taxa % da conta (Admin). 0 = desligado — não forçar default 3%. */
   feePercent?: number;
   feeFixed?: number;
   /** chamado após saque criado com sucesso (recarregar lista) */
@@ -60,7 +60,7 @@ export function SaqueModal({
   open,
   onClose,
   available,
-  feePercent = 3,
+  feePercent = 0,
   feeFixed = 0,
   onSuccess,
 }: SaqueModalProps) {
@@ -70,10 +70,14 @@ export function SaqueModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const pct = feeNumber(feePercent, 0);
+  const fixed = feeNumber(feeFixed, 0);
+  const feeLabel = formatFeeLabel(pct, fixed);
+
   const amountValue = useMemo(() => parseAmount(amount), [amount]);
   const fee =
     amountValue > 0
-      ? Math.round((amountValue * (feePercent / 100) + feeFixed) * 100) / 100
+      ? Math.round((amountValue * (pct / 100) + fixed) * 100) / 100
       : 0;
   const net = amountValue > 0 ? Math.max(0, amountValue - fee) : 0;
 
@@ -253,9 +257,7 @@ export function SaqueModal({
                 lineHeight: 1.4,
               }}
             >
-              Taxa de saque: {feePercent}%
-              {feeFixed > 0 ? ` + ${formatBRL(feeFixed)}` : ""} (configurada na
-              sua conta).
+              Taxa de saque: {feeLabel} (configurada na sua conta).
             </p>
           </div>
 
@@ -267,7 +269,7 @@ export function SaqueModal({
             <input
               type="text"
               autoFocus
-              placeholder="CPF, e-mail, telefone ou chave aleatória"
+              placeholder="Qualquer chave: e-mail, telefone, CPF, CNPJ ou aleatória"
               value={pixKey}
               onChange={(e) => setPixKey(e.target.value)}
               style={fieldInput}
@@ -282,7 +284,9 @@ export function SaqueModal({
               lineHeight: 1.45,
             }}
           >
-            Os valores disponíveis podem ser sacados via PIX de forma imediata.
+            Pode sacar para qualquer chave PIX — não precisa ser a do mesmo
+            documento da conta. O valor sai do saldo disponível de forma
+            imediata.
           </p>
 
           {overBalance ? (

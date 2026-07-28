@@ -47,7 +47,34 @@ function classifyVelanaMessage(message: string, status: number): string {
   ) {
     return "VELANA_KEY_EXPIRED";
   }
-  if (m.includes("token inválido") || m.includes("token invalido") || status === 401) {
+  // IP whitelist (saques/API) — NÃO confundir com secret key
+  if (
+    m.includes("ip não autorizado") ||
+    m.includes("ip nao autorizado") ||
+    m.includes("ip autorizado") ||
+    m.includes("adicionar um ip") ||
+    m.includes("configurações -> segurança") ||
+    m.includes("configuracoes -> seguranca") ||
+    (m.includes("ip") && m.includes("autoriz"))
+  ) {
+    return "VELANA_IP_NOT_ALLOWED";
+  }
+  // PIX só para o mesmo CPF/CNPJ do recebedor Velana (regra da adquirente)
+  if (
+    m.includes("mesmo cpf") ||
+    m.includes("mesmo cnpj") ||
+    m.includes("cpf/cnpj do recebedor") ||
+    (m.includes("chave pix") && m.includes("recebedor")) ||
+    (m.includes("transferências por chave") && m.includes("recebedor"))
+  ) {
+    return "VELANA_PIX_SAME_DOCUMENT";
+  }
+  if (
+    m.includes("token inválido") ||
+    m.includes("token invalido") ||
+    m.includes("unauthorized") ||
+    (status === 401 && !m.includes("ip"))
+  ) {
     return "VELANA_UNAUTHORIZED";
   }
   if (status === 400) return "VELANA_BAD_REQUEST";
@@ -62,9 +89,17 @@ function humanizeVelanaError(message: string, code: string): string {
       "Admin → Adquirentes → Credenciais → Velana."
     );
   }
+  if (code === "VELANA_IP_NOT_ALLOWED") {
+    return (
+      "Velana: IP da plataforma não autorizado. Em https://app.velana.com.br → " +
+      "Configurações → Segurança, cadastre o IPv4 de saída **179.197.72.94** " +
+      "(sem máscara, conta live). Sem esse IP, saque e balance falham com 401."
+    );
+  }
   if (code === "VELANA_UNAUTHORIZED") {
     return (
-      "Velana: autenticação rejeitada. Confira a secret key (sk_) salva no Admin. " +
+      "Velana: autenticação rejeitada. Confira a secret key (sk_live_…) salva em " +
+      "Admin → Adquirentes → Credenciais → Velana (não use a pk_). " +
       "Auth oficial: Basic base64(secretKey:x)."
     );
   }

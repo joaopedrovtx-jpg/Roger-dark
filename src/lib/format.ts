@@ -9,13 +9,79 @@ export function formatBRL(value: number): string {
 }
 
 /**
+ * Nome de produto/descrição no histórico:
+ * troca traços (—, –, -) por espaço — nunca exibe o sinal "-".
+ * Ex.: "TDAH na Prática — Kit Essencial" → "TDAH na Prática Kit Essencial"
+ */
+export function formatProductLabel(
+  raw: string | null | undefined,
+  fallback = "Pagamento PIX"
+): string {
+  let s = String(raw ?? "")
+    .replace(/\b(undefined|null)\b/gi, "")
+    .trim();
+  if (!s) return fallback;
+  // Em dash, en dash, hyphen, minus e similares → espaço
+  s = s.replace(/[\u2014\u2013\u2012\u2010\u2212\-]+/g, " ");
+  // Colapsa espaços
+  s = s.replace(/\s+/g, " ").trim();
+  return s || fallback;
+}
+
+/**
+ * Rótulo de taxa (PIX / saque) conforme o plano da conta:
+ * - só % → "3%"
+ * - só fixo → "R$ 2,00"
+ * - ambos → "3% + R$ 2,00"
+ * - nenhum → "Sem taxa"
+ *
+ * 0 é valor válido (não exibir componente zerado).
+ */
+export function formatFeeLabel(
+  percent: number | null | undefined,
+  fixed: number | null | undefined
+): string {
+  const p = Number(percent);
+  const f = Number(fixed);
+  const hasP = Number.isFinite(p) && p > 0;
+  const hasF = Number.isFinite(f) && f > 0;
+  if (!hasP && !hasF) return "Sem taxa";
+
+  const parts: string[] = [];
+  if (hasP) {
+    const pct = p.toLocaleString("pt-BR", {
+      minimumFractionDigits: Number.isInteger(p) ? 0 : 2,
+      maximumFractionDigits: 4,
+    });
+    parts.push(`${pct}%`);
+  }
+  if (hasF) {
+    parts.push(formatBRL(f));
+  }
+  return parts.join(" + ");
+}
+
+/** @deprecated use formatFeeLabel */
+export const formatSaqueFeeLabel = formatFeeLabel;
+
+/** Número de taxa: 0 é válido. Só usa fallback se NaN/null/undefined. */
+export function feeNumber(
+  value: unknown,
+  fallback = 0
+): number {
+  if (value == null || value === "") return fallback;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
  * Data + hora no fuso de Brasília (dd/mm/aaaa HH:mm).
  * Corrige o bug de mostrar o horário UTC cru do ISO (`T21:49:03.000Z` → 18:49 BRT).
  */
 export function formatDateTime(
   iso: string | null | undefined
 ): string {
-  if (iso == null) return "-";
+  if (iso == null) return " ";
   const raw = String(iso).trim();
   if (
     !raw ||
@@ -24,13 +90,13 @@ export function formatDateTime(
     raw.includes("undefined") ||
     raw.includes("null")
   ) {
-    return "-";
+    return " ";
   }
 
   const t = Date.parse(raw);
-  if (!Number.isFinite(t)) return "-";
+  if (!Number.isFinite(t)) return " ";
   const dt = new Date(t);
-  if (!Number.isFinite(dt.getTime()) || dt.getFullYear() <= 1970) return "-";
+  if (!Number.isFinite(dt.getTime()) || dt.getFullYear() <= 1970) return " ";
 
   try {
     const parts = new Intl.DateTimeFormat("pt-BR", {
@@ -54,11 +120,11 @@ export function formatDateTime(
     // Alguns engines devolvem "24" para meia-noite com hour12:false
     if (hour === "24") hour = "00";
 
-    if (!day || !month || !year) return "-";
+    if (!day || !month || !year) return " ";
     if (!hour || !minute) return `${day}/${month}/${year}`;
     return `${day}/${month}/${year} ${hour}:${minute}`;
   } catch {
-    return "-";
+    return " ";
   }
 }
 
@@ -115,14 +181,14 @@ function parseChartParts(
  */
 export function formatChartDate(iso: string | null | undefined): string {
   const p = parseChartParts(iso);
-  if (!p) return "-";
+  if (!p) return " ";
   return `${p.d}/${p.m}/${p.y}`;
 }
 
 /** Eixo X compacto: só dia/mês (ex.: 23/12) */
 export function formatChartDateShort(iso: string | null | undefined): string {
   const p = parseChartParts(iso);
-  if (!p) return "-";
+  if (!p) return " ";
   return `${p.d}/${p.m}`;
 }
 
@@ -131,13 +197,13 @@ export function formatChartLabel(
   iso: string | null | undefined,
   grain: "hour" | "day" = "day"
 ): string {
-  if (iso == null || String(iso).trim() === "") return "-";
+  if (iso == null || String(iso).trim() === "") return " ";
   const raw = String(iso);
   if (grain === "hour") {
     // "2025-12-23T14:00" ou "2025-12-23T14:00:00"
     const time = raw.includes("T") ? raw.split("T")[1] : "";
     const hour = (time || "").slice(0, 2);
-    if (!/^\d{2}$/.test(hour)) return "-";
+    if (!/^\d{2}$/.test(hour)) return " ";
     return `${hour}h`;
   }
   return formatChartDateShort(raw);

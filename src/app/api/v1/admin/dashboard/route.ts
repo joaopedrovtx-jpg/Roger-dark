@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import {
   getAdminDashboardMetrics,
   getAdminLedger,
@@ -29,7 +29,7 @@ function daysForPeriod(period: string | null): number {
 }
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "dashboard");
   if (isGuardFail(gate)) return gate.error;
   try {
     const { searchParams } = new URL(req.url);
@@ -37,6 +37,15 @@ export async function GET(req: Request) {
     const days = daysForPeriod(period);
 
     const periodKey = period || "7d";
+    // Expira PIX pendentes > 15 min como abandono antes de montar o ledger
+    try {
+      const { expireAbandonedPendingSales } = await import(
+        "@/lib/server/reconcile-payments"
+      );
+      await expireAbandonedPendingSales({ limit: 80 });
+    } catch {
+      /* best-effort */
+    }
     const [metricsDb, volumeDb, ledgerDb] = await Promise.all([
       getAdminDashboardMetrics(periodKey),
       getAdminVolumeHistory(days, periodKey),

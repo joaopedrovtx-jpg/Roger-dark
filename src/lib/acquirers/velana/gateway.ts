@@ -470,7 +470,7 @@ export async function createWithdrawalViaVelana(
     sellerName,
     kind: "saque",
     direction: "saida",
-    description: "Saque PIX Velana",
+    description: 'Saque "Velana"',
     method: "PIX",
     amount: w.amount,
     status: w.status,

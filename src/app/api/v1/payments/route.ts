@@ -79,6 +79,8 @@ export async function POST(req: Request) {
 
     const provider = charge.provider || "unknown";
     const routingMode = charge.routingMode || "plataforma";
+    // Integração externa (checkout/oferta): não vaza nome da adquirente
+    const isExternal = gate.authVia === "api_key";
 
     return NextResponse.json(
       {
@@ -87,11 +89,15 @@ export async function POST(req: Request) {
         amount: charge.amount,
         currency: charge.currency,
         method: charge.method,
-        provider,
-        routingMode,
-        acquirerId: charge.acquirerId,
-        authVia: gate.authVia,
-        real: provider !== "mock",
+        ...(isExternal
+          ? {}
+          : {
+              provider,
+              routingMode,
+              acquirerId: charge.acquirerId,
+              authVia: gate.authVia,
+              real: provider !== "mock",
+            }),
         description: charge.description,
         customerName: charge.customerName,
         pix: {
@@ -102,29 +108,56 @@ export async function POST(req: Request) {
         createdAt: charge.createdAt,
         transactionId: charge.transactionId,
         sellerId: charge.sellerId,
-        sellerEmail: gate.user.email,
-        message:
-          provider === "mock"
+        message: isExternal
+          ? "Cobrança PIX criada com sucesso."
+          : provider === "mock"
             ? "Cobrança MOCK (ALLOW_MOCK_DATA=1)."
-            : routingMode === "personalizado"
-              ? `Cobrança PIX via ${provider} (rota personalizada de ${gate.user.email}).`
-              : `Cobrança PIX via ${provider} (principal da plataforma · conta ${gate.user.email}).`,
+            : "Cobrança PIX criada.",
         syncUrl: `/api/v1/payments/${encodeURIComponent(charge.id)}/sync`,
       },
       { status: 201 }
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Erro ao criar cobrança";
-    const isConfig =
-      /não configurada|not configured|Adquirente/i.test(msg);
+    // Log completo interno; resposta pública NUNCA expõe adquirente (Woovi/Velana/PodPay)
+    const internalMsg = e instanceof Error ? e.message : "Erro ao criar cobrança";
+    const errCode =
+      e && typeof e === "object" && "code" in e
+        ? String((e as { code?: string }).code || "")
+        : "";
+
+    try {
+      const { log } = await import("@/lib/server/logger");
+      log.error(
+        {
+          code: errCode || "charge_failed",
+          message: internalMsg,
+          sellerId: gate.user.id,
+          authVia: gate.authVia,
+        },
+        "payment_create_failed"
+      );
+    } catch {
+      console.error("[payments]", errCode, internalMsg);
+    }
+
+    const lower = internalMsg.toLowerCase();
+    const isValidation =
+      lower.includes("valor mínimo") ||
+      lower.includes("sellerid") ||
+      lower.includes("inválid") ||
+      errCode === "MIN_AMOUNT";
+
+    // Checkout / ofertas: só "erro no app de pagamento"
     return NextResponse.json(
       {
         error: {
-          code: isConfig ? "acquirer_not_configured" : "charge_failed",
-          message: msg,
+          code: isValidation ? "validation_error" : "payment_error",
+          message: isValidation
+            ? "Dados do pagamento inválidos. Verifique o valor e tente novamente."
+            : "Erro no app de pagamento. Tente novamente em instantes.",
         },
       },
-      { status: isConfig ? 503 : 400 }
+      { status: isValidation ? 400 : 503 }
     );
   }
 }

@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const w = await createWithdrawal(gate.user.id, gate.user.name, {
+    const w = await createWithdrawal(scope.sellerId, gate.user.name, {
       amount: body.amount,
       pixKey: body.pixKey,
     });
@@ -91,9 +91,40 @@ export async function POST(req: Request) {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
+    const code =
+      e && typeof e === "object" && "code" in e
+        ? String((e as { code?: string }).code || "")
+        : "";
+    // Log legível no PM2 (diagnóstico de 400 no saque)
+    try {
+      const { log } = await import("@/lib/server/logger");
+      log.error(
+        {
+          sellerId: scope.sellerId,
+          code: code || undefined,
+          message: msg,
+        },
+        "withdrawal_create_failed"
+      );
+    } catch {
+      console.error("[withdrawals]", code, msg);
+    }
+
+    // IP / auth Velana → 403; validação local → 400
+    const lower = msg.toLowerCase();
+    const isIp =
+      code === "VELANA_IP_NOT_ALLOWED" ||
+      lower.includes("ip") && lower.includes("autoriz");
+    const isAuth =
+      code === "VELANA_UNAUTHORIZED" || code === "VELANA_KEY_EXPIRED";
+    const status = isIp || isAuth ? 403 : 400;
+
     return NextResponse.json(
-      { error: msg },
-      { status: 400, headers: securityHeaders() }
+      {
+        error: msg,
+        code: code || (isIp ? "VELANA_IP_NOT_ALLOWED" : undefined),
+      },
+      { status, headers: securityHeaders() }
     );
   }
 }

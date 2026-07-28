@@ -74,7 +74,19 @@ export async function listAdminManagers() {
       status: g.status as "ativo" | "inativo",
       permissions: (Array.isArray(g.permissions)
         ? g.permissions
-        : []) as string[],
+        : []
+      )
+        .map((p) => String(p))
+        .filter((p) =>
+          [
+            "dashboard",
+            "usuarios",
+            "saques",
+            "adquirentes",
+            "gerentes",
+            "personalizacao",
+          ].includes(p)
+        ),
       sellersCount,
       volumeTotal: volumeFromSellers > 0 ? volumeFromSellers : n(g.volumeTotal),
       userId: g.originUserId ?? undefined,
@@ -123,10 +135,25 @@ export async function dbCreateManagerFromUser(input: {
   }
   if (!roles.includes("manager")) roles.push("manager");
 
-  const perms =
+  // Só páginas do menu lateral (sem "documentos" legado)
+  const ALLOWED = new Set([
+    "dashboard",
+    "usuarios",
+    "saques",
+    "adquirentes",
+    "gerentes",
+    "personalizacao",
+  ]);
+  const rawPerms =
     input.permissions?.length > 0
       ? input.permissions
-      : ["dashboard", "usuarios", "documentos", "saques"];
+      : ["dashboard", "usuarios", "saques"];
+  const perms = rawPerms
+    .map((p) => String(p))
+    .filter((p) => ALLOWED.has(p));
+  if (perms.length === 0) {
+    throw new Error("Selecione ao menos uma página do painel");
+  }
 
   const id = newId("mgr");
   const manager = await prisma.manager.create({

@@ -17,6 +17,11 @@ import {
   isVelanaEnabledServer,
   resolveVelanaConfigServer,
 } from "@/lib/acquirers/velana/config";
+import { createChargeViaWoovi } from "@/lib/acquirers/woovi/gateway";
+import {
+  isWooviEnabledServer,
+  resolveWooviConfigServer,
+} from "@/lib/acquirers/woovi/config";
 import { resolveAcquirerForSeller } from "@/lib/acquirers/resolve";
 
 export interface CreateChargeInput {
@@ -70,6 +75,13 @@ export async function createPixCharge(
     throw new Error("Valor mínimo: R$ 1,00");
   }
 
+  // PIX expira em 15 min (abandono automático se não pagar)
+  const expiresInMinutes = Math.min(
+    Math.max(1, input.expiresInMinutes ?? 15),
+    15
+  );
+  input = { ...input, expiresInMinutes };
+
   {
     const { prisma, isDatabaseConfigured } = await import("@/lib/server/prisma");
     const { assertSellerCanTransact } = await import("@/lib/server/mock-check");
@@ -118,6 +130,10 @@ export async function createPixCharge(
       feePercent,
       feeFixed,
     });
+    // TTL local 15 min (Velana pode devolver expiration maior)
+    charge.expiresAt = new Date(
+      Date.now() + expiresInMinutes * 60_000
+    ).toISOString();
     return { ...charge, provider: "velana" as const, ...routeMeta };
   }
 
@@ -134,7 +150,43 @@ export async function createPixCharge(
       customerPhone: input.customerPhone,
       config,
     });
+    charge.expiresAt = new Date(
+      Date.now() + expiresInMinutes * 60_000
+    ).toISOString();
     return { ...charge, provider: "podpay" as const, ...routeMeta };
+  }
+
+  async function viaWoovi() {
+    const config = await resolveWooviConfigServer();
+    if (!config?.appId) return null;
+    let feePercent: number | undefined;
+    let feeFixed: number | undefined;
+    try {
+      const { getSellerSaleFees } = await import("@/lib/server/seller-fees");
+      const plan = await getSellerSaleFees(input.sellerId);
+      feePercent = plan.mdrPercent;
+      feeFixed = plan.mdrFixed;
+    } catch {
+      /* default */
+    }
+    const charge = await createChargeViaWoovi({
+      sellerId: input.sellerId,
+      amount: input.amount,
+      description: input.description,
+      customerName: input.customerName,
+      customerDocument: input.customerDocument,
+      customerEmail: input.customerEmail,
+      customerPhone: input.customerPhone,
+      externalRef: input.metadata?.orderId || input.metadata?.externalRef,
+      config,
+      feePercent,
+      feeFixed,
+      expiresInMinutes,
+    });
+    charge.expiresAt = new Date(
+      Date.now() + expiresInMinutes * 60_000
+    ).toISOString();
+    return { ...charge, provider: "woovi" as const, ...routeMeta };
   }
 
   const modeLabel =
@@ -143,26 +195,57 @@ export async function createPixCharge(
       : "principal da plataforma";
 
   if (active?.provider === "podpay") {
-    const r = await viaPodPay();
-    if (r) return r;
+    try {
+      const r = await viaPodPay();
+      if (r) return r;
+    } catch (e) {
+      throw e;
+    }
     throw new Error(
-      `Rota ${modeLabel} = PodPay, mas a chave sk_ não está configurada ou a API falhou. ` +
+      `Rota ${modeLabel} = PodPay, mas a chave sk_ não está configurada. ` +
         "Salve a secret em Admin → Adquirentes → Credenciais (PodPay)."
     );
   }
   if (active?.provider === "velana") {
-    const r = await viaVelana();
-    if (r) return r;
+    try {
+      const r = await viaVelana();
+      if (r) return r;
+    } catch (e) {
+      throw e;
+    }
     throw new Error(
-      `Rota ${modeLabel} = Velana, mas a secret key não está configurada ou a API falhou. ` +
+      `Rota ${modeLabel} = Velana, mas a secret key (sk_) não está salva. ` +
         "Salve pk_/sk_ em Admin → Adquirentes → Credenciais (Velana)."
     );
   }
+  if (active?.provider === "woovi") {
+    try {
+      const r = await viaWoovi();
+      if (r) return r;
+    } catch (e) {
+      throw e;
+    }
+    throw new Error(
+      `Rota ${modeLabel} = Woovi, mas o AppID não está salvo. ` +
+        "Salve o AppID em Admin → Adquirentes → Credenciais → Woovi."
+    );
+  }
 
+  // Fallback: tenta na ordem com credencial
+  if (await isWooviEnabledServer()) {
+    try {
+      const r = await viaWoovi();
+      if (r) return r;
+    } catch {
+      /* tenta próxima */
+    }
+  }
   const pod = await viaPodPay();
   if (pod) return pod;
   const vel = await viaVelana();
   if (vel) return vel;
+  const woo = await viaWoovi();
+  if (woo) return woo;
 
   const { isMockAllowed } = await import("@/lib/server/mock-check");
   if (isMockAllowed()) {
@@ -176,14 +259,14 @@ export async function createPixCharge(
 
   throw new Error(
     "Adquirente não configurada. Em Admin → Adquirentes defina a principal (#1) e salve " +
-      "credenciais: Velana (pk_ + sk_) e/ou PodPay (sk_live_/sk_test_)."
+      "credenciais: Woovi (AppID), Velana (pk_ + sk_) e/ou PodPay (sk_)."
   );
 }
 
 async function createPixChargeMock(input: CreateChargeInput): Promise<PaymentCharge> {
   const store = getStore();
   const chargeId = shortId();
-  const expires = new Date(Date.now() + (input.expiresInMinutes ?? 30) * 60_000);
+  const expires = new Date(Date.now() + (input.expiresInMinutes ?? 15) * 60_000);
   const pix = await mockPixPayload(chargeId, input.amount);
 
   const charge: PaymentCharge = {
@@ -237,15 +320,16 @@ export async function markChargePaid(chargeId: string): Promise<PaymentCharge> {
   charge.status = "paid";
   charge.paidAt = new Date().toISOString();
 
-  // mock path: mesma regra PIX (≤50 = R$1; >50 = 3%)
-  let fee = round2(
-    charge.amount <= 50 ? 1 : (charge.amount * 3) / 100
-  );
+  // Taxa da conta do seller (Admin → mdrPercent + mdrFixed)
+  let fee = round2((charge.amount * 3) / 100 + 0.15);
   try {
-    const { computeSaleFeeAmount } = await import("@/lib/server/seller-fees");
-    fee = computeSaleFeeAmount(charge.amount);
+    const { computeSaleFeeAmount, getSellerSaleFees } = await import(
+      "@/lib/server/seller-fees"
+    );
+    const plan = await getSellerSaleFees(charge.sellerId);
+    fee = computeSaleFeeAmount(charge.amount, plan);
   } catch {
-    /* fallback acima */
+    /* fallback defaults plataforma */
   }
   const net = Math.max(0, round2(charge.amount - fee));
 

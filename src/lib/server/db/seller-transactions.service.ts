@@ -53,7 +53,10 @@ export async function listSellerTransactions(
         _count: true,
       }),
       prisma.transaction.aggregate({
-        where: { ...baseWhere, status: "recusada" },
+        where: {
+          ...baseWhere,
+          status: { in: ["recusada", "abandonada"] },
+        },
         _sum: { amount: true },
       }),
       prisma.transaction.aggregate({
@@ -80,7 +83,7 @@ export async function listSellerTransactions(
     items: items.map((t) => ({
       id: t.id,
       date: t.date.toISOString(),
-      customer: t.customer ?? "-",
+      customer: t.customer ?? " ",
       product: t.product ?? t.description,
       method: "PIX" as const,
       amount: n(t.amount),

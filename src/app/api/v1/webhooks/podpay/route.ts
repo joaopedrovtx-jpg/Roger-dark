@@ -181,17 +181,33 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
   }
 
   if (event.startsWith("withdrawal.") && remoteId) {
-    const statusMap: Record<string, string> = {
-      "withdrawal.completed": "pago",
-      "withdrawal.failed": "recusado",
-      "withdrawal.canceled": "recusado",
-    };
-    const status = statusMap[event];
-    if (!status) return;
-    await prisma.withdrawal.updateMany({
-      where: { providerId: remoteId },
-      data: { status, reviewedAt: new Date() },
+    const wd = await prisma.withdrawal.findFirst({
+      where: {
+        OR: [{ providerId: remoteId }, { id: remoteId }],
+      },
+      select: { id: true },
     });
+    if (!wd) return;
+
+    const {
+      finalizeWithdrawalPaid,
+      finalizeWithdrawalFailed,
+    } = await import("@/lib/server/db/admin-withdrawals.service");
+
+    if (event === "withdrawal.completed") {
+      await finalizeWithdrawalPaid(wd.id, {
+        provider: "podpay",
+        providerId: remoteId,
+        source: "webhook_podpay",
+      });
+      return;
+    }
+    if (event === "withdrawal.failed" || event === "withdrawal.canceled") {
+      await finalizeWithdrawalFailed(wd.id, {
+        reason: `PodPay ${event}`,
+        source: "webhook_podpay",
+      });
+    }
   }
 }
 

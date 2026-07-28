@@ -11,6 +11,13 @@ Implementação da **Semana 0 + Sprint 1–2** do relatório de auditoria.
 | BFF Velana já exige admin | ✅ |
 | Webhook PodPay HMAC obrigatório em produção | ✅ `verifyPodPaySignature` |
 | Webhook Velana HMAC se `VELANA_WEBHOOK_SECRET` / `VELANA_REQUIRE_HMAC` | ✅ |
+| Webhook Woovi auth opcional + reconfirm API | ✅ `verifyWooviWebhook` + GET charge/payment |
+| Crédito de abandonada (PIX pago após TTL) | ✅ `pendente\|abandonada` + sync antes de expirar |
+| `loginAction`/`registerAction` sem 2FA | ✅ desabilitados (use API) |
+| Staff RBAC nas rotas admin (gerente por página) | ✅ `requireStaffPermission` |
+| Rate limit 2FA (anti brute-force TOTP) | ✅ `check2faRateLimit` |
+| Logout limpa cookie Secure em produção | ✅ |
+| Floor de saldo (pending não negativo) | ✅ CAS `gte` no debit/credit |
 | Listagem admin **não** devolve secret completa | ✅ hints + `GET ?reveal=1` |
 | Token de sessão só cookie httpOnly | ✅ removido sessionStorage |
 | Token de sessão forte (crypto) | ✅ `generateSecureToken` |

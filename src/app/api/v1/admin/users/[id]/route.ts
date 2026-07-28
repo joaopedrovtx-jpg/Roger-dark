@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import {
   dbSetUserDocumentsStatus,
   dbUpdateUserFees,
@@ -17,7 +17,7 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "usuarios");
   if (isGuardFail(gate)) return gate.error;
 
   try {
@@ -55,7 +55,7 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "usuarios");
   if (isGuardFail(gate)) return gate.error;
 
   try {

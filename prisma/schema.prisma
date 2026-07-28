@@ -158,6 +158,8 @@ model Acquirer {
   env             String   @default("sandbox")
   enabled         Boolean  @default(true)
   isPrimary       Boolean  @default(false)
+  /** Principal exclusiva de PIX out / saque (adquirente white) */
+  isPayoutPrimary Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   userLinks       UserAcquirer[]

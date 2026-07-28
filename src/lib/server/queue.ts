@@ -4,7 +4,7 @@ type JobState = "waiting" | "active" | "completed" | "failed";
 
 interface JobRecord {
   id: string;
-  provider: "podpay" | "velana";
+  provider: "podpay" | "velana" | "woovi";
   state: JobState;
   createdAt: number;
 }
@@ -18,7 +18,7 @@ const emitter = new EventEmitter();
 let counter = 0;
 
 export type WebhookJobData = {
-  provider: "podpay" | "velana";
+  provider: "podpay" | "velana" | "woovi";
   payload: unknown;
 };
 
@@ -42,7 +42,7 @@ export type WithdrawalJobData = {
  * executa antes de responder 200 à adquirente.
  */
 export async function enqueueWebhookJob(
-  provider: "podpay" | "velana",
+  provider: "podpay" | "velana" | "woovi",
   run: () => Promise<void>
 ): Promise<string> {
   const id = `webhook_${++counter}`;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import {
   getAdminAcquirersMetrics,
   listAdminAcquirers,
@@ -7,7 +7,7 @@ import {
 import { adquirentesMock } from "@/lib/mock/admin";
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "adquirentes");
   if (isGuardFail(gate)) return gate.error;
   try {
     const [metrics, items] = await Promise.all([

@@ -22,14 +22,13 @@ export function waitBrandLoadingMin(
 }
 
 /**
- * Tela cheia de carregamento: logo principal do sistema no centro,
- * piscando/pulsando (login, bootstrap da sessão, shells).
- * Sempre permanece visível no mínimo BRAND_LOADING_MIN_MS quando o pai
- * combina com waitBrandLoadingMin.
+ * Tela cheia de carregamento: só a logo pulsando no centro.
+ * Sem texto sob/atrás da logo (login, logout, bootstrap, shells).
  */
 export function BrandLoadingScreen({
-  label = "Carregando…",
+  label: _label = "Carregando…",
 }: {
+  /** Mantido por compat; não é exibido visualmente. */
   label?: string;
 }) {
   const [logoUrl, setLogoUrl] = useState(DEFAULT_BRANDING.logoUrl);
@@ -47,13 +46,14 @@ export function BrandLoadingScreen({
       role="status"
       aria-live="polite"
       aria-busy="true"
-      aria-label={label}
+      aria-label="Carregando"
       className="brand-loading-screen"
       style={{
         position: "fixed",
         inset: 0,
         zIndex: 99999,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         background: "var(--bg-app)",
@@ -62,7 +62,7 @@ export function BrandLoadingScreen({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={logoUrl}
-        alt="Dark Pay"
+        alt=""
         className="brand-logo-pulse"
         style={{
           height: 72,
@@ -74,7 +74,6 @@ export function BrandLoadingScreen({
           pointerEvents: "none",
         }}
       />
-      <span className="sr-only">{label}</span>
     </div>
   );
 }

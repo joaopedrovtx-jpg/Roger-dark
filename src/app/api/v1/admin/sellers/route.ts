@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import { listAdminUsers } from "@/lib/server/db/admin-users.service";
 
 /** GET /api/v1/admin/sellers */
 export async function GET(req: Request) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "usuarios");
   if (isGuardFail(gate)) return gate.error;
   try {
     const { searchParams } = new URL(req.url);

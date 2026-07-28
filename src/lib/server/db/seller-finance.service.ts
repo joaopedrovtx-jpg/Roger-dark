@@ -81,6 +81,15 @@ export async function createSellerWithdrawalDb(
   if (amount < 5) throw new Error("Saque mínimo: R$ 5,00");
   if (!pixKey.trim()) throw new Error("Chave PIX obrigatória");
 
+  const { isValidPixKey, normalizePixKey } = await import("@/lib/pix-key");
+  if (!isValidPixKey(pixKey)) {
+    throw new Error(
+      "Chave PIX inválida. Use e-mail, telefone, CPF, CNPJ ou chave aleatória."
+    );
+  }
+  // Destino livre — qualquer chave PIX, sem amarrar ao documento da conta
+  const destination = normalizePixKey(pixKey);
+
   const user = await prisma.user.findUnique({ where: { id: sellerId } });
   if (!user) throw new Error("Seller não encontrado");
   if (user.status === "bloqueado") {
@@ -92,16 +101,19 @@ export async function createSellerWithdrawalDb(
     );
   }
 
-  const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
+  const { computeWithdrawNetAmount, parseSellerFeePlan } = await import(
+    "@/lib/server/seller-fees"
+  );
   const plan = parseSellerFeePlan(user);
   const feePercent = plan.saquePercent;
   const feeFixed = plan.saqueFixed;
-  const feeAmount =
-    Math.round(((amount * feePercent) / 100 + feeFixed) * 100) / 100;
+  const { fee: feeAmount, net: netAmount } = computeWithdrawNetAmount(amount, {
+    saquePercent: feePercent,
+    saqueFixed: feeFixed,
+  });
   if (feeAmount >= amount) {
     throw new Error("Taxa de saque maior ou igual ao valor");
   }
-  const netAmount = Math.round((amount - feeAmount) * 100) / 100;
   const id = newId("sq");
 
   const created = await prisma.$transaction(async (tx) => {
@@ -130,7 +142,7 @@ export async function createSellerWithdrawalDb(
         feeAmount,
         netAmount,
         method: "PIX",
-        destination: pixKey.trim(),
+        destination,
         status: "processando",
       },
     });

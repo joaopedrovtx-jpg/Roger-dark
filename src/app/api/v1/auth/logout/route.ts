@@ -3,27 +3,34 @@ import { cookies } from "next/headers";
 import { logoutByToken, SESSION_COOKIE_NAME } from "@/lib/server/auth";
 import { securityHeaders } from "@/lib/server/security";
 
+/** Espelha flags do cookie de sessão para o browser aceitar o clear. */
+function clearSessionCookie(res: NextResponse) {
+  const isHttps =
+    process.env.NODE_ENV === "production" ||
+    process.env.COOKIE_SECURE === "1" ||
+    process.env.COOKIE_SECURE === "true" ||
+    !!process.env.VERCEL;
+  res.cookies.set(SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: isHttps,
+    maxAge: 0,
+  });
+}
+
 /** POST /api/v1/auth/logout */
 export async function POST() {
-  const isHttps =
-    process.env.COOKIE_SECURE === "1" || !!process.env.VERCEL;
-  const clearCookie = {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: isHttps,
-    path: "/",
-    maxAge: 0,
-  };
   try {
     const jar = await cookies();
     const token = jar.get(SESSION_COOKIE_NAME)?.value;
     await logoutByToken(token);
     const res = NextResponse.json({ ok: true }, { headers: securityHeaders() });
-    res.cookies.set(SESSION_COOKIE_NAME, "", clearCookie);
+    clearSessionCookie(res);
     return res;
   } catch {
     const res = NextResponse.json({ ok: true }, { headers: securityHeaders() });
-    res.cookies.set(SESSION_COOKIE_NAME, "", clearCookie);
+    clearSessionCookie(res);
     return res;
   }
 }

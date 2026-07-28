@@ -7,7 +7,12 @@ import {
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { verify2faChallenge } from "@/lib/server/signed-token";
 import { verifyTotp, consumeBackupCode } from "@/lib/server/totp";
-import { getClientIp, securityHeaders } from "@/lib/server/security";
+import {
+  check2faRateLimit,
+  clear2faRateLimit,
+  getClientIp,
+  securityHeaders,
+} from "@/lib/server/security";
 
 /**
  * POST /api/v1/auth/login/2fa
@@ -44,6 +49,27 @@ export async function POST(req: Request) {
               : "Desafio 2FA inválido.",
         },
         { status: 401, headers: securityHeaders() }
+      );
+    }
+
+    const ip = getClientIp(req);
+    const rate = await check2faRateLimit({ ip, userId: ch.userId });
+    if (!rate.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "Muitas tentativas de 2FA. Aguarde alguns minutos e tente de novo.",
+          retryAfterSec: rate.retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            ...securityHeaders(),
+            ...(rate.retryAfterSec
+              ? { "Retry-After": String(rate.retryAfterSec) }
+              : {}),
+          },
+        }
       );
     }
 
@@ -86,8 +112,10 @@ export async function POST(req: Request) {
       );
     }
 
+    await clear2faRateLimit({ ip, userId: user.id });
+
     const { session, token } = await createSessionForUser(user.id, {
-      ip: getClientIp(req),
+      ip,
       userAgent: req.headers.get("user-agent") ?? undefined,
     });
 

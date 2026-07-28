@@ -10,11 +10,10 @@ export type StaffPermission =
   | GerentePermission
   | "personalizacao";
 
-/** Todas as permissões de um super-admin */
+/** Todas as permissões = páginas do menu lateral do admin */
 export const ALL_STAFF_PERMISSIONS: StaffPermission[] = [
   "dashboard",
   "usuarios",
-  "documentos",
   "saques",
   "adquirentes",
   "gerentes",
@@ -35,11 +34,14 @@ export function isStaff(user: AuthUser | null | undefined): boolean {
   return rolesIncludeStaff(user?.roles);
 }
 
+const VALID_STAFF = new Set<string>(ALL_STAFF_PERMISSIONS);
+
 export function staffPermissions(user: AuthUser | null | undefined): StaffPermission[] {
   if (!user) return [];
   if (isSuperAdmin(user)) return [...ALL_STAFF_PERMISSIONS];
   const raw = user.permissions ?? [];
-  return raw.filter(Boolean) as StaffPermission[];
+  // Ignora permissões legadas (ex.: "documentos") que não existem no menu
+  return raw.filter((p) => VALID_STAFF.has(String(p))) as StaffPermission[];
 }
 
 export function hasStaffPermission(

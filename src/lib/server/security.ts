@@ -5,6 +5,9 @@ const MAX_ATTEMPTS_COMBO = 10;
 const MAX_ATTEMPTS_EMAIL = 25;
 const MAX_ATTEMPTS_IP = 40;
 const MAX_REGISTER_IP = 8;
+/** 2FA: 8 tentativas por IP+user / 15 min (anti brute-force TOTP) */
+const MAX_2FA_COMBO = 8;
+const MAX_2FA_IP = 30;
 const MAX_MAP_SIZE = 10_000;
 
 const attempts = new Map<string, number[]>();
@@ -173,6 +176,33 @@ export async function checkRegisterRateLimit(ip: string): Promise<{
   retryAfterSec?: number;
 }> {
   return checkRateLimit(`register:ip:${ip || "direct"}`, MAX_REGISTER_IP);
+}
+
+/** Rate limit do desafio 2FA (TOTP / backup code) */
+export async function check2faRateLimit(opts: {
+  ip: string;
+  userId: string;
+}): Promise<{ ok: boolean; retryAfterSec?: number }> {
+  const ip = opts.ip || "direct";
+  const userId = opts.userId || "unknown";
+  const checks = await Promise.all([
+    checkRateLimit(`2fa:combo:${ip}:${userId}`, MAX_2FA_COMBO),
+    checkRateLimit(`2fa:ip:${ip}`, MAX_2FA_IP),
+  ]);
+  for (const c of checks) {
+    if (!c.ok) return c;
+  }
+  return { ok: true };
+}
+
+export async function clear2faRateLimit(opts: {
+  ip: string;
+  userId: string;
+}) {
+  const ip = opts.ip || "direct";
+  const userId = opts.userId || "unknown";
+  attempts.delete(`2fa:combo:${ip}:${userId}`);
+  attempts.delete(`2fa:ip:${ip}`);
 }
 
 export const MIN_PASSWORD_LENGTH = 10;

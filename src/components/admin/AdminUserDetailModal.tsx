@@ -10,7 +10,7 @@ import {
   IdCard,
   X,
 } from "lucide-react";
-import { formatBRL, formatDateTime } from "@/lib/format";
+import { formatBRL, formatDateTime, formatFeeLabel } from "@/lib/format";
 import { setImpersonateSeller } from "@/lib/client/impersonate";
 import {
   adquirentesMock,
@@ -172,15 +172,15 @@ function DocKindIcon({
 }
 
 /**
- * Superfície mock do documento (atrás do blur).
- * Em produção seria a imagem real enviada pelo seller.
+ * Fundo da área do documento: só um painel semi-transparente.
+ * Sem blur, sem mock preto e sem borda/sombra verde.
  */
-function DocMockSurface({
+function DocPreviewSurface({
   kind,
-  sharp = false,
+  large = false,
 }: {
   kind: SellerDocKind;
-  sharp?: boolean;
+  large?: boolean;
 }) {
   return (
     <div
@@ -194,84 +194,13 @@ function DocMockSurface({
         justifyContent: "center",
         gap: 10,
         padding: 16,
-        background:
-          kind === "selfie"
-            ? "linear-gradient(145deg, #2a3140 0%, #1a1e26 55%, #12151a 100%)"
-            : kind === "contrato_social"
-              ? "linear-gradient(145deg, #252a35 0%, #181c24 100%)"
-              : "linear-gradient(145deg, #2c3340 0%, #1c2028 50%, #14181f 100%)",
-        filter: sharp ? "none" : "blur(7px) saturate(0.85)",
-        transform: sharp ? "none" : "scale(1.06)",
+        background: "rgba(255, 255, 255, 0.04)",
       }}
     >
-      {/* Linhas fake de documento */}
-      <div
-        style={{
-          width: "72%",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          opacity: 0.55,
-        }}
-      >
-        <div
-          style={{
-            height: 10,
-            borderRadius: 4,
-            background: "rgba(255,255,255,0.22)",
-            width: "48%",
-          }}
-        />
-        <div
-          style={{
-            height: 8,
-            borderRadius: 4,
-            background: "rgba(255,255,255,0.14)",
-            width: "100%",
-          }}
-        />
-        <div
-          style={{
-            height: 8,
-            borderRadius: 4,
-            background: "rgba(255,255,255,0.12)",
-            width: "88%",
-          }}
-        />
-        <div
-          style={{
-            height: 8,
-            borderRadius: 4,
-            background: "rgba(255,255,255,0.1)",
-            width: "70%",
-          }}
-        />
-        {kind === "contrato_social" ? (
-          <>
-            <div
-              style={{
-                height: 8,
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.1)",
-                width: "95%",
-                marginTop: 6,
-              }}
-            />
-            <div
-              style={{
-                height: 8,
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.08)",
-                width: "80%",
-              }}
-            />
-          </>
-        ) : null}
-      </div>
       <DocKindIcon
         kind={kind}
-        size={sharp ? 40 : 36}
-        color="rgba(255,255,255,0.35)"
+        size={large ? 40 : 32}
+        color="rgba(255,255,255,0.28)"
       />
     </div>
   );
@@ -357,7 +286,7 @@ function DocViewerLightbox({
           className="relative flex-1 min-h-0"
           style={{
             minHeight: 360,
-            background: "var(--bg-app)",
+            background: "rgba(255, 255, 255, 0.04)",
           }}
         >
           {doc.previewUrl ? (
@@ -374,7 +303,7 @@ function DocViewerLightbox({
             />
           ) : (
             <div className="relative w-full h-full" style={{ minHeight: 360 }}>
-              <DocMockSurface kind={doc.kind} sharp />
+              <DocPreviewSurface kind={doc.kind} large />
             </div>
           )}
         </div>
@@ -415,7 +344,7 @@ function ReadField({
       <input
         type="text"
         readOnly
-        value={value?.trim() ? value : "-"}
+        value={value?.trim() ? value : " "}
         className={valueStyle ? "tabular" : undefined}
         style={{ ...inputStyle, ...valueStyle }}
         tabIndex={0}
@@ -458,7 +387,7 @@ function PhoneField({ phone }: { phone: string }) {
         <input
           type="text"
           readOnly
-          value={phone?.trim() ? phone : "-"}
+          value={phone?.trim() ? phone : " "}
           className="tabular min-w-0"
           style={{
             ...inputStyle,
@@ -467,7 +396,7 @@ function PhoneField({ phone }: { phone: string }) {
             maxWidth: "100%",
           }}
           tabIndex={0}
-          size={Math.max((phone?.trim() || "-").length, 10)}
+          size={Math.max((phone?.trim() || " ").length, 10)}
         />
         <a
           href={wa ?? undefined}
@@ -874,10 +803,14 @@ export function AdminUserDetailModal({
       const name =
         acqList.find((a) => a.id === (preferredId || platformPrimaryId))
           ?.name || "adquirente";
+      const autoTxt = saqueAutomatico
+        ? " Saque automático ON: todo saque desta conta é aprovado sozinho no painel (status pago só após webhook da adquirente)."
+        : " Saque automático OFF: saques entram na fila do admin.";
       setRoutingMsg(
-        personalizado
+        (personalizado
           ? `Salvo. Todas as cobranças deste seller vão pela ${name} (personalizado).`
-          : `Salvo. Este seller usa a principal da plataforma (${name}).`
+          : `Salvo. Este seller usa a principal da plataforma (${name}).`) +
+          autoTxt
       );
     } catch (e) {
       setRoutingMsg(
@@ -1081,6 +1014,7 @@ export function AdminUserDetailModal({
                   whiteSpace: "nowrap",
                   lineHeight: 1.25,
                 }}
+                title="Quando ativo, todo saque deste seller é aprovado automaticamente no painel (dispara PIX na adquirente). O status 'pago' só muda quando a adquirente confirmar via webhook."
               >
                 Saque
                 <br />
@@ -1165,17 +1099,6 @@ export function AdminUserDetailModal({
                   label="Saldo disponível"
                   value={formatBRL(user.balance)}
                   valueStyle={moneyValueStyle}
-                />
-                <ReadField
-                  label="Saldo retido"
-                  value={formatBRL(user.heldBalance ?? 0)}
-                  valueStyle={{
-                    ...moneyValueStyle,
-                    color:
-                      (user.heldBalance ?? 0) > 0
-                        ? "#f5a623"
-                        : moneyValueStyle.color,
-                  }}
                 />
                 <ReadField
                   label="Volume movimentado"
@@ -1279,7 +1202,7 @@ export function AdminUserDetailModal({
                           aspectRatio: "4 / 3",
                           minHeight: 148,
                           overflow: "hidden",
-                          background: "var(--bg-app)",
+                          background: "rgba(255, 255, 255, 0.04)",
                           borderRadius:
                             "var(--radius-card) var(--radius-card) 0 0",
                         }}
@@ -1300,7 +1223,10 @@ export function AdminUserDetailModal({
                         ) : doc.previewUrl ? (
                           <div
                             className="absolute inset-0 flex flex-col items-center justify-center gap-2"
-                            style={{ padding: 16 }}
+                            style={{
+                              padding: 16,
+                              background: "rgba(255, 255, 255, 0.04)",
+                            }}
                           >
                             <DocKindIcon kind={doc.kind} size={32} />
                             <span
@@ -1317,18 +1243,8 @@ export function AdminUserDetailModal({
                             </span>
                           </div>
                         ) : (
-                          <DocMockSurface kind={doc.kind} />
+                          <DocPreviewSurface kind={doc.kind} />
                         )}
-
-                        <div
-                          aria-hidden
-                          style={{
-                            position: "absolute",
-                            inset: 0,
-                            background:
-                              "linear-gradient(180deg, rgba(12,14,18,0.15) 0%, rgba(12,14,18,0.45) 100%)",
-                          }}
-                        />
 
                         <div
                           className="absolute inset-0 flex items-center justify-center"
@@ -1342,12 +1258,12 @@ export function AdminUserDetailModal({
                               height: 36,
                               padding: "0 18px",
                               borderRadius: "var(--radius-md)",
-                              border: "none",
-                              background: "#ffffff",
-                              color: "#0a0f0c",
+                              border: "1px solid var(--border-muted)",
+                              background: "var(--bg-elevated)",
+                              color: "var(--text-1)",
                               fontSize: 13,
                               cursor: "pointer",
-                              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                              boxShadow: "none",
                             }}
                           >
                             Visualizar
@@ -1509,11 +1425,9 @@ export function AdminUserDetailModal({
                     color: "var(--text-1)",
                   }}
                 >
-                  Entradas {fees.mdrPercent.toFixed(2)}% +{" "}
-                  {formatBRL(fees.mdrFixed)}
+                  Entradas {formatFeeLabel(fees.mdrPercent, fees.mdrFixed)}
                   {" · "}
-                  Saque {fees.saquePercent.toFixed(2)}% +{" "}
-                  {formatBRL(fees.saqueFixed)}
+                  Saque {formatFeeLabel(fees.saquePercent, fees.saqueFixed)}
                 </p>
               </div>
             </div>

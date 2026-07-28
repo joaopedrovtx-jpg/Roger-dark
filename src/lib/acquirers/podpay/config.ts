@@ -162,16 +162,25 @@ const PODPAY_SELLER_FEE_FIXED = Number(process.env.PODPAY_SELLER_FEE_FIXED) || 0
 
 /**
  * Taxa cobrada do seller na venda PIX (R$).
- * Regra da plataforma: até R$ 50 → R$ 1,00; acima → 3%.
+ * Plano da conta: amount × percent/100 + fixed (Admin → Usuário).
+ * Sem opts, defaults env / 3% + R$ 0,15.
  */
 export function computePodPaySellerFee(
   amountReais: number,
-  _opts?: { percent?: number; fixed?: number }
+  opts?: { percent?: number; fixed?: number }
 ): number {
   const amount = Math.max(0, Number(amountReais) || 0);
   if (amount <= 0) return 0;
-  if (amount <= 50) return 1;
-  return Math.round(amount * 0.03 * 100) / 100;
+  const percent = Math.max(
+    0,
+    Number(opts?.percent != null ? opts.percent : PODPAY_SELLER_FEE_PERCENT) ||
+      0
+  );
+  const fixed = Math.max(
+    0,
+    Number(opts?.fixed != null ? opts.fixed : PODPAY_SELLER_FEE_FIXED) || 0
+  );
+  return Math.round((amount * (percent / 100) + fixed) * 100) / 100;
 }
 
 export { STORAGE_KEY as PODPAY_CONFIG_STORAGE_KEY };

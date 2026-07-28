@@ -91,7 +91,7 @@ function ReadField({
       <input
         type="text"
         readOnly
-        value={value?.trim() ? value : "-"}
+        value={value?.trim() ? value : " "}
         className={valueStyle ? "tabular" : undefined}
         style={{ ...inputStyle, ...valueStyle }}
         tabIndex={0}

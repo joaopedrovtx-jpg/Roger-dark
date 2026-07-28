@@ -9,50 +9,95 @@ import {
 import { adminUsersMock } from "@/lib/mock/admin";
 import {
   createWithdrawalViaPodPay,
-  isPodPayEnabled,
   syncBalanceFromPodPay,
 } from "@/lib/acquirers/podpay/gateway";
 import {
   createWithdrawalViaVelana,
   syncBalanceFromVelana,
 } from "@/lib/acquirers/velana/gateway";
-import { resolveAcquirerForSeller } from "@/lib/acquirers/resolve";
 import {
-  isVelanaEnabled,
-  isVelanaEnabledServer,
-} from "@/lib/acquirers/velana/config";
+  createWithdrawalViaWoovi,
+  syncBalanceFromWoovi,
+} from "@/lib/acquirers/woovi/gateway";
+import { isWooviPayoutDisabledError } from "@/lib/acquirers/woovi/client";
+import { resolveAcquirerForPayout } from "@/lib/acquirers/resolve";
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
 /**
- * Validação leve de chave PIX: aceita
- *  - email (texto@texto)
- *  - telefone BR (10 ou 11 dígitos, com DDD)
- *  - CPF (11 dígitos) / CNPJ (14 dígitos)
- *  - EVP / chave aleatória (UUID v4 com 32 hex)
- * Rejeita caracteres de controle, espaços nas pontas e tamanhos absurdos.
- * A adquirente ainda valida definitivamente.
+ * Velana (e algumas adquirentes) bloqueiam PIX out para chave de terceiro
+ * (chave não vinculada ao CPF/CNPJ do recebedor da conta da empresa).
+ * Nesse caso o Dark Pay ainda aceita o saque como pendente (admin libera).
  */
-export function isValidPixKey(key: string): boolean {
-  const k = key.trim();
-  if (!k || k.length > 140) return false;
-  // Caracteres perigosos / injetáveis
-  if (/[<>"'`;\\]/.test(k)) return false;
-  if (k.includes("@")) {
-    // email básico
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(k) && k.length <= 254;
+export function isThirdPartyPixRestriction(err: unknown): boolean {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = String((err as { code?: string }).code || "");
+    if (code === "VELANA_PIX_SAME_DOCUMENT") return true;
   }
-  const digits = k.replace(/\D/g, "");
-  if (digits === k) {
-    if (digits.length === 11) return /^[1-9]\d{10}$/.test(digits) || /^[1-9]{2}9?\d{8}$/.test(digits);
-    if (digits.length === 14) return /^\d{14}$/.test(digits);
-    if (digits.length === 10 || digits.length === 11) return true; // telefone
-    if (digits.length === 32) return /^[a-fA-F0-9]{32}$/.test(digits); // EVP hex
-  }
-  return false;
+  const msg = (err instanceof Error ? err.message : String(err || "")).toLowerCase();
+  return (
+    msg.includes("mesmo cpf") ||
+    msg.includes("mesmo cnpj") ||
+    msg.includes("cpf/cnpj do recebedor") ||
+    (msg.includes("chave pix") && msg.includes("recebedor")) ||
+    (msg.includes("transferências por chave") && msg.includes("recebedor")) ||
+    (msg.includes("transferencias por chave") && msg.includes("recebedor"))
+  );
 }
+
+async function createLocalPendingWithdrawal(opts: {
+  sellerId: string;
+  sellerName: string;
+  amount: number;
+  pixKey: string;
+  feePercent: number;
+  feeFixed: number;
+  feeAmount: number;
+  netAmount: number;
+  provider?: string;
+}): Promise<Withdrawal> {
+  const { randomBytes } = await import("crypto");
+  const id = `SQ-${randomBytes(6).toString("hex")}`;
+  const w: Withdrawal = {
+    id,
+    sellerId: opts.sellerId,
+    sellerName: opts.sellerName,
+    date: new Date().toISOString(),
+    amount: round2(opts.amount),
+    method: "PIX",
+    destination: opts.pixKey,
+    status: "processando",
+    feePercent: opts.feePercent,
+    feeFixed: opts.feeFixed,
+  };
+  await persistWithdrawalDb(w, {
+    feePercent: opts.feePercent,
+    feeFixed: opts.feeFixed,
+    feeAmount: opts.feeAmount,
+    netAmount: opts.netAmount,
+    provider: opts.provider ?? "pending_manual",
+    providerId: id,
+  });
+  pushWithdrawal(w);
+  return w;
+}
+
+// Helpers de chave PIX (destino livre — qualquer chave válida)
+import {
+  detectPixKeyKind,
+  isValidPixKey,
+  normalizePixKey,
+  type PixKeyKind,
+} from "@/lib/pix-key";
+
+export {
+  detectPixKeyKind,
+  isValidPixKey,
+  normalizePixKey,
+  type PixKeyKind,
+};
 
 export function listWithdrawals(opts?: {
   sellerId?: string;
@@ -72,20 +117,41 @@ async function loadSellerFees(sellerId: string): Promise<{
 }> {
   try {
     const { prisma, isDatabaseConfigured } = await import("@/lib/server/prisma");
-    if (!isDatabaseConfigured()) return { feePercent: 3, feeFixed: 0 };
+    const {
+      DEFAULT_SAQUE_FIXED,
+      DEFAULT_SAQUE_PERCENT,
+      parseSellerFeePlan,
+    } = await import("@/lib/server/seller-fees");
+    // Default real = 0 (sem taxa). Nunca forçar 3% se a conta não tem plano.
+    if (!isDatabaseConfigured()) {
+      return {
+        feePercent: DEFAULT_SAQUE_PERCENT,
+        feeFixed: DEFAULT_SAQUE_FIXED,
+      };
+    }
     const u = await prisma.user.findUnique({
       where: { id: sellerId },
       select: { saquePercent: true, saqueFixed: true, status: true },
     });
-    if (!u) return { feePercent: 3, feeFixed: 0 };
+    if (!u) {
+      return {
+        feePercent: DEFAULT_SAQUE_PERCENT,
+        feeFixed: DEFAULT_SAQUE_FIXED,
+      };
+    }
     const { assertSellerCanTransact } = await import("@/lib/server/mock-check");
     assertSellerCanTransact(u.status);
-    const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
     const plan = parseSellerFeePlan(u);
     return { feePercent: plan.saquePercent, feeFixed: plan.saqueFixed };
   } catch (e) {
     if (e instanceof Error) throw e;
-    return { feePercent: 3, feeFixed: 0 };
+    const { DEFAULT_SAQUE_FIXED, DEFAULT_SAQUE_PERCENT } = await import(
+      "@/lib/server/seller-fees"
+    );
+    return {
+      feePercent: DEFAULT_SAQUE_PERCENT,
+      feeFixed: DEFAULT_SAQUE_FIXED,
+    };
   }
 }
 
@@ -152,13 +218,20 @@ export async function createWithdrawal(
   if (input.amount > WITHDRAWAL_MAX) {
     throw new Error(`Saque máximo: R$ ${WITHDRAWAL_MAX.toFixed(2)}`);
   }
-  const pixKey = input.pixKey?.trim() ?? "";
-  if (!pixKey) throw new Error("Chave PIX obrigatória");
-  if (!isValidPixKey(pixKey)) {
+  // Qualquer chave PIX válida — não amarra ao documento/e-mail da conta.
+  const pixKeyRaw = input.pixKey?.trim() ?? "";
+  if (!pixKeyRaw) throw new Error("Chave PIX obrigatória");
+  if (!isValidPixKey(pixKeyRaw)) {
     throw new Error(
-      "Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (DDD+número) ou chave aleatória (UUID)."
+      "Chave PIX inválida. Use e-mail, telefone (DDD+número), CPF, CNPJ ou chave aleatória (UUID)."
     );
   }
+  const pixKey = normalizePixKey(pixKeyRaw);
+  // Payload unificado com chave normalizada (destino livre)
+  const payoutRequest: CreateWithdrawalInput = {
+    amount: input.amount,
+    pixKey,
+  };
 
   // Bloqueia seller inativo/bloqueado aqui (não dependa de loadSellerFees).
   try {
@@ -182,13 +255,18 @@ export async function createWithdrawal(
   const fees = await loadSellerFees(sellerId);
   const feePercent = feePercentIn ?? fees.feePercent;
   const feeFixed = feeFixedIn ?? fees.feeFixed;
-  const feeAmount = round2((input.amount * feePercent) / 100 + feeFixed);
+  const { computeWithdrawNetAmount } = await import("@/lib/server/seller-fees");
+  const { fee: feeAmount, net: netAmount } = computeWithdrawNetAmount(
+    input.amount,
+    { saquePercent: feePercent, saqueFixed: feeFixed }
+  );
   if (feeAmount >= input.amount) {
     throw new Error("Taxa de saque maior ou igual ao valor");
   }
-  const netAmount = round2(input.amount - feeAmount);
 
-  const active = await resolveAcquirerForSeller(sellerId);
+  // Saque SEMPRE na adquirente white de PIX out (Admin → Adquirentes → Saque).
+  // Independente da adquirente de cobrança do seller.
+  const active = await resolveAcquirerForPayout(sellerId);
 
   const { debitAvailableBalance } = await import("@/lib/server/balance");
   const { isDatabaseConfigured } = await import("@/lib/server/prisma");
@@ -221,47 +299,245 @@ export async function createWithdrawal(
 
   try {
     let w: Withdrawal | null = null;
-    let provider: string | undefined;
+    let provider: "podpay" | "velana" | "woovi" | undefined;
 
-    if (active?.provider === "podpay") {
-      w = await createWithdrawalViaPodPay(sellerId, sellerName, input, {
-        skipLocalDebit: debitedOnDb,
-      });
-      provider = "podpay";
-    } else if (active?.provider === "velana") {
-      w = await createWithdrawalViaVelana(sellerId, sellerName, input, {
-        skipLocalDebit: debitedOnDb,
-      });
-      provider = "velana";
-    } else if (await isVelanaEnabledServer()) {
-      w = await createWithdrawalViaVelana(sellerId, sellerName, input, {
-        skipLocalDebit: debitedOnDb,
-      });
-      provider = "velana";
-    } else if (isPodPayEnabled()) {
-      w = await createWithdrawalViaPodPay(sellerId, sellerName, input, {
-        skipLocalDebit: debitedOnDb,
-      });
-      provider = "podpay";
-    } else if (isVelanaEnabled()) {
-      w = await createWithdrawalViaVelana(sellerId, sellerName, input, {
-        skipLocalDebit: debitedOnDb,
-      });
-      provider = "velana";
+    // Adquirente recebe o líquido (após taxa da plataforma).
+    // Saldo do seller foi debitado pelo bruto (input.amount).
+    const payoutInput: CreateWithdrawalInput = {
+      amount: netAmount,
+      pixKey,
+    };
+
+    /**
+     * Saque SEMPRE na adquirente da conta do seller:
+     * - personalizado + preferred → só essa (Velana / PodPay / Woovi)
+     * - plataforma → #1 global da plataforma
+     * NUNCA troca de adquirente no meio do caminho (saldo PIX fica na conta certa).
+     */
+    const only = active?.provider ?? null;
+    if (!only) {
+      throw new Error(
+        "Nenhuma adquirente de saque configurada. Defina a white de PIX out em " +
+          "Admin → Adquirentes → Saque (Velana, PodPay ou Woovi)."
+      );
     }
 
-    if (w) {
-      await persistWithdrawalDb(w, {
+    // Saque automático: mesmo efeito do botão Aprovar no painel admin
+    let saqueAutomatico = false;
+    try {
+      const { prisma: p } = await import("@/lib/server/prisma");
+      if (isDatabaseConfigured()) {
+        const u = await p.user.findUnique({
+          where: { id: sellerId },
+          select: { saqueAutomatico: true },
+        });
+        saqueAutomatico = !!u?.saqueAutomatico;
+      }
+    } catch {
+      saqueAutomatico = false;
+    }
+
+    if (only === "woovi") {
+      // Seller solicita → CREATED na Woovi; admin Aprovar → envia PIX
+      // Se saqueAutomatico: autoApprove (equivale à aprovação do painel)
+      const { randomBytes } = await import("crypto");
+      const localId = `SQ-${randomBytes(6).toString("hex")}`;
+      const correlationId = `wd_${localId}`
+        .replace(/[^a-zA-Z0-9_\-.]/g, "")
+        .slice(0, 100);
+      try {
+        const remote = await createWithdrawalViaWoovi(
+          sellerId,
+          sellerName,
+          payoutInput,
+          {
+            skipLocalDebit: debitedOnDb,
+            correlationId,
+            autoApprove: saqueAutomatico,
+          }
+        );
+        w = {
+          ...remote,
+          id: localId,
+          amount: round2(input.amount),
+          feePercent,
+          feeFixed,
+          // Seller só vê "pago" quando webhook confirmar liquidação
+          status: "processando",
+          destination: pixKey,
+        };
+        provider = "woovi";
+        await persistWithdrawalDb(w, {
+          feePercent,
+          feeFixed,
+          feeAmount,
+          netAmount,
+          provider: "woovi",
+          providerId: remote.id || correlationId,
+        });
+        pushWithdrawal(w);
+
+        if (saqueAutomatico) {
+          // autoApprove já disparou o PIX na create — não re-dispatch.
+          // "pago" pro seller só se a API já liquidou; senão webhook.
+          if (remote.status === "pago") {
+            try {
+              const { finalizeWithdrawalPaid } = await import(
+                "@/lib/server/db/admin-withdrawals.service"
+              );
+              await finalizeWithdrawalPaid(localId, {
+                provider: "woovi",
+                providerId: remote.id || correlationId,
+                source: "saque_automatico",
+              });
+              return { ...w, status: "pago" };
+            } catch {
+              /* fica processando */
+            }
+          } else {
+            try {
+              const { prisma: p2 } = await import("@/lib/server/prisma");
+              await p2.withdrawal.update({
+                where: { id: localId },
+                data: { reviewedAt: new Date(), failureReason: null },
+              });
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        return w;
+      } catch (e) {
+        // PIX out desligado → fila na MESMA adquirente (woovi), não muda pra Velana
+        if (isWooviPayoutDisabledError(e)) throw e;
+        throw e;
+      }
+    }
+
+    if (only === "velana") {
+      w = await createWithdrawalViaVelana(sellerId, sellerName, payoutInput, {
+        skipLocalDebit: debitedOnDb,
+      });
+      provider = "velana";
+    } else if (only === "podpay") {
+      w = await createWithdrawalViaPodPay(sellerId, sellerName, payoutInput, {
+        skipLocalDebit: debitedOnDb,
+      });
+      provider = "podpay";
+    }
+
+    if (w && provider) {
+      const remoteAlreadyPaid = w.status === "pago";
+      const remoteAlreadyRejected = w.status === "recusado";
+      const recorded: Withdrawal = {
+        ...w,
+        amount: round2(input.amount),
         feePercent,
         feeFixed,
-        feeAmount: w.feeFixed ?? feeAmount,
-        netAmount: round2(w.amount - (w.feeFixed ?? feeAmount)),
-        provider,
-        providerId: w.id,
-      });
-      return { ...w, feePercent, feeFixed };
+        // Seller vê processando até liquidação confirmada (API ou webhook)
+        status:
+          remoteAlreadyPaid || remoteAlreadyRejected
+            ? w.status
+            : "processando",
+      };
+      await persistWithdrawalDb(
+        { ...recorded, status: "processando" },
+        {
+          feePercent,
+          feeFixed,
+          feeAmount,
+          netAmount,
+          provider,
+          providerId: w.id,
+        }
+      );
+
+      // API da adquirente já liquidou na resposta síncrona
+      if (remoteAlreadyPaid) {
+        try {
+          const { finalizeWithdrawalPaid } = await import(
+            "@/lib/server/db/admin-withdrawals.service"
+          );
+          await finalizeWithdrawalPaid(recorded.id, {
+            provider,
+            providerId: w.id,
+            source: saqueAutomatico ? "saque_automatico" : "acquirer_sync",
+          });
+          return { ...recorded, status: "pago" };
+        } catch {
+          /* webhook finaliza depois */
+        }
+      }
+      if (remoteAlreadyRejected) {
+        try {
+          const { finalizeWithdrawalFailed } = await import(
+            "@/lib/server/db/admin-withdrawals.service"
+          );
+          await finalizeWithdrawalFailed(recorded.id, {
+            reason: "Adquirente recusou na criação",
+            source: "acquirer_sync",
+          });
+          return { ...recorded, status: "recusado" };
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Velana/PodPay: PIX já foi enviado; saque automático só marca reviewed
+      // (status pro seller permanece processando até webhook)
+      if (saqueAutomatico) {
+        const settled = await maybeAutoApproveWithdrawal(sellerId, recorded.id);
+        return settled ?? { ...recorded, status: "processando" };
+      }
+      return { ...recorded, status: "processando" };
     }
+
+    throw new Error(
+      `Adquirente "${only}" não conseguiu processar o saque. Tente novamente.`
+    );
   } catch (e) {
+    // Velana: chave de terceiro → pendente manual.
+    // Woovi sem PIX out e sem fallback → também fila para admin.
+    // Saldo já debitado — NÃO estorna nesses casos.
+    if (
+      (isThirdPartyPixRestriction(e) || isWooviPayoutDisabledError(e)) &&
+      debitedOnDb &&
+      isDatabaseConfigured()
+    ) {
+      try {
+        const { log } = await import("@/lib/server/logger");
+        log.warn(
+          {
+            sellerId,
+            pixKey,
+            amount: input.amount,
+            message: e instanceof Error ? e.message : String(e),
+          },
+          isWooviPayoutDisabledError(e)
+            ? "withdrawal_queued_woovi_payout_disabled"
+            : "withdrawal_queued_third_party_pix"
+        );
+      } catch {
+        /* ignore */
+      }
+      const pending = await createLocalPendingWithdrawal({
+        sellerId,
+        sellerName,
+        amount: input.amount,
+        pixKey,
+        feePercent,
+        feeFixed,
+        feeAmount,
+        netAmount,
+        provider: isWooviPayoutDisabledError(e)
+          ? "pending_manual_woovi"
+          : "pending_manual",
+      });
+      // Fila manual: se saque automático, tenta aprovar (create+approve na adquirente)
+      const settled = await maybeAutoApproveWithdrawal(sellerId, pending.id);
+      return settled ?? pending;
+    }
+
     if (debitedOnDb && isDatabaseConfigured()) {
       const { prisma } = await import("@/lib/server/prisma");
       await prisma.user.update({
@@ -297,7 +573,7 @@ export async function createWithdrawal(
       date: new Date().toISOString(),
       amount: round2(input.amount),
       method: "PIX",
-      destination: input.pixKey.trim(),
+      destination: pixKey,
       status: "processando",
       feePercent,
       feeFixed,
@@ -314,14 +590,21 @@ export async function createWithdrawal(
     return w;
   }
 
-  return createWithdrawalMock(sellerId, sellerName, input, feePercent, feeFixed, debitedOnDb);
+  return createWithdrawalMock(
+    sellerId,
+    sellerName,
+    payoutRequest,
+    feePercent,
+    feeFixed,
+    debitedOnDb
+  );
 }
 
 function createWithdrawalMock(
   sellerId: string,
   sellerName: string,
   input: CreateWithdrawalInput,
-  feePercent = 3,
+  feePercent = 0,
   feeFixed = 0,
   alreadyDebited = false
 ): Withdrawal {
@@ -390,27 +673,90 @@ export function setWithdrawalStatus(id: string, status: SaqueStatus): Withdrawal
 
 export async function setWithdrawalStatusAsync(
   id: string,
-  status: SaqueStatus
+  status: SaqueStatus,
+  opts?: { manual?: boolean; auto?: boolean }
 ): Promise<Withdrawal> {
   if (status !== "pago" && status !== "recusado") {
     throw new Error("status inválido");
   }
-  const { dbSetWithdrawalStatus } = await import("@/lib/server/db/admin-withdrawals.service");
-  const fromDb = await dbSetWithdrawalStatus(id, status);
+  const { dbSetWithdrawalStatus } = await import(
+    "@/lib/server/db/admin-withdrawals.service"
+  );
+  const fromDb = await dbSetWithdrawalStatus(id, status, opts);
   if (fromDb) {
     try {
       const store = getStore();
       const local = store.withdrawals.find((x) => x.id === id);
       if (local) {
-        local.status = status;
-        if (status === "recusado") {
+        // Status real pode continuar processando se adquirente pendente
+        local.status = fromDb.status;
+        if (fromDb.status === "recusado") {
           adjustBalance(local.sellerId, { available: local.amount });
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return fromDb as Withdrawal;
   }
   return setWithdrawalStatus(id, status);
+}
+
+/**
+ * Se o seller tem saqueAutomatico ativo, dispara a mesma aprovação
+ * do painel admin (envia PIX na adquirente). O status "pago" ainda
+ * só chega via webhook se a adquirente continuar pendente.
+ */
+async function maybeAutoApproveWithdrawal(
+  sellerId: string,
+  withdrawalId: string
+): Promise<Withdrawal | null> {
+  try {
+    const { prisma, isDatabaseConfigured } = await import(
+      "@/lib/server/prisma"
+    );
+    if (!isDatabaseConfigured()) return null;
+    const u = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { saqueAutomatico: true },
+    });
+    if (!u?.saqueAutomatico) return null;
+
+    const { log } = await import("@/lib/server/logger");
+    log.info(
+      { sellerId, withdrawalId },
+      "withdrawal_auto_approve_start"
+    );
+
+    const result = await setWithdrawalStatusAsync(withdrawalId, "pago", {
+      auto: true,
+    });
+    log.info(
+      {
+        sellerId,
+        withdrawalId,
+        status: result.status,
+      },
+      "withdrawal_auto_approve_done"
+    );
+    return result;
+  } catch (e) {
+    try {
+      const { log } = await import("@/lib/server/logger");
+      log.warn(
+        {
+          sellerId,
+          withdrawalId,
+          error: e instanceof Error ? e.message : String(e),
+        },
+        "withdrawal_auto_approve_failed"
+      );
+    } catch {
+      /* ignore */
+    }
+    // Saque fica processando — admin ainda pode aprovar manualmente
+    return null;
+  }
 }
 
 export function getFinanceSnapshot(sellerId: string) {
@@ -435,4 +781,4 @@ export async function getFinanceSnapshotPreferDb(sellerId: string) {
   return null;
 }
 
-export { syncBalanceFromPodPay, syncBalanceFromVelana };
+export { syncBalanceFromPodPay, syncBalanceFromVelana, syncBalanceFromWoovi };

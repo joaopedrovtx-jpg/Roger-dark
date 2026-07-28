@@ -30,9 +30,12 @@ export type VelanaTransactionStatus =
   | "in_protest"
   | "partially_paid";
 
+/** Inclui `success` — status real dos postbacks de transfer da Velana. */
 export type VelanaTransferStatus =
   | "pending"
   | "bank_processing"
+  | "processing"
+  | "success"
   | "done"
   | "failed"
   | "canceled"

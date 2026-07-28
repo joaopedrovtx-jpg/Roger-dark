@@ -93,7 +93,7 @@ export function DashboardView() {
   const [period, setPeriod] = useState<PeriodValue>(DEFAULT_PERIOD);
   const [data, setData] = useState<DashboardData>(() => emptyDashboard());
   const [fetchError, setFetchError] = useState(false);
-  const [saqueFees, setSaqueFees] = useState({ percent: 3, fixed: 0 });
+  const [saqueFees, setSaqueFees] = useState({ percent: 0, fixed: 0 });
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -118,9 +118,12 @@ export function DashboardView() {
           | { saquePercent?: number; saqueFixed?: number }
           | undefined;
         if (fees) {
+          // 0 é válido — NÃO usar `|| 3` (transforma 0% em 3%)
+          const p = Number(fees.saquePercent);
+          const f = Number(fees.saqueFixed);
           setSaqueFees({
-            percent: Number(fees.saquePercent) || 3,
-            fixed: Number(fees.saqueFixed) || 0,
+            percent: Number.isFinite(p) ? p : 0,
+            fixed: Number.isFinite(f) ? f : 0,
           });
         }
       } catch {
@@ -137,9 +140,11 @@ export function DashboardView() {
           fees?: { saquePercent?: number; saqueFixed?: number };
         };
         if (fin.fees && !cancelled) {
+          const p = Number(fin.fees.saquePercent);
+          const f = Number(fin.fees.saqueFixed);
           setSaqueFees({
-            percent: Number(fin.fees.saquePercent) || 3,
-            fixed: Number(fin.fees.saqueFixed) || 0,
+            percent: Number.isFinite(p) ? p : 0,
+            fixed: Number.isFinite(f) ? f : 0,
           });
         }
       } catch {
@@ -171,8 +176,8 @@ export function DashboardView() {
       <PromoBanner />
 
       {/*
-        [ Disponível | Pendente | Retido ]  ← mesma altura e largura (3 iguais)
-        [        Gráfico                 ]  [ 4 métricas do topo à base do gráfico ]
+        [ Disponível | Pendente ]  ← mesma altura e largura
+        [        Gráfico        ]  [ métricas do topo à base do gráfico ]
       */}
       <div className="dash-seller">
         <div className="dash-seller__balances">

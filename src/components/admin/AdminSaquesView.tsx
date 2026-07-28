@@ -88,6 +88,7 @@ export function AdminSaquesView() {
     "loading"
   );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
   const reload = async () => {
     setLoadError(null);
@@ -151,22 +152,34 @@ export function AdminSaquesView() {
 
   async function setStatus(id: string, status: AdminSaqueStatus) {
     try {
+      setLoadError(null);
+      setInfoMsg(null);
       const { authedFetch } = await import("@/lib/client/session");
       const res = await authedFetch(
         `/api/v1/admin/withdrawals/${encodeURIComponent(id)}`,
         {
           method: "PATCH",
+          // Aprovar = dispara PIX na adquirente (sem opção manual na UI)
           body: JSON.stringify({ status }),
         }
       );
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        status?: string;
+        note?: string;
+      };
       if (!res.ok) {
         throw new Error(json.error || "Falha ao atualizar saque");
       }
+      // Aprovar com adquirente ainda pendente → seller continua processando
+      if (status === "pago" && json.status === "processando") {
+        setInfoMsg(
+          json.note ||
+            "Aprovado no painel. Seller continua pendente até a adquirente confirmar via webhook."
+        );
+      }
       await reload();
-      setSelectedSaque((cur) =>
-        cur && cur.id === id ? { ...cur, status } : cur
-      );
+      setSelectedSaque(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Erro ao atualizar");
     }
@@ -182,6 +195,9 @@ export function AdminSaquesView() {
       />
       {loadError ? (
         <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{loadError}</p>
+      ) : null}
+      {infoMsg ? (
+        <p style={{ margin: 0, fontSize: 13, color: "#fbbf24" }}>{infoMsg}</p>
       ) : null}
       {source === "database" ? (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-3)" }}>

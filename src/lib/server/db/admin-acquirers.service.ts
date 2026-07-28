@@ -81,6 +81,24 @@ async function ensureGatewayAcquirers() {
       },
     });
   }
+  const woovi = await prisma.acquirer.findUnique({ where: { id: "woovi" } });
+  if (!woovi) {
+    await prisma.acquirer.create({
+      data: {
+        id: "woovi",
+        name: "Woovi",
+        code: "WOOVI",
+        status: "ativo",
+        priority: 3,
+        isPrimary: false,
+        enabled: true,
+        env: "live",
+        feePercent: 0,
+        feeFixed: 0,
+        settlement: "D+0",
+      },
+    });
+  }
 }
 
 export async function listAdminAcquirers() {
@@ -90,9 +108,24 @@ export async function listAdminAcquirers() {
   const items = await prisma.acquirer.findMany({
     orderBy: { priority: "asc" },
   });
+
+  // isPayoutPrimary pode vir só via raw se o client Prisma ainda não tiver o campo
+  let payoutMap = new Map<string, boolean>();
+  try {
+    const flags = await prisma.$queryRawUnsafe<
+      Array<{ id: string; isPayoutPrimary: number | boolean }>
+    >(`SELECT id, isPayoutPrimary FROM acquirers`);
+    for (const f of flags || []) {
+      payoutMap.set(f.id, !!f.isPayoutPrimary);
+    }
+  } catch {
+    payoutMap = new Map();
+  }
+
   return items.map((a) => {
     const pub = (a.publicKey ?? "").trim();
     const priv = (a.privateKey ?? "").trim();
+    const fromRow = (a as { isPayoutPrimary?: boolean }).isPayoutPrimary;
     return {
       id: a.id,
       name: a.name,
@@ -114,8 +147,76 @@ export async function listAdminAcquirers() {
       env: a.env,
       enabled: a.enabled,
       isPrimary: a.isPrimary,
+      isPayoutPrimary:
+        payoutMap.has(a.id) ? !!payoutMap.get(a.id) : !!fromRow,
     };
   });
+}
+
+/**
+ * Define a adquirente principal de SAQUE (PIX out).
+ * Só uma fica ativa — todos os saques da plataforma usam ela,
+ * independente da rota de cobrança do seller.
+ * Usa SQL raw para funcionar mesmo se o client Prisma ainda não tiver o campo.
+ */
+export async function dbSetAcquirerPayoutPrimary(id: string) {
+  if (!(await dbAvailable())) return null;
+  const target = await findAcquirerByRef(id);
+  if (!target) throw new Error(`Adquirente "${id}" não encontrada`);
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE acquirers SET isPayoutPrimary = 0`
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE acquirers SET isPayoutPrimary = 1, enabled = 1, status = 'ativo' WHERE id = ?`,
+      target.id
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Unknown column|no such column|isPayoutPrimary/i.test(msg)) {
+      throw new Error(
+        "Coluna isPayoutPrimary ausente. Rode a migration / ALTER TABLE acquirers."
+      );
+    }
+    throw e;
+  }
+  await audit("acquirer.set_payout_primary", "acquirer", target.id, {});
+  return {
+    ok: true,
+    id: target.id,
+    isPayoutPrimary: true,
+  };
+}
+
+/** Remove a flag de principal de saque (volta ao fallback da #1 de cobrança). */
+export async function dbClearAcquirerPayoutPrimary(id?: string) {
+  if (!(await dbAvailable())) return null;
+  try {
+    if (id) {
+      const target = await findAcquirerByRef(id);
+      if (!target) throw new Error(`Adquirente "${id}" não encontrada`);
+      await prisma.$executeRawUnsafe(
+        `UPDATE acquirers SET isPayoutPrimary = 0 WHERE id = ?`,
+        target.id
+      );
+      await audit("acquirer.clear_payout_primary", "acquirer", target.id, {});
+      return { ok: true, id: target.id, isPayoutPrimary: false };
+    }
+    await prisma.$executeRawUnsafe(
+      `UPDATE acquirers SET isPayoutPrimary = 0`
+    );
+    await audit("acquirer.clear_payout_primary", "acquirer", "all", {});
+    return { ok: true, isPayoutPrimary: false };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Unknown column|no such column|isPayoutPrimary/i.test(msg)) {
+      throw new Error(
+        "Coluna isPayoutPrimary ausente. Rode a migration / ALTER TABLE acquirers."
+      );
+    }
+    throw e;
+  }
 }
 
 export async function getAcquirerSecrets(id: string) {

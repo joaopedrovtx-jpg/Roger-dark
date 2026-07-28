@@ -84,24 +84,38 @@ export function mapVelanaTxStatus(
   }
 }
 
+/**
+ * Status de transfer (PIX out) da Velana.
+ * Em produção o postback usa `success` (não `done`/`paid`).
+ * Docs / payloads reais: success | pending | processing | failed | canceled
+ */
 export function mapVelanaTransferStatus(
   status: VelanaTransferStatus | string
 ): SaqueStatus {
-  const s = String(status).toLowerCase();
+  const s = String(status || "").toLowerCase().trim();
   switch (s) {
+    case "success": // status real do webhook Velana (Dog Black 2026-07)
     case "done":
     case "completed":
     case "transferred":
     case "paid":
+    case "ok":
+    case "approved":
+    case "confirmed":
       return "pago";
     case "failed":
     case "canceled":
     case "cancelled":
     case "refused":
+    case "rejected":
+    case "error":
       return "recusado";
     case "pending":
     case "bank_processing":
     case "processing":
+    case "created":
+    case "in_progress":
+    case "queued":
     default:
       return "processando";
   }

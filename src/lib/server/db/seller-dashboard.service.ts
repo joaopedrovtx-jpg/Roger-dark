@@ -141,6 +141,10 @@ export async function getSellerDashboard(
   }));
   const revenueHistory = fillChartSeries(period, sparse);
 
+  // Taxas da conta (Admin → Usuários) — usadas no popup de saque do dash
+  const { parseSellerFeePlan } = await import("@/lib/server/seller-fees");
+  const feePlan = parseSellerFeePlan(user);
+
   return {
     user: {
       id: user.id,
@@ -163,6 +167,12 @@ export async function getSellerDashboard(
     volumeGoal: {
       current: volume,
       target: Math.max(volume * 1.1, 1000),
+    },
+    fees: {
+      mdrPercent: feePlan.mdrPercent,
+      mdrFixed: feePlan.mdrFixed,
+      saquePercent: feePlan.saquePercent,
+      saqueFixed: feePlan.saqueFixed,
     },
   };
 }

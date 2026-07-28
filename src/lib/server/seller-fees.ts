@@ -19,7 +19,8 @@ export const PIX_FEE_PERCENT_ABOVE_THRESHOLD = 3;
 /** Defaults legados / display admin */
 export const DEFAULT_MDR_PERCENT = PIX_FEE_PERCENT_ABOVE_THRESHOLD;
 export const DEFAULT_MDR_FIXED = PIX_FEE_FIXED_UP_TO_THRESHOLD;
-export const DEFAULT_SAQUE_PERCENT = 3;
+/** Saque: 0 até o admin configurar por conta. */
+export const DEFAULT_SAQUE_PERCENT = 0;
 export const DEFAULT_SAQUE_FIXED = 0;
 
 export type SellerSaleFees = {
@@ -44,7 +45,7 @@ function n(v: unknown): number {
 }
 
 /**
- * Interpreta campos de taxa do User (saque + espelho display).
+ * Interpreta campos de taxa do User.
  * 0 é valor válido. Só usa default se o valor for inválido/NaN.
  */
 export function parseSellerFeePlan(user: {
@@ -101,7 +102,32 @@ export function computeSaleNetAmount(
   return { fee, net };
 }
 
-/** Carrega MDR da conta no banco (espelho; cálculo de venda usa faixas PIX) */
+/**
+ * Taxa de saque em R$ = (amount × saquePercent / 100) + saqueFixed.
+ * 0 em percent ou fixed é válido (componente desligado).
+ */
+export function computeWithdrawFeeAmount(
+  amountReais: number,
+  fees: Pick<SellerWithdrawFees, "saquePercent" | "saqueFixed">
+): number {
+  const amount = Math.max(0, Number(amountReais) || 0);
+  if (amount <= 0) return 0;
+  const percent = Math.max(0, Number(fees.saquePercent) || 0);
+  const fixed = Math.max(0, Number(fees.saqueFixed) || 0);
+  return roundMoney((amount * percent) / 100 + fixed);
+}
+
+export function computeWithdrawNetAmount(
+  amountReais: number,
+  fees: Pick<SellerWithdrawFees, "saquePercent" | "saqueFixed">
+): { fee: number; net: number } {
+  const amount = Math.max(0, Number(amountReais) || 0);
+  const fee = computeWithdrawFeeAmount(amount, fees);
+  const net = roundMoney(Math.max(0, amount - fee));
+  return { fee, net };
+}
+
+/** Carrega MDR (entradas PIX) da conta no banco — plano Admin. */
 export async function getSellerSaleFees(
   sellerId: string
 ): Promise<SellerSaleFees> {

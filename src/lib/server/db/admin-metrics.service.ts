@@ -151,6 +151,14 @@ export async function getAdminDashboardMetrics(
     decidedSales > 0 ? (paidCount / decidedSales) * 100 : 0;
   const platformRevenue = platformFromTx + platformFromWd;
 
+  // Custo das adquirentes (feePercent + feeFixed configurados no Admin)
+  // descontado por transação paga e por saque pago no período.
+  const acquirerCost = await computeAcquirerCost({
+    saleWhere: paidWhere,
+    wdDate,
+  });
+  const platformNetProfit = round2(platformRevenue - acquirerCost);
+
   return {
     totalUsers,
     activeUsers: countBy("ativo"),
@@ -163,6 +171,8 @@ export async function getAdminDashboardMetrics(
     platformRevenue,
     platformRevenueSales: platformFromTx,
     platformRevenueWithdrawals: platformFromWd,
+    platformAcquirerCost: acquirerCost,
+    platformNetProfit,
     activeAdquirentes: acquirersActive,
     totalTransactions: totalSalesCount,
     averageTicket,
@@ -171,6 +181,94 @@ export async function getAdminDashboardMetrics(
     totalPendingBalance: n(balAgg._sum.balancePending),
     conversionRate: Math.round(conversionRate * 10) / 10,
   };
+}
+
+function round2(v: number): number {
+  return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+/**
+ * Soma o custo das adquirentes no período:
+ * por venda paga: amount * feePercent/100 + feeFixed
+ * por saque pago: feeFixed da adquirente (PIX out)
+ */
+async function computeAcquirerCost(opts: {
+  saleWhere: {
+    kind: "venda";
+    status: "aprovada";
+    OR: Array<Record<string, unknown>>;
+  };
+  wdDate: { gte: Date; lte: Date };
+}): Promise<number> {
+  const acquirers = await prisma.acquirer.findMany({
+    select: {
+      id: true,
+      code: true,
+      feePercent: true,
+      feeFixed: true,
+    },
+  });
+
+  type Fee = { feePercent: number; feeFixed: number };
+  const byKey = new Map<string, Fee>();
+  for (const a of acquirers) {
+    const fee: Fee = {
+      feePercent: n(a.feePercent),
+      feeFixed: n(a.feeFixed),
+    };
+    byKey.set(a.id.toLowerCase(), fee);
+    byKey.set(String(a.code || "").toLowerCase(), fee);
+  }
+  // aliases comuns
+  if (byKey.has("woovi") && !byKey.has("openpix")) {
+    byKey.set("openpix", byKey.get("woovi")!);
+  }
+
+  const resolveFee = (provider?: string | null, acquirerId?: string | null): Fee => {
+    const keys = [
+      String(acquirerId || "").toLowerCase(),
+      String(provider || "").toLowerCase(),
+    ].filter(Boolean);
+    for (const k of keys) {
+      if (byKey.has(k)) return byKey.get(k)!;
+    }
+    // fallback: principal (menor priority) — se não achar, zero
+    return { feePercent: 0, feeFixed: 0 };
+  };
+
+  const costOf = (amount: number, fee: Fee) =>
+    round2((amount * fee.feePercent) / 100 + fee.feeFixed);
+
+  const [sales, withdrawals] = await Promise.all([
+    prisma.transaction.findMany({
+      where: opts.saleWhere,
+      select: {
+        amount: true,
+        provider: true,
+        acquirerId: true,
+      },
+      take: 20_000,
+    }),
+    prisma.withdrawal.findMany({
+      where: { status: "pago", date: opts.wdDate },
+      select: {
+        amount: true,
+        provider: true,
+      },
+      take: 10_000,
+    }),
+  ]);
+
+  let total = 0;
+  for (const s of sales) {
+    total += costOf(n(s.amount), resolveFee(s.provider, s.acquirerId));
+  }
+  // Saque: só o fixo da adquirente (PIX out), sem % sobre o bruto do seller
+  for (const w of withdrawals) {
+    const fee = resolveFee(w.provider, null);
+    total += round2(fee.feeFixed);
+  }
+  return round2(total);
 }
 
 /**

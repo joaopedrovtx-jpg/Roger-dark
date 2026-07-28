@@ -12,7 +12,6 @@ import { formatBRL, formatDateTime } from "@/lib/format";
 import type { SaqueStatus, SaqueTransaction } from "@/lib/mock/financeiro";
 import {
   IconDolarSymbol,
-  IconLockFilled,
   IconOutflowFilled,
   IconPixFilled,
 } from "@/components/dashboard/KpiIcons";
@@ -298,9 +297,8 @@ function SaqueDetailModal({
 export function FinanceiroOverview() {
   const [rows, setRows] = useState<SaqueTransaction[]>([]);
   const [available, setAvailable] = useState(0);
-  const [held, setHeld] = useState(0);
   const [totalOut, setTotalOut] = useState(0);
-  const [saquePercent, setSaquePercent] = useState(3);
+  const [saquePercent, setSaquePercent] = useState(0);
   const [saqueFixed, setSaqueFixed] = useState(0);
   const [saqueOpen, setSaqueOpen] = useState(false);
   const [selected, setSelected] = useState<SaqueTransaction | null>(null);
@@ -336,11 +334,14 @@ export function FinanceiroOverview() {
         }>;
       };
       setAvailable(fin.balances.available);
-      // Saldo retido: valor já pago, bloqueado por suspeita/fraude (não é PIX pendente)
-      setHeld(fin.balances.held);
       setTotalOut(fin.totalOut);
-      if (fin.fees?.saquePercent != null) setSaquePercent(fin.fees.saquePercent);
-      if (fin.fees?.saqueFixed != null) setSaqueFixed(fin.fees.saqueFixed);
+      // 0 é válido (sem taxa) — sempre aplica o plano retornado pela API
+      if (fin.fees) {
+        const p = Number(fin.fees.saquePercent);
+        const f = Number(fin.fees.saqueFixed);
+        setSaquePercent(Number.isFinite(p) ? p : 0);
+        setSaqueFixed(Number.isFinite(f) ? f : 0);
+      }
       setRows(
         fin.withdrawals.map((w) => ({
           id: w.id,
@@ -384,12 +385,6 @@ export function FinanceiroOverview() {
       icon: <IconDolarSymbol size={ICON} />,
       isSacar: true,
     },
-    {
-      key: "held",
-      label: "Saldo retido",
-      value: held,
-      icon: <IconLockFilled size={ICON} />,
-    },
   ];
 
   return (
@@ -412,7 +407,13 @@ export function FinanceiroOverview() {
       />
 
       {/* Métricas */}
-      <div className="grid-kpi-3">
+      <div
+        className="grid w-full"
+        style={{
+          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gap: "var(--kpi-gap)",
+        }}
+      >
         {metricCards.map((card) => (
           <div
             key={card.key}

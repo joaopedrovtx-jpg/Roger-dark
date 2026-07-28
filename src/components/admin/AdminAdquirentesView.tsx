@@ -22,6 +22,7 @@ import { AdminStatusBadge } from "./AdminStatusBadge";
 import { AdminTd, AdminActionButton } from "./AdminTable";
 import { AdminAdquirenteDetailModal } from "./AdminAdquirenteDetailModal";
 import { AdminPagamentoConfigView } from "./AdminPagamentoConfigView";
+import { AdminSaqueAcquirerView } from "./AdminSaqueAcquirerView";
 import { formatBRL } from "@/lib/format";
 import {
   adquirentesMock,
@@ -30,7 +31,7 @@ import {
   type AdquirenteStatus,
 } from "@/lib/mock/admin";
 
-type PageSection = "rota" | "credenciais";
+type PageSection = "rota" | "credenciais" | "saque";
 
 const ICON = 24;
 
@@ -294,6 +295,7 @@ export function AdminAdquirentesView() {
             [
               { id: "rota" as const, label: "Gerenciamento" },
               { id: "credenciais" as const, label: "Credenciais" },
+              { id: "saque" as const, label: "Saque" },
             ] as const
           ).map((s) => {
             const on = section === s.id;
@@ -328,6 +330,7 @@ export function AdminAdquirentesView() {
       </div>
 
       {section === "credenciais" ? <AdminPagamentoConfigView /> : null}
+      {section === "saque" ? <AdminSaqueAcquirerView /> : null}
 
       {section === "rota" ? (
         <>

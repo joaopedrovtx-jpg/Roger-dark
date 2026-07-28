@@ -5,7 +5,6 @@ import { KpiCard } from "./KpiCard";
 import {
   IconDolarSymbol,
   IconClockFilled,
-  IconLockFilled,
 } from "./KpiIcons";
 import { formatBRL } from "@/lib/format";
 import type { DashboardData } from "@/types/dashboard";
@@ -60,12 +59,12 @@ function WithdrawButton({
 }
 
 /**
- * 3 saldos com a mesma altura e largura (grid 3 colunas iguais).
+ * Saldos: disponível + pendente (mesma altura e largura).
  */
 export function KpiGrid({
   data,
   onBalancesRefresh,
-  feePercent = 3,
+  feePercent = 0,
   feeFixed = 0,
 }: KpiGridProps) {
   const [saqueOpen, setSaqueOpen] = useState(false);
@@ -99,10 +98,6 @@ export function KpiGrid({
         />
       ) : null}
 
-      {/*
-        Desktop: disponível+pendente mais estreitos (área do gráfico);
-        retido mais largo = mesma largura da coluna das 4 métricas.
-      */}
       <div className="dash-balances">
         <KpiCard
           icon={<IconDolarSymbol size={ICON} />}
@@ -116,11 +111,6 @@ export function KpiGrid({
           label="Saldo pendente"
           value={formatBRL(data.balances.pending)}
           reserveAction
-        />
-        <KpiCard
-          icon={<IconLockFilled size={ICON} />}
-          label="Saldo retido"
-          value={formatBRL(data.balances.held)}
         />
       </div>
     </>

@@ -20,7 +20,9 @@ export type VendaStatus =
   | "pendente"
   | "aprovada"
   | "recusada"
-  | "reembolsada";
+  | "reembolsada"
+  /** PIX não pago no prazo (15 min) */
+  | "abandonada";
 export type SaqueStatus = "processando" | "pago" | "recusado";
 
 export type AdquirenteStatus = "ativo" | "inativo" | "manutencao";
@@ -201,13 +203,14 @@ export interface Acquirer {
 
 // ─── Managers ───────────────────────────────────────────
 
+/** Espelha o menu lateral do painel admin */
 export type GerentePermission =
   | "dashboard"
   | "usuarios"
-  | "documentos"
   | "saques"
   | "adquirentes"
-  | "gerentes";
+  | "gerentes"
+  | "personalizacao";
 
 export interface Manager {
   id: string;
@@ -250,6 +253,8 @@ export interface SellerDashboard {
   conversionRate: number;
   revenueHistory: Array<{ date: string; amount: number; grain?: "hour" | "day" }>;
   volumeGoal?: { current: number; target: number };
+  /** Plano de taxas da conta (Admin → Usuários) */
+  fees?: SellerFees;
 }
 
 export interface AdminMetrics {
@@ -261,10 +266,17 @@ export interface AdminMetrics {
   pendingSaques: number;
   pendingSaquesAmount: number;
   volumeProcessed: number;
-  /** Lucro total (MDR vendas + taxas de saque) */
+  /** Receita bruta (MDR vendas + taxas de saque cobradas do seller) */
   platformRevenue: number;
   platformRevenueSales?: number;
   platformRevenueWithdrawals?: number;
+  /**
+   * Lucro da plataforma no período:
+   * receita bruta − custo das adquirentes (feePercent + feeFixed por TX).
+   */
+  platformNetProfit?: number;
+  /** Custo total das adquirentes no período (vendas + saques) */
+  platformAcquirerCost?: number;
   activeAdquirentes: number;
   totalTransactions: number;
   averageTicket: number;

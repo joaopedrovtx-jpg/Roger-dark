@@ -353,33 +353,76 @@ async function applyWebhookToMysql(
   }
 
   // ── Transferência / saque ─────────────────────────────
+  // Fonte da verdade: webhook da Velana define pago/recusado pro seller
   if (type === "transfer") {
     let mapped = mapVelanaTransferStatus(String(data.status || ""));
+    const postbackSaysPaid = mapped === "pago";
+    const postbackSaysTerminal =
+      mapped === "pago" || mapped === "recusado";
 
-    if (!opts.signedOk) {
-      const remote = await fetchVelanaRemoteTransferStatus(remoteId);
-      if (!remote.ok) {
-        return { ok: false, retry: true, reason: remote.status || "confirm_failed" };
-      }
-      mapped = (remote.mapped as typeof mapped) || mapped;
-      const local = await prisma.withdrawal.findFirst({
-        where: {
-          OR: [{ providerId: remoteId }, { id: remoteId }],
-        },
-        select: { id: true, status: true },
-      });
-      if (!local) {
-        return { ok: false, reason: "withdrawal_not_found" };
-      }
-    }
-
-    await prisma.withdrawal.updateMany({
+    const local = await prisma.withdrawal.findFirst({
       where: {
         OR: [{ providerId: remoteId }, { id: remoteId }],
       },
-      data: { status: mapped, reviewedAt: new Date() },
+      select: { id: true, status: true, providerId: true },
     });
-    return { ok: true };
+    if (!local) {
+      return {
+        ok: false,
+        reason: "withdrawal_not_found",
+        retry: postbackSaysPaid,
+      };
+    }
+
+    // Sem HMAC: reconfirma status da transfer na API Velana
+    if (!opts.signedOk && postbackSaysTerminal) {
+      const remote = await fetchVelanaRemoteTransferStatus(remoteId);
+      if (!remote.ok) {
+        if (postbackSaysPaid) {
+          return {
+            ok: false,
+            retry: true,
+            reason: remote.status || "confirm_failed",
+          };
+        }
+        return {
+          ok: false,
+          reason: `unconfirmed_${remote.status || "fetch_error"}`,
+        };
+      }
+      mapped = (remote.mapped as typeof mapped) || mapped;
+      if (postbackSaysPaid && mapped !== "pago") {
+        return {
+          ok: false,
+          retry: true,
+          reason: `velana_transfer_${remote.status}`,
+        };
+      }
+    }
+
+    const {
+      finalizeWithdrawalPaid,
+      finalizeWithdrawalFailed,
+    } = await import("@/lib/server/db/admin-withdrawals.service");
+
+    if (mapped === "pago") {
+      const r = await finalizeWithdrawalPaid(local.id, {
+        provider: "velana",
+        providerId: remoteId,
+        source: "webhook_velana",
+      });
+      return { ok: true, reason: r.reason || r.status };
+    }
+    if (mapped === "recusado") {
+      const r = await finalizeWithdrawalFailed(local.id, {
+        reason: `Velana transfer ${String(data.status || "failed")}`,
+        source: "webhook_velana",
+      });
+      return { ok: true, reason: r.reason || r.status };
+    }
+
+    // Ainda processando na adquirente — seller permanece pendente
+    return { ok: true, reason: "awaiting_confirmation" };
   }
 
   return { ok: true };

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import {
   dbClearAcquirerCredentials,
+  dbClearAcquirerPayoutPrimary,
   dbSaveAcquirerCredentials,
   dbSetAcquirerPrimary,
+  dbSetAcquirerPayoutPrimary,
   dbSwapAcquirerPriority,
   dbUpdateAcquirerStatus,
   getAcquirerSecrets,
@@ -13,7 +15,7 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "adquirentes");
   if (isGuardFail(gate)) return gate.error;
   const { id } = await ctx.params;
   const url = new URL(req.url);
@@ -34,7 +36,7 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "adquirentes");
   if (isGuardFail(gate)) return gate.error;
 
   const { id } = await ctx.params;
@@ -49,6 +51,9 @@ export async function PATCH(
       clearCredentials?: boolean;
       setPrimary?: boolean;
       makePrimary?: boolean;
+      /** Principal exclusiva de saque (PIX out / white) */
+      setPayoutPrimary?: boolean;
+      clearPayoutPrimary?: boolean;
     };
 
     if (body.clearCredentials) {
@@ -82,6 +87,26 @@ export async function PATCH(
           priority: 1,
         });
       }
+    }
+
+    if (body.setPayoutPrimary === true) {
+      const r = await dbSetAcquirerPayoutPrimary(id);
+      return NextResponse.json({
+        ok: true,
+        source: r ? "database" : "mock",
+        isPayoutPrimary: true,
+        id: r?.id ?? id,
+      });
+    }
+
+    if (body.clearPayoutPrimary === true) {
+      const r = await dbClearAcquirerPayoutPrimary(id);
+      return NextResponse.json({
+        ok: true,
+        source: r ? "database" : "mock",
+        isPayoutPrimary: false,
+        id: r?.id ?? id,
+      });
     }
 
     if (body.priorityDir === 1 || body.priorityDir === -1) {

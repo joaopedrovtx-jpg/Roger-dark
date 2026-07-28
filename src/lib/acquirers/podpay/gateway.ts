@@ -163,7 +163,7 @@ export async function createChargeViaPodPay(
     customerDocument: doc,
     pixCopyPaste: emv || remote.pixQrCode || undefined,
     pixQrCode: qrImage || undefined,
-    expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
     createdAt: remote.createdAt || now,
     paidAt: mapped === "aprovada" ? now : undefined,
   };
@@ -375,7 +375,7 @@ export async function createWithdrawalViaPodPay(
     sellerName,
     kind: "saque",
     direction: "saida",
-    description: "Saque PIX PodPay",
+    description: 'Saque "PodPay"',
     method: "PIX",
     amount: w.amount,
     status: w.status,

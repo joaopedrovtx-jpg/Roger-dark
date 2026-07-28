@@ -97,11 +97,14 @@ export async function creditPaidSaleIdempotent(opts: {
       let updated = 0;
       let txId: string | null = opts.transactionId ?? null;
 
+      // Aceita pendente E abandonada (PIX pago após TTL 15 min)
+      const creditFromStatuses = ["pendente", "abandonada"] as const;
+
       if (opts.transactionId) {
         const r = await tx.transaction.updateMany({
           where: {
             id: opts.transactionId,
-            status: "pendente",
+            status: { in: [...creditFromStatuses] },
           },
           data: {
             status: "aprovada",
@@ -114,7 +117,7 @@ export async function creditPaidSaleIdempotent(opts: {
           where: {
             providerId: opts.providerId,
             ...(opts.provider ? { provider: opts.provider } : {}),
-            status: "pendente",
+            status: { in: [...creditFromStatuses] },
           },
           data: {
             status: "aprovada",
@@ -139,15 +142,33 @@ export async function creditPaidSaleIdempotent(opts: {
         return { credited: false };
       }
 
+      // Charge pode estar waiting_payment OU expired (após abandono)
       if (opts.providerId) {
+        const pid = opts.providerId;
         await tx.paymentCharge.updateMany({
           where: {
             OR: [
-              { providerId: opts.providerId },
-              { id: `vl_${opts.providerId}` },
-              { id: `pp_${opts.providerId}` },
+              { providerId: pid },
+              { id: `vl_${pid}` },
+              { id: `pp_${pid}` },
+              { id: `wo_${pid}` },
+              { id: pid.startsWith("wo_") ? pid : `wo_${pid}`.slice(0, 64) },
+              ...(opts.transactionId
+                ? [{ transactionId: opts.transactionId }]
+                : []),
             ],
-            status: "waiting_payment",
+            status: { in: ["waiting_payment", "expired", "cancelled"] },
+          },
+          data: {
+            status: "paid",
+            paidAt: new Date(),
+          },
+        });
+      } else if (opts.transactionId) {
+        await tx.paymentCharge.updateMany({
+          where: {
+            transactionId: opts.transactionId,
+            status: { in: ["waiting_payment", "expired", "cancelled"] },
           },
           data: {
             status: "paid",
@@ -156,15 +177,28 @@ export async function creditPaidSaleIdempotent(opts: {
         });
       }
 
+      // Se veio de abandonada, pending já foi decrementado no abandon —
+      // só credita available. Se veio de pendente, move pending → available.
+      // CAS: só decrementa pending se houver saldo suficiente (floor ≥ 0).
+      const decPending = await tx.user.updateMany({
+        where: {
+          id: opts.sellerId,
+          balancePending: { gte: amount },
+        },
+        data: {
+          balancePending: { decrement: amount },
+        },
+      });
+
       const user = await tx.user.update({
         where: { id: opts.sellerId },
         data: {
-          balancePending: { decrement: amount },
           balanceAvailable: { increment: net },
           volumeTotal: { increment: amount },
         },
         select: { balanceAvailable: true },
       });
+      void decPending;
 
       await tx.balanceLedger.create({
         data: {
@@ -194,43 +228,68 @@ export async function creditPaidSaleIdempotent(opts: {
 }
 
 /**
- * Cancela / marca recusada uma venda ainda pendente (CAS).
- * Só decrementa balancePending se a TX passou de pendente → recusada.
+ * Cancela / marca recusada (ou abandonada) uma venda ainda pendente (CAS).
+ * Só decrementa balancePending se a TX passou de pendente → terminal.
  */
 export async function rejectPendingSaleIdempotent(opts: {
   transactionId: string;
   sellerId: string;
   amount: number;
-  chargeStatus?: "cancelled" | "refunded";
+  chargeStatus?: "cancelled" | "refunded" | "expired";
+  /** Status final da TX (default recusada; use abandonada no TTL 15 min) */
+  txStatus?: "recusada" | "abandonada";
   providerId?: string | null;
 }): Promise<{ applied: boolean }> {
   if (!isDatabaseConfigured()) return { applied: false };
   const amount = roundMoney(opts.amount);
+  const nextStatus = opts.txStatus || "recusada";
+  const chargeStatus = opts.chargeStatus || "cancelled";
   try {
     return await prisma.$transaction(async (tx) => {
       const r = await tx.transaction.updateMany({
         where: { id: opts.transactionId, status: "pendente" },
-        data: { status: "recusada" },
+        data: { status: nextStatus },
       });
       if (r.count === 0) return { applied: false };
 
-      await tx.user.update({
-        where: { id: opts.sellerId },
+      // Floor: nunca deixa balancePending negativo
+      const dec = await tx.user.updateMany({
+        where: {
+          id: opts.sellerId,
+          balancePending: { gte: amount },
+        },
         data: { balancePending: { decrement: amount } },
       });
+      if (dec.count === 0) {
+        // pending insuficiente (legado/inconsistente) — zera se positivo
+        const seller = await tx.user.findUnique({
+          where: { id: opts.sellerId },
+          select: { balancePending: true },
+        });
+        const pendingNow = Number(seller?.balancePending ?? 0);
+        if (pendingNow > 0) {
+          await tx.user.update({
+            where: { id: opts.sellerId },
+            data: { balancePending: { decrement: pendingNow } },
+          });
+        }
+      }
 
       if (opts.providerId) {
+        const pid = opts.providerId;
         await tx.paymentCharge.updateMany({
           where: {
             OR: [
-              { providerId: opts.providerId },
-              { id: `vl_${opts.providerId}` },
-              { id: `pp_${opts.providerId}` },
+              { providerId: pid },
+              { id: `vl_${pid}` },
+              { id: `pp_${pid}` },
+              { id: `wo_${pid}` },
+              { id: pid.startsWith("wo_") ? pid : `wo_${pid}`.slice(0, 64) },
               { transactionId: opts.transactionId },
             ],
             status: "waiting_payment",
           },
-          data: { status: opts.chargeStatus || "cancelled" },
+          data: { status: chargeStatus },
         });
       } else {
         await tx.paymentCharge.updateMany({
@@ -238,7 +297,7 @@ export async function rejectPendingSaleIdempotent(opts: {
             transactionId: opts.transactionId,
             status: "waiting_payment",
           },
-          data: { status: opts.chargeStatus || "cancelled" },
+          data: { status: chargeStatus },
         });
       }
 
@@ -289,6 +348,7 @@ export async function refundSaleIdempotent(opts: {
                     { providerId: opts.providerId },
                     { id: `vl_${opts.providerId}` },
                     { id: `pp_${opts.providerId}` },
+                    { id: `wo_${opts.providerId}` },
                   ]
                 : []),
               { transactionId: opts.transactionId },
@@ -333,6 +393,7 @@ export async function refundSaleIdempotent(opts: {
                   { providerId: opts.providerId },
                   { id: `vl_${opts.providerId}` },
                   { id: `pp_${opts.providerId}` },
+                  { id: `wo_${opts.providerId}` },
                 ]
               : []),
             { transactionId: opts.transactionId },

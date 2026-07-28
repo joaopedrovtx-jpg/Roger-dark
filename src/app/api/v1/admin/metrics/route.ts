@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { isGuardFail, requireAdmin } from "@/lib/server/guards";
+import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
 import { mockAdapter } from "@/lib/api/adapters/mock";
 import { getAdminDashboardMetrics } from "@/lib/server/db/admin-metrics.service";
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin(req);
+  const gate = await requireStaffPermission(req, "dashboard");
   if (isGuardFail(gate)) return gate.error;
   try {
     const { searchParams } = new URL(req.url);

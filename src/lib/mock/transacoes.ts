@@ -2,7 +2,8 @@ export type VendaStatus =
   | "pendente"
   | "aprovada"
   | "recusada"
-  | "reembolsada";
+  | "reembolsada"
+  | "abandonada";
 
 export interface VendaTransaction {
   id: string;

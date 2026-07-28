@@ -3,24 +3,23 @@
 import { useEffect, useState } from "react";
 import { IconPixFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch } from "@/lib/client/session";
-import { formatBRL } from "@/lib/format";
+import { feeNumber, formatFeeLabel } from "@/lib/format";
 
 type FeePlan = {
+  /** Entradas PIX (Admin → mdrPercent / mdrFixed) */
+  mdrPercent: number;
+  mdrFixed: number;
+  /** Saque (Admin → saquePercent / saqueFixed) */
   saquePercent: number;
   saqueFixed: number;
 };
 
-function formatPct(n: number) {
-  return n.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 /**
- * Taxas exibidas ao seller.
- * Pix: até R$ 50 = R$ 1,00 fixo; acima = 3% (regra da plataforma).
- * Saque: plano da conta (Admin).
+ * Taxas da conta do seller — espelho do que o admin configurou
+ * em Admin → Usuários → Taxas (por conta).
+ *
+ * PIX D+0 (por transação): mdrPercent + mdrFixed
+ * Saque PIX: saquePercent + saqueFixed
  */
 export function TaxasView() {
   const [fees, setFees] = useState<FeePlan | null>(null);
@@ -43,14 +42,18 @@ export function TaxasView() {
         };
         if (cancelled) return;
         setFees({
-          saquePercent: Number(json.fees?.saquePercent) || 0,
-          saqueFixed: Number(json.fees?.saqueFixed) || 0,
+          mdrPercent: feeNumber(json.fees?.mdrPercent, 0),
+          mdrFixed: feeNumber(json.fees?.mdrFixed, 0),
+          saquePercent: feeNumber(json.fees?.saquePercent, 0),
+          saqueFixed: feeNumber(json.fees?.saqueFixed, 0),
         });
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Erro ao carregar");
           setFees({
-            saquePercent: 3,
+            mdrPercent: 0,
+            mdrFixed: 0,
+            saquePercent: 0,
             saqueFixed: 0,
           });
         }
@@ -63,7 +66,15 @@ export function TaxasView() {
     };
   }, []);
 
-  const saque = fees ?? { saquePercent: 3, saqueFixed: 0 };
+  const plan = fees ?? {
+    mdrPercent: 0,
+    mdrFixed: 0,
+    saquePercent: 0,
+    saqueFixed: 0,
+  };
+
+  const pixLabel = formatFeeLabel(plan.mdrPercent, plan.mdrFixed);
+  const saqueLabel = formatFeeLabel(plan.saquePercent, plan.saqueFixed);
 
   return (
     <div className="flex flex-col w-full min-w-0" style={{ gap: 16 }}>
@@ -74,6 +85,16 @@ export function TaxasView() {
         >
           Minhas taxas
         </h1>
+        <p
+          style={{
+            margin: "6px 0 0",
+            fontSize: 13,
+            color: "var(--text-3)",
+            lineHeight: 1.4,
+          }}
+        >
+          Taxas da sua conta (configuradas pela plataforma).
+        </p>
       </div>
 
       {error ? (
@@ -87,7 +108,7 @@ export function TaxasView() {
           gap: 16,
         }}
       >
-        {/* Card Pix D+0 — faixas por valor */}
+        {/* Card Pix D+0 — plano da conta (mdr) */}
         <article
           className="surface-card relative flex flex-col"
           style={{
@@ -122,83 +143,51 @@ export function TaxasView() {
               fontSize: 13,
               lineHeight: 1.5,
               color: "var(--text-2)",
-              marginBottom: 16,
+              marginBottom: 18,
               maxWidth: 340,
             }}
           >
-            PIX é o meio de pagamento instantâneo da plataforma.
+            Taxa cobrada em cada venda PIX recebida (por transação).
           </p>
 
-          {/* Duas faixas na mesma linha */}
-          <div
-            className="flex items-start"
+          <p
+            className="font-bold tabular"
             style={{
-              gap: 16,
-              flexWrap: "wrap",
+              fontSize: 16,
+              color: "var(--green-use)",
+              marginBottom: 6,
             }}
           >
-            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-              <p
-                className="font-bold tabular"
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  color: "var(--green-use)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                R$&nbsp;1,00{" "}
-                <span
-                  className="font-medium"
-                  style={{ fontSize: 13, color: "var(--text-2)" }}
-                >
-                  / transação
-                </span>
-              </p>
-              <p
-                style={{
-                  margin: "6px 0 0",
-                  fontSize: 13,
-                  color: "var(--text-3)",
-                }}
-              >
-                abaixo de R$&nbsp;50
-              </p>
-            </div>
+            {loading ? "…" : pixLabel}{" "}
+            <span
+              className="font-medium"
+              style={{ fontSize: 13, color: "var(--text-2)" }}
+            >
+              / transação
+            </span>
+          </p>
 
-            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-              <p
-                className="font-bold tabular"
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  color: "var(--green-use)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                3,00%{" "}
-                <span
-                  className="font-medium"
-                  style={{ fontSize: 13, color: "var(--text-2)" }}
-                >
-                  / transação
-                </span>
-              </p>
-              <p
-                style={{
-                  margin: "6px 0 0",
-                  fontSize: 13,
-                  color: "var(--text-3)",
-                }}
-              >
-                acima de R$&nbsp;50
-              </p>
-            </div>
-          </div>
-
+          {!loading && (plan.mdrPercent > 0 || plan.mdrFixed > 0) ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 12.5,
+                color: "var(--text-3)",
+                lineHeight: 1.4,
+              }}
+            >
+              {plan.mdrPercent > 0 && plan.mdrFixed > 0
+                ? `${plan.mdrPercent.toLocaleString("pt-BR", {
+                    maximumFractionDigits: 4,
+                  })}% do valor + valor fixo por venda.`
+                : plan.mdrPercent > 0
+                  ? "Percentual sobre o valor de cada venda."
+                  : "Valor fixo por venda recebida."}
+            </p>
+          ) : null}
         </article>
 
-        {/* Card saque */}
+        {/* Card saque — plano da conta */}
         <article
           className="surface-card relative flex flex-col"
           style={{
@@ -233,12 +222,10 @@ export function TaxasView() {
             style={{
               fontSize: 16,
               color: "var(--text-1)",
-              marginBottom: 10,
+              marginBottom: 6,
             }}
           >
-            {loading
-              ? "…"
-              : `${formatPct(saque.saquePercent)}% + ${formatBRL(saque.saqueFixed)}`}{" "}
+            {loading ? "…" : saqueLabel}{" "}
             <span
               className="font-medium"
               style={{ fontSize: 13, color: "var(--text-2)" }}
@@ -247,6 +234,22 @@ export function TaxasView() {
             </span>
           </p>
 
+          {!loading && (plan.saquePercent > 0 || plan.saqueFixed > 0) ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 12.5,
+                color: "var(--text-3)",
+                lineHeight: 1.4,
+              }}
+            >
+              {plan.saquePercent > 0 && plan.saqueFixed > 0
+                ? "Descontada do valor solicitado no saque."
+                : plan.saquePercent > 0
+                  ? "Percentual descontado do valor solicitado."
+                  : "Valor fixo descontado de cada saque."}
+            </p>
+          ) : null}
         </article>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 import { Loader2, X } from "lucide-react";
-import { formatBRL, formatDateTime } from "@/lib/format";
+import { formatBRL, formatDateTime, formatProductLabel } from "@/lib/format";
 import type {
   TransacoesMetrics,
   VendaStatus,
@@ -34,6 +34,7 @@ function statusLabel(status: VendaStatus): string {
     aprovada: "Pago",
     recusada: "Recusado",
     reembolsada: "Reembolsado",
+    abandonada: "Abandono",
   };
   return map[status];
 }
@@ -64,6 +65,7 @@ function toneForStatus(status: VendaStatus): {
       };
     case "recusada":
     case "reembolsada":
+    case "abandonada":
       return {
         color: SOLID.refused,
         iconBg: SOLID.refused,
@@ -296,7 +298,7 @@ function TxDetailModal({
               ["Data", formatDateTime(tx.date)],
               ["Método", tx.method],
               ["Cliente", tx.customer],
-              ["Produto", tx.product],
+              ["Produto", formatProductLabel(tx.product, " ")],
             ] as const
           ).map(([label, value]) => (
             <div
@@ -366,8 +368,8 @@ function mapTxItems(
   return items.map((t) => ({
     id: t.id,
     date: t.date,
-    customer: t.customer ?? "-",
-    product: t.product ?? "-",
+    customer: t.customer ?? " ",
+    product: formatProductLabel(t.product, " "),
     method: "PIX" as const,
     amount: t.amount,
     status: t.status as VendaStatus,
@@ -645,13 +647,16 @@ export function TransacoesView() {
               ) : null}
               {rows.map((row) => {
                 const tone = toneForStatus(row.status);
+                // Data, cliente e produto na mesma cor do status
+                // (pendente amarelo · aprovado verde · recusado/abandono vermelho)
+                const rowTextColor = tone.color;
                 return (
                   <tr key={row.id}>
                     <td
                       className="px-4 py-3.5 text-center tabular"
                       style={{
                         ...tdBase,
-                        color: "var(--text-2)",
+                        color: rowTextColor,
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -659,13 +664,13 @@ export function TransacoesView() {
                     </td>
                     <td
                       className="px-4 py-3.5 text-center"
-                      style={{ ...tdBase, color: "var(--text-2)" }}
+                      style={{ ...tdBase, color: rowTextColor }}
                     >
                       {row.customer}
                     </td>
                     <td
                       className="px-4 py-3.5 text-center"
-                      style={{ ...tdBase, color: "var(--text-2)" }}
+                      style={{ ...tdBase, color: rowTextColor }}
                     >
                       {row.product}
                     </td>

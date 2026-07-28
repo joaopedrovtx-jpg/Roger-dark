@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { isGuardFail, requireSellerAuth } from "@/lib/server/guards";
 import { syncChargeFromPodPay } from "@/lib/acquirers/podpay/gateway";
 import { syncChargeFromVelana } from "@/lib/acquirers/velana/gateway";
+import { syncChargeFromWoovi } from "@/lib/acquirers/woovi/gateway";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 
 /**
  * POST /api/v1/payments/:id/sync
  * Consulta status REAL na adquirente e atualiza a venda no DarkPay.
- * Use após pagar o PIX (especialmente em localhost sem webhook público).
+ * Use após pagar o PIX (especialmente se o webhook não chegou).
  */
 export async function POST(
   req: Request,
@@ -20,7 +21,11 @@ export async function POST(
     const { id } = await ctx.params;
 
     let provider: string | null = null;
-    let chargeRow: { id: string; sellerId: string; provider: string | null } | null = null;
+    let chargeRow: {
+      id: string;
+      sellerId: string;
+      provider: string | null;
+    } | null = null;
     if (isDatabaseConfigured()) {
       chargeRow = await prisma.paymentCharge.findFirst({
         where: {
@@ -28,10 +33,40 @@ export async function POST(
         },
         select: { id: true, sellerId: true, provider: true },
       });
+
+      // Fallback: TX id (TX-WO-xxx) sem paymentCharge match pelo path
+      if (!chargeRow) {
+        const tx = await prisma.transaction.findFirst({
+          where: {
+            OR: [{ id }, { providerId: id }],
+            sellerId: gate.user.roles.includes("admin")
+              ? undefined
+              : gate.user.id,
+          },
+          select: {
+            id: true,
+            sellerId: true,
+            provider: true,
+            providerId: true,
+          },
+        });
+        if (tx) {
+          provider = tx.provider;
+          chargeRow = {
+            id: tx.providerId || tx.id,
+            sellerId: tx.sellerId,
+            provider: tx.provider,
+          };
+        }
+      }
     }
 
     const ownerId = chargeRow?.sellerId;
-    if (ownerId && ownerId !== gate.user.id && !gate.user.roles.includes("admin")) {
+    if (
+      ownerId &&
+      ownerId !== gate.user.id &&
+      !gate.user.roles.includes("admin")
+    ) {
       return NextResponse.json(
         { error: { code: "forbidden", message: "Cobrança de outro seller" } },
         { status: 403 }
@@ -50,14 +85,23 @@ export async function POST(
       );
     }
 
-    provider = chargeRow.provider ?? null;
+    provider = chargeRow.provider ?? provider ?? null;
 
     const charge =
-      provider === "velana" || id.startsWith("vl_") || id.startsWith("TX-VL-")
-        ? await syncChargeFromVelana(id, gate.user.id)
-        : provider === "podpay" || id.startsWith("pp_") || id.startsWith("TX-PP-")
-          ? await syncChargeFromPodPay(id, gate.user.id)
-          : await syncChargeAuto(id, gate.user.id);
+      provider === "woovi" ||
+      id.startsWith("wo_") ||
+      id.startsWith("TX-WO-") ||
+      id.startsWith("dp_")
+        ? await syncChargeFromWoovi(id, gate.user.id)
+        : provider === "velana" ||
+            id.startsWith("vl_") ||
+            id.startsWith("TX-VL-")
+          ? await syncChargeFromVelana(id, gate.user.id)
+          : provider === "podpay" ||
+              id.startsWith("pp_") ||
+              id.startsWith("TX-PP-")
+            ? await syncChargeFromPodPay(id, gate.user.id)
+            : await syncChargeAuto(id, gate.user.id);
 
     return NextResponse.json({
       id: charge.id,
@@ -87,12 +131,16 @@ export async function POST(
   }
 }
 
-/** Tenta Velana e depois PodPay quando o provider local é desconhecido */
+/** Tenta Woovi → Velana → PodPay quando o provider local é desconhecido */
 async function syncChargeAuto(id: string, sellerId: string) {
   try {
-    return await syncChargeFromVelana(id, sellerId);
+    return await syncChargeFromWoovi(id, sellerId);
   } catch {
-    return syncChargeFromPodPay(id, sellerId);
+    try {
+      return await syncChargeFromVelana(id, sellerId);
+    } catch {
+      return syncChargeFromPodPay(id, sellerId);
+    }
   }
 }
 

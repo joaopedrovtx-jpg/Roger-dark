@@ -16,6 +16,15 @@ export async function GET(req: Request) {
 
   try {
     const sellerId = scope.sellerId;
+    // Reconcilia saques pendentes com a adquirente (webhook atraso / status success)
+    try {
+      const { reconcilePendingWithdrawals } = await import(
+        "@/lib/server/reconcile-payments"
+      );
+      await reconcilePendingWithdrawals({ sellerId, limit: 8 });
+    } catch {
+      /* best-effort */
+    }
     const fromDb = await getSellerFinance(sellerId);
     if (fromDb) {
       return NextResponse.json({

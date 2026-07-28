@@ -6,6 +6,8 @@ import {
   dbUpdateAcquirerStatus,
   dbSwapAcquirerPriority,
   dbSetAcquirerPrimary,
+  dbSetAcquirerPayoutPrimary,
+  dbClearAcquirerPayoutPrimary,
   dbSaveAcquirerCredentials,
   dbClearAcquirerCredentials,
 } from "@/lib/server/db/admin-acquirers.service";
@@ -51,6 +53,40 @@ export async function setAcquirerPrimaryAction(id: string) {
   try {
     const r = await dbSetAcquirerPrimary(id);
     return { ok: true, source: r ? "database" : "mock", isPrimary: true, priority: 1 };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Erro" };
+  }
+}
+
+export async function setAcquirerPayoutPrimaryAction(id: string) {
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth;
+
+  try {
+    const r = await dbSetAcquirerPayoutPrimary(id);
+    return {
+      ok: true,
+      source: r ? "database" : "mock",
+      isPayoutPrimary: true,
+      id: r?.id ?? id,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Erro" };
+  }
+}
+
+export async function clearAcquirerPayoutPrimaryAction(id: string) {
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth;
+
+  try {
+    const r = await dbClearAcquirerPayoutPrimary(id);
+    return {
+      ok: true,
+      source: r ? "database" : "mock",
+      isPayoutPrimary: false,
+      id: r?.id ?? id,
+    };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Erro" };
   }

@@ -86,7 +86,7 @@ function ReadField({
       <input
         type="text"
         readOnly
-        value={value?.trim() ? value : "-"}
+        value={value?.trim() ? value : " "}
         className={valueStyle ? "tabular" : undefined}
         style={{ ...inputStyle, ...valueStyle }}
         tabIndex={0}
@@ -344,8 +344,9 @@ export function AdminSaqueDetailModal({
               <button
                 type="button"
                 onClick={() => {
+                  // Aprovar = enviar PIX na adquirente.
+                  // Seller só vê "pago" quando a adquirente confirmar via webhook.
                   onStatusChange?.(saque.id, "pago");
-                  onClose();
                 }}
                 className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
                 style={{
@@ -358,6 +359,7 @@ export function AdminSaqueDetailModal({
                   fontSize: 13,
                   cursor: "pointer",
                 }}
+                title="Envia o PIX na adquirente. O seller continua pendente até o webhook confirmar."
               >
                 Aprovar
               </button>
@@ -365,7 +367,6 @@ export function AdminSaqueDetailModal({
                 type="button"
                 onClick={() => {
                   onStatusChange?.(saque.id, "recusado");
-                  onClose();
                 }}
                 className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"
                 style={{

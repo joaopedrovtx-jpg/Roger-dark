@@ -14,6 +14,8 @@ interface KpiCardProps {
    * Preenche a célula (métricas laterais alinhadas à altura do gráfico).
    */
   fill?: boolean;
+  /** Cor do valor (ex.: lucro em verde) */
+  valueColor?: string;
 }
 
 /**
@@ -28,6 +30,7 @@ export function KpiCard({
   action,
   reserveAction = false,
   fill = false,
+  valueColor,
 }: KpiCardProps) {
   const showActionRail = Boolean(action) || reserveAction;
 
@@ -71,7 +74,11 @@ export function KpiCard({
         </span>
         <span
           className="tabular truncate font-bold"
-          style={{ fontSize: fill ? 15.5 : 16, color: "var(--text-1)", lineHeight: 1.15 }}
+          style={{
+            fontSize: fill ? 15.5 : 16,
+            color: valueColor || "var(--text-1)",
+            lineHeight: 1.15,
+          }}
         >
           {value}
         </span>

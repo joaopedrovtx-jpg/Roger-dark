@@ -22,7 +22,7 @@ import { log } from "@/lib/server/logger";
 type Json = Prisma.InputJsonValue;
 
 export type InboxEvent = {
-  provider: "podpay" | "velana";
+  provider: "podpay" | "velana" | "woovi";
   eventId?: string;
   eventName: string;
   remoteId?: string;

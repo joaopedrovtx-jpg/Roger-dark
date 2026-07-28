@@ -432,8 +432,8 @@ export function RevenueChart({
                 }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
-                  const row = payload[0]?.payload as ChartRow | undefined;
                   const value = Number(payload[0]?.value ?? 0);
+                  // Só o valor: a data já aparece no eixo X abaixo
                   return (
                     <div
                       style={{
@@ -441,22 +441,10 @@ export function RevenueChart({
                         border: "1px solid var(--border-card)",
                         borderRadius: "var(--radius-md)",
                         padding: "8px 12px",
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                        minWidth: 112,
+                        boxShadow: "none",
+                        minWidth: 0,
                       }}
                     >
-                      {row?.fullDate ? (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 500,
-                            color: "var(--text-3)",
-                            marginBottom: 4,
-                          }}
-                        >
-                          {row.fullDate}
-                        </div>
-                      ) : null}
                       <div
                         style={{
                           fontSize: 13,

@@ -1,78 +1,31 @@
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import {
-  loginWithPassword,
-  registerWithPassword,
   logoutByToken,
   getSessionUser,
-  createSessionForUser,
-  sessionCookieOptions,
   SESSION_COOKIE_NAME,
 } from "@/lib/server/auth";
 
-export async function loginAction(formData: FormData) {
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-
-  if (!email?.trim() || !password) {
-    return { error: "E-mail e senha são obrigatórios." };
-  }
-
-  try {
-    const hdrs = await headers();
-    const ip = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "unknown";
-    const ua = hdrs.get("user-agent") ?? undefined;
-    const session = await loginWithPassword(
-      { email, password },
-      { ip, userAgent: ua }
-    );
-    const jar = await cookies();
-    const cookie = sessionCookieOptions(session.token);
-    jar.set(cookie.name, cookie.value, {
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,
-      path: cookie.path,
-      secure: cookie.secure,
-      maxAge: cookie.maxAge,
-    });
-    return { user: session.user, expiresAt: session.expiresAt };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Falha no login" };
-  }
+/**
+ * DESABILITADO: server actions de login/registro pulavam 2FA, rate-limit
+ * e Turnstile. Use POST /api/v1/auth/login (+ /login/2fa) e /register.
+ * Mantidos só para não quebrar imports legados — nunca criam sessão.
+ */
+export async function loginAction(_formData?: FormData) {
+  return {
+    error:
+      "Login via server action desabilitado. Use POST /api/v1/auth/login (com 2FA).",
+    code: "use_api_login",
+  };
 }
 
-export async function registerAction(formData: FormData) {
-  const name = formData.get("name") as string;
-  const email = formData.get("email") as string;
-  const phone = formData.get("phone") as string;
-  const password = formData.get("password") as string;
-
-  if (!name?.trim() || !email?.trim() || !password) {
-    return { error: "Nome, e-mail e senha são obrigatórios." };
-  }
-
-  try {
-    const hdrs = await headers();
-    const ip = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "unknown";
-    const ua = hdrs.get("user-agent") ?? undefined;
-    const session = await registerWithPassword(
-      { name, email, phone: phone ?? "", password },
-      { ip, userAgent: ua }
-    );
-    const jar = await cookies();
-    const cookie = sessionCookieOptions(session.token);
-    jar.set(cookie.name, cookie.value, {
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,
-      path: cookie.path,
-      secure: cookie.secure,
-      maxAge: cookie.maxAge,
-    });
-    return { user: session.user, expiresAt: session.expiresAt };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Falha no cadastro" };
-  }
+export async function registerAction(_formData?: FormData) {
+  return {
+    error:
+      "Cadastro via server action desabilitado. Use POST /api/v1/auth/register.",
+    code: "use_api_register",
+  };
 }
 
 export async function logoutAction() {
@@ -82,7 +35,10 @@ export async function logoutAction() {
   // Espelha as flags do cookie original pra sobrescrever de fato
   // (sem secure, o browser ignora maxAge=0 quando o cookie foi setado Secure).
   const isHttps =
-    process.env.COOKIE_SECURE === "1" || !!process.env.VERCEL;
+    process.env.NODE_ENV === "production" ||
+    process.env.COOKIE_SECURE === "1" ||
+    process.env.COOKIE_SECURE === "true" ||
+    !!process.env.VERCEL;
   jar.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",

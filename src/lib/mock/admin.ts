@@ -40,8 +40,8 @@ export interface SellerCustomAdquirente {
 export const DEFAULT_SELLER_FEES: SellerFees = {
   mdrPercent: 3.0,
   mdrFixed: 0.15,
-  /** Taxa de saque da plataforma (lucro admin) */
-  saquePercent: 3.0,
+  /** Taxa de saque: 0 até o admin configurar por conta */
+  saquePercent: 0,
   saqueFixed: 0,
 };
 
@@ -210,6 +210,13 @@ export interface Adquirente {
   priority: number;
   /** Taxa de conversão de pagamentos (0–100) exibida no admin em vez da taxa MDR */
   conversionRate: number;
+  /** Principal de cobrança (#1) */
+  isPrimary?: boolean;
+  /** Principal exclusiva de saque (PIX out / white) */
+  isPayoutPrimary?: boolean;
+  hasPrivateKey?: boolean;
+  hasPublicKey?: boolean;
+  enabled?: boolean;
 }
 
 export interface AdminMetrics {
@@ -222,6 +229,9 @@ export interface AdminMetrics {
   pendingSaquesAmount: number;
   volumeProcessed: number;
   platformRevenue: number;
+  /** Lucro líquido da plataforma (receita − custo adquirentes) */
+  platformNetProfit?: number;
+  platformAcquirerCost?: number;
   activeAdquirentes: number;
   totalTransactions: number;
   averageTicket: number;
@@ -246,14 +256,18 @@ export interface TopSeller {
 /** Top 10 sellers mais faturados (ranking / pódio) */
 export type GerenteStatus = "ativo" | "inativo";
 
-/** Habilidades / áreas do painel liberadas para o gerente */
+/**
+ * Habilidades = páginas do menu lateral do painel admin.
+ * Documentos KYC ficam no perfil do usuário (Usuários → modal),
+ * não há página /admin/documentos.
+ */
 export type GerentePermission =
   | "dashboard"
   | "usuarios"
-  | "documentos"
   | "saques"
   | "adquirentes"
-  | "gerentes";
+  | "gerentes"
+  | "personalizacao";
 
 export const GERENTE_PERMISSION_OPTIONS: Array<{
   id: GerentePermission;
@@ -268,12 +282,7 @@ export const GERENTE_PERMISSION_OPTIONS: Array<{
   {
     id: "usuarios",
     label: "Usuários",
-    description: "Listar e gerenciar sellers",
-  },
-  {
-    id: "documentos",
-    label: "Documentos",
-    description: "Revisar e aprovar documentos",
+    description: "Listar sellers, taxas, docs no perfil e saque automático",
   },
   {
     id: "saques",
@@ -283,19 +292,23 @@ export const GERENTE_PERMISSION_OPTIONS: Array<{
   {
     id: "adquirentes",
     label: "Adquirentes",
-    description: "Configurar adquirentes e rotas",
+    description: "Gerenciamento, credenciais e white de saque",
   },
   {
     id: "gerentes",
     label: "Gerentes",
     description: "Ver e gerenciar outros gerentes",
   },
+  {
+    id: "personalizacao",
+    label: "Personalização",
+    description: "Logo, cores e banners da plataforma",
+  },
 ];
 
 export const DEFAULT_GERENTE_PERMISSIONS: GerentePermission[] = [
   "dashboard",
   "usuarios",
-  "documentos",
   "saques",
 ];
 
@@ -329,7 +342,6 @@ export const adminGerentesMock: AdminGerente[] = [
     permissions: [
       "dashboard",
       "usuarios",
-      "documentos",
       "saques",
       "adquirentes",
       "gerentes",
@@ -355,7 +367,7 @@ export const adminGerentesMock: AdminGerente[] = [
     sellersCount: 35,
     volumeTotal: 1_245_800.0,
     createdAt: "2025-06-20T09:15:00",
-    permissions: ["dashboard", "usuarios", "documentos", "saques"],
+    permissions: ["dashboard", "usuarios", "saques"],
   },
   {
     id: "mgr_04",
@@ -415,6 +427,8 @@ export const adminMetricsMock: AdminMetrics = {
   pendingSaquesAmount: 86_420.5,
   volumeProcessed: 4_892_340.75,
   platformRevenue: 146_770.22,
+  platformAcquirerCost: 18_420.5,
+  platformNetProfit: 128_349.72,
   activeAdquirentes: 3,
   totalTransactions: 12_847,
   averageTicket: 380.74,
@@ -451,6 +465,7 @@ export type AdminTxStatus =
   | "aprovada"
   | "recusada"
   | "reembolsada"
+  | "abandonada"
   | "pago"
   | "processando"
   | "recusado";

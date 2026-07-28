@@ -267,6 +267,11 @@ export function AdminPagamentoConfigView() {
     const privateKey = draft.privateKey.trim();
     const isPodPay = base.id === "podpay" || base.code === "PODPAY";
     const isVelana = base.id === "velana" || base.code === "VELANA";
+    const isWoovi =
+      base.id === "woovi" ||
+      base.id === "openpix" ||
+      base.code === "WOOVI" ||
+      base.code === "OPENPIX";
 
     if (isPodPay && privateKey && !privateKey.startsWith("sk_")) {
       setError("PodPay: a chave privada deve começar com sk_test_… ou sk_live_…");
@@ -276,13 +281,21 @@ export function AdminPagamentoConfigView() {
       setError("Velana: informe a chave secreta (sk_…).");
       return;
     }
-    if (!publicKey && !privateKey) {
+    // Woovi: só AppID (Authorization: SEU_APPID) — sem pk_/sk_
+    if (isWoovi && !privateKey) {
+      setError(
+        "Woovi: cole o AppID (app.woovi.com → API/Plugins). Ex.: Authorization: SEU_APPID_AQUI"
+      );
+      return;
+    }
+    if (!isWoovi && !publicKey && !privateKey) {
       setError("Informe ao menos uma chave.");
       return;
     }
 
     const env: AcquirerEnv =
       privateKey.toLowerCase().includes("test") ||
+      privateKey.toLowerCase().includes("sandbox") ||
       publicKey.toLowerCase().includes("test")
         ? "sandbox"
         : "live";
@@ -294,7 +307,8 @@ export function AdminPagamentoConfigView() {
         {
           method: "PATCH",
           body: JSON.stringify({
-            publicKey,
+            // Woovi: AppID vai em privateKey; publicKey vazia
+            publicKey: isWoovi ? "" : publicKey,
             privateKey,
             env,
             // NÃO forçar principal ao salvar chave isso é o painel Gerenciamento (#1)
@@ -446,99 +460,176 @@ export function AdminPagamentoConfigView() {
                 className="flex flex-col"
                 style={{ padding: "16px 20px 8px", gap: 12 }}
               >
-                {/* Chave pública */}
-                <div style={fieldShell}>
-                  <div
-                    className="flex flex-col min-w-0"
-                    style={{ flex: 1, gap: 4 }}
-                  >
-                    <span style={labelStyle}>Chave pública</span>
-                    <input
-                      type={showPublic[acq.id] ? "text" : "password"}
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={
-                        meta.hasPublicKey && !draft.publicKey
-                          ? `Salva ${meta.publicKeyHint || "••••"}. Clique no olho`
-                          : "Chave pública"
-                      }
-                      value={draft.publicKey}
-                      onChange={(e) =>
-                        updateDraft(acq.id, { publicKey: e.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={
-                      showPublic[acq.id]
-                        ? "Ocultar chave pública"
-                        : "Mostrar chave pública"
-                    }
-                    onClick={() => {
-                      const next = !showPublic[acq.id];
-                      setShowPublic((s) => ({ ...s, [acq.id]: next }));
-                      if (next && !draft.publicKey && meta.hasPublicKey) {
-                        void revealSecrets(acq.id);
-                      }
-                    }}
-                    style={eyeBtnStyle}
-                  >
-                    {showPublic[acq.id] ? (
-                      <EyeOff size={20} strokeWidth={1.75} />
-                    ) : (
-                      <Eye size={20} strokeWidth={1.75} />
-                    )}
-                  </button>
-                </div>
+                {(() => {
+                  const isWooviCard =
+                    acq.id === "woovi" ||
+                    acq.id === "openpix" ||
+                    acq.code === "WOOVI" ||
+                    acq.code === "OPENPIX";
+                  return isWooviCard;
+                })() ? (
+                  <>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 12.5,
+                        color: "var(--text-3)",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      A Woovi usa só o <strong style={{ color: "var(--text-2)" }}>AppID</strong>{" "}
+                      no header{" "}
+                      <code style={{ fontSize: 12 }}>Authorization: SEU_APPID_AQUI</code>
+                      . Não usa chave pública + secreta. Crie em{" "}
+                      <strong style={{ color: "var(--text-2)" }}>
+                        app.woovi.com → API/Plugins
+                      </strong>
+                      .
+                    </p>
+                    <div style={fieldShell}>
+                      <div
+                        className="flex flex-col min-w-0"
+                        style={{ flex: 1, gap: 4 }}
+                      >
+                        <span style={labelStyle}>AppID</span>
+                        <input
+                          type={showPrivate[acq.id] ? "text" : "password"}
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          placeholder={
+                            meta.hasPrivateKey && !draft.privateKey
+                              ? `Salvo ${meta.privateKeyHint || "••••"}. Clique no olho`
+                              : "Cole o AppID (Authorization: SEU_APPID_AQUI)"
+                          }
+                          value={draft.privateKey}
+                          onChange={(e) =>
+                            updateDraft(acq.id, {
+                              privateKey: e.target.value,
+                              publicKey: "",
+                            })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={
+                          showPrivate[acq.id] ? "Ocultar AppID" : "Mostrar AppID"
+                        }
+                        onClick={() => {
+                          const next = !showPrivate[acq.id];
+                          setShowPrivate((s) => ({ ...s, [acq.id]: next }));
+                          if (next && !draft.privateKey && meta.hasPrivateKey) {
+                            void revealSecrets(acq.id);
+                          }
+                        }}
+                        style={eyeBtnStyle}
+                      >
+                        {showPrivate[acq.id] ? (
+                          <EyeOff size={20} strokeWidth={1.75} />
+                        ) : (
+                          <Eye size={20} strokeWidth={1.75} />
+                        )}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Chave pública */}
+                    <div style={fieldShell}>
+                      <div
+                        className="flex flex-col min-w-0"
+                        style={{ flex: 1, gap: 4 }}
+                      >
+                        <span style={labelStyle}>Chave pública</span>
+                        <input
+                          type={showPublic[acq.id] ? "text" : "password"}
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={
+                            meta.hasPublicKey && !draft.publicKey
+                              ? `Salva ${meta.publicKeyHint || "••••"}. Clique no olho`
+                              : "Chave pública"
+                          }
+                          value={draft.publicKey}
+                          onChange={(e) =>
+                            updateDraft(acq.id, { publicKey: e.target.value })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={
+                          showPublic[acq.id]
+                            ? "Ocultar chave pública"
+                            : "Mostrar chave pública"
+                        }
+                        onClick={() => {
+                          const next = !showPublic[acq.id];
+                          setShowPublic((s) => ({ ...s, [acq.id]: next }));
+                          if (next && !draft.publicKey && meta.hasPublicKey) {
+                            void revealSecrets(acq.id);
+                          }
+                        }}
+                        style={eyeBtnStyle}
+                      >
+                        {showPublic[acq.id] ? (
+                          <EyeOff size={20} strokeWidth={1.75} />
+                        ) : (
+                          <Eye size={20} strokeWidth={1.75} />
+                        )}
+                      </button>
+                    </div>
 
-                {/* Chave privada / secret */}
-                <div style={fieldShell}>
-                  <div
-                    className="flex flex-col min-w-0"
-                    style={{ flex: 1, gap: 4 }}
-                  >
-                    <span style={labelStyle}>Chave secreta</span>
-                    <input
-                      type={showPrivate[acq.id] ? "text" : "password"}
-                      autoComplete="new-password"
-                      spellCheck={false}
-                      placeholder={
-                        meta.hasPrivateKey && !draft.privateKey
-                          ? `Salva ${meta.privateKeyHint || "••••"}. Clique no olho`
-                          : "Chave secreta"
-                      }
-                      value={draft.privateKey}
-                      onChange={(e) =>
-                        updateDraft(acq.id, { privateKey: e.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={
-                      showPrivate[acq.id]
-                        ? "Ocultar chave secreta"
-                        : "Mostrar chave secreta"
-                    }
-                    onClick={() => {
-                      const next = !showPrivate[acq.id];
-                      setShowPrivate((s) => ({ ...s, [acq.id]: next }));
-                      if (next && !draft.privateKey && meta.hasPrivateKey) {
-                        void revealSecrets(acq.id);
-                      }
-                    }}
-                    style={eyeBtnStyle}
-                  >
-                    {showPrivate[acq.id] ? (
-                      <EyeOff size={20} strokeWidth={1.75} />
-                    ) : (
-                      <Eye size={20} strokeWidth={1.75} />
-                    )}
-                  </button>
-                </div>
+                    {/* Chave privada / secret */}
+                    <div style={fieldShell}>
+                      <div
+                        className="flex flex-col min-w-0"
+                        style={{ flex: 1, gap: 4 }}
+                      >
+                        <span style={labelStyle}>Chave secreta</span>
+                        <input
+                          type={showPrivate[acq.id] ? "text" : "password"}
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          placeholder={
+                            meta.hasPrivateKey && !draft.privateKey
+                              ? `Salva ${meta.privateKeyHint || "••••"}. Clique no olho`
+                              : "Chave secreta"
+                          }
+                          value={draft.privateKey}
+                          onChange={(e) =>
+                            updateDraft(acq.id, { privateKey: e.target.value })
+                          }
+                          style={inputStyle}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={
+                          showPrivate[acq.id]
+                            ? "Ocultar chave secreta"
+                            : "Mostrar chave secreta"
+                        }
+                        onClick={() => {
+                          const next = !showPrivate[acq.id];
+                          setShowPrivate((s) => ({ ...s, [acq.id]: next }));
+                          if (next && !draft.privateKey && meta.hasPrivateKey) {
+                            void revealSecrets(acq.id);
+                          }
+                        }}
+                        style={eyeBtnStyle}
+                      >
+                        {showPrivate[acq.id] ? (
+                          <EyeOff size={20} strokeWidth={1.75} />
+                        ) : (
+                          <Eye size={20} strokeWidth={1.75} />
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div

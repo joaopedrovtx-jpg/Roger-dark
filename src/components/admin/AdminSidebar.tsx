@@ -109,13 +109,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navItems = NAV.filter((item) => {
     // Super-admin vê tudo
     if (isSuperAdmin) return true;
-    // documentos libera Usuários se tiver só documentos
-    if (item.permission === "usuarios") {
-      return (
-        hasStaffPermission(user, "usuarios") ||
-        hasStaffPermission(user, "documentos")
-      );
-    }
+    // Só páginas do menu liberadas nas permissões do gerente
     return hasStaffPermission(user, item.permission);
   });
 

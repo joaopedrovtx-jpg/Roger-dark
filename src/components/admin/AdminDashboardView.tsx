@@ -13,11 +13,10 @@ import {
   IconPixFilled,
   IconUsersFilled,
   IconCheckFilled,
-  IconLockFilled,
 } from "@/components/dashboard/KpiIcons";
 import { AdminStatusBadge } from "./AdminStatusBadge";
 import { AdminTd } from "./AdminTable";
-import { formatBRL, formatDateTime } from "@/lib/format";
+import { formatBRL, formatDateTime, formatProductLabel } from "@/lib/format";
 import { fillChartSeries } from "@/lib/chart-series";
 import {
   adminMetricsMock,
@@ -68,6 +67,7 @@ function statusLabel(status: AdminTxStatus | string): string {
     aprovada: "Aprovado",
     recusada: "Recusada",
     reembolsada: "Reembolso",
+    abandonada: "Abandono",
     pago: "Aprovado",
     processando: "Pendente",
     recusado: "Recusado",
@@ -78,11 +78,11 @@ function statusLabel(status: AdminTxStatus | string): string {
 function statusTone(
   status: AdminTxStatus
 ): "success" | "warning" | "danger" | "muted" {
-  // Saque aprovado (pago) → vermelho; venda aprovada → branco do tema
-  if (status === "aprovada") return "success";
-  if (status === "pago") return "danger";
+  // Venda aprovada e saque pago → mesmo tom de sucesso
+  if (status === "aprovada" || status === "pago") return "success";
   if (status === "pendente" || status === "processando") return "warning";
   if (status === "reembolsada") return "muted";
+  // recusada / recusado / abandonada → vermelho
   return "danger";
 }
 
@@ -92,9 +92,9 @@ function isSpinning(status: AdminTxStatus): boolean {
 
 /**
  * Cor do valor e do fundo do ícone PIX (sólido, sem borda) alinhados ao status:
- * - aprovada → branco do tema
+ * - aprovada / pago (saque) → branco do tema (igual venda aprovada)
  * - pendente / processando → amarelo
- * - pago (saque) / recusada / recusado → vermelho
+ * - recusada / recusado → vermelho
  * - reembolsada → cinza
  */
 function toneForTx(tx: AdminLedgerTx): {
@@ -110,9 +110,9 @@ function toneForTx(tx: AdminLedgerTx): {
         iconBg: "#f5a623",
         iconTone: "white",
       };
-    case "pago":
     case "recusada":
     case "recusado":
+    case "abandonada":
       return {
         color: "#f87171",
         iconBg: "#f87171",
@@ -124,9 +124,10 @@ function toneForTx(tx: AdminLedgerTx): {
         iconBg: "#8b93a3",
         iconTone: "white",
       };
+    case "pago":
     case "aprovada":
     default:
-      // Aprovado: fundo branco + ícone PIX preto
+      // Aprovado (venda ou saque): fundo branco + ícone PIX preto
       return {
         color: "var(--green-use)",
         iconBg: "#ffffff",
@@ -211,10 +212,7 @@ export function AdminDashboardView() {
           ...tx,
           userName: formatSellerName(tx.userName),
           method: formatMethod(tx.method) as AdminLedgerTx["method"],
-          description:
-            String(tx.description || "Pagamento PIX")
-              .replace(/\b(undefined|null)\b/gi, "")
-              .trim() || "Pagamento PIX",
+          description: formatProductLabel(tx.description, "Pagamento PIX"),
           status: (tx.status || "pendente") as AdminTxStatus,
         }));
 
@@ -294,13 +292,14 @@ export function AdminDashboardView() {
       style={{ gap: "var(--main-gap)" }}
     >
       {/*
-        Mesma proporção da dashboard do seller:
-        [ Volume | Receita | Total de transações ]  ← 3ª col = largura da lateral
-        [        Gráfico                        ]  [ Ticket | Usuários | Retido | Conversão ]
+        [ Volume | Receita | Total de transações ]
+        [        Gráfico     ] [ Ticket médio     ]  ← mesma largura e altura
+                               [ Total usuários   ]     do card Total de transações
+                               [ Taxa conversão   ]
       */}
-      <div className="dash-seller">
+      <div className="dash-seller dash-admin">
         <div className="dash-seller__balances">
-          <div className="dash-balances">
+          <div className="dash-admin-balances">
             <KpiCard
               icon={<IconDolarSymbol size={ICON} />}
               label="Volume processado"
@@ -319,8 +318,8 @@ export function AdminDashboardView() {
           </div>
         </div>
 
-        <div className="dash-seller__body">
-          <div className="dash-seller__chart min-w-0">
+        <div className="dash-seller__body dash-admin__body">
+          <div className="dash-seller__chart dash-admin__chart min-w-0">
             <RevenueChart
               data={chartData}
               period={period}
@@ -330,44 +329,35 @@ export function AdminDashboardView() {
             />
           </div>
 
-          <div className="dash-seller__metrics min-w-0">
-            <div className="metrics-stack w-full h-full">
-              <div className="metrics-stack__cell">
-                <KpiCard
-                  fill
-                  icon={<IconPercentFilled size={ICON} />}
-                  label="Ticket médio"
-                  value={formatBRL(m.averageTicket)}
-                />
-              </div>
-              <div className="metrics-stack__cell">
-                <KpiCard
-                  fill
-                  icon={<IconUsersFilled size={ICON} />}
-                  label="Total de usuários"
-                  value={String(m.totalUsers)}
-                />
-              </div>
-              <div className="metrics-stack__cell">
-                <KpiCard
-                  fill
-                  icon={<IconLockFilled size={ICON} />}
-                  label="Saldo retido total"
-                  value={formatBRL(m.totalHeldBalance)}
-                />
-              </div>
-              <div className="metrics-stack__cell">
-                <KpiCard
-                  fill
-                  icon={<IconCheckFilled size={ICON} />}
-                  label="Taxa de conversão"
-                  value={`${m.conversionRate.toLocaleString("pt-BR", {
-                    minimumFractionDigits: 1,
-                    maximumFractionDigits: 1,
-                  })}%`}
-                />
-              </div>
-            </div>
+          <div className="dash-admin-metrics min-w-0">
+            <KpiCard
+              icon={<IconMoneyFlying size={ICON} />}
+              label="Lucro da plataforma"
+              value={formatBRL(
+                m.platformNetProfit ??
+                  m.platformRevenue -
+                    (m.platformAcquirerCost ?? 0)
+              )}
+              valueColor="#22c55e"
+            />
+            <KpiCard
+              icon={<IconPercentFilled size={ICON} />}
+              label="Ticket médio"
+              value={formatBRL(m.averageTicket)}
+            />
+            <KpiCard
+              icon={<IconUsersFilled size={ICON} />}
+              label="Total de usuários"
+              value={String(m.totalUsers)}
+            />
+            <KpiCard
+              icon={<IconCheckFilled size={ICON} />}
+              label="Taxa de conversão"
+              value={`${m.conversionRate.toLocaleString("pt-BR", {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}%`}
+            />
           </div>
         </div>
       </div>
@@ -420,6 +410,9 @@ export function AdminDashboardView() {
                 const amount = formatAmount(tx);
                 const tone = toneForTx(tx);
                 const isNew = flashId === tx.id && safePage === 0;
+                // Data, seller e produto seguem a cor do status
+                // (pendente amarelo · aprovado verde · recusado/abandono vermelho)
+                const rowTextColor = tone.color;
                 return (
                   <tr
                     key={tx.id}
@@ -430,12 +423,16 @@ export function AdminDashboardView() {
                       transition: "background 0.6s ease",
                     }}
                   >
-                    <AdminTd nowrap>{formatDateTime(tx.date)}</AdminTd>
+                    <AdminTd nowrap>
+                      <span style={{ color: rowTextColor }}>
+                        {formatDateTime(tx.date)}
+                      </span>
+                    </AdminTd>
                     <AdminTd nowrap>
                       <span
                         className="font-medium"
                         style={{
-                          color: "var(--text-1)",
+                          color: rowTextColor,
                           whiteSpace: "nowrap",
                           display: "inline-block",
                           maxWidth: 200,
@@ -451,6 +448,7 @@ export function AdminDashboardView() {
                     <AdminTd>
                       <span
                         style={{
+                          color: rowTextColor,
                           whiteSpace: "nowrap",
                           display: "inline-block",
                           maxWidth: 220,
@@ -458,9 +456,7 @@ export function AdminDashboardView() {
                           textOverflow: "ellipsis",
                         }}
                       >
-                        {String(tx.description || "Pagamento PIX")
-                          .replace(/\b(undefined|null)\b/gi, "")
-                          .trim() || "Pagamento PIX"}
+                        {formatProductLabel(tx.description, "Pagamento PIX")}
                       </span>
                     </AdminTd>
                     <AdminTd>

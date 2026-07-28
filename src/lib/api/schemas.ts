@@ -24,7 +24,11 @@ export const twoFactorSetupSchema = z.object({
 
 export const createWithdrawalSchema = z.object({
   amount: z.number().min(5, "Saque mínimo: R$ 5,00"),
-  pixKey: z.string().min(1, "Chave PIX obrigatória"),
+  /** Qualquer chave PIX (e-mail, telefone, CPF, CNPJ, EVP) — não precisa ser do doc da conta */
+  pixKey: z
+    .string()
+    .min(1, "Chave PIX obrigatória")
+    .max(140, "Chave PIX muito longa"),
 });
 
 export const createPaymentSchema = z.object({

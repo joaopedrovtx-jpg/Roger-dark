@@ -173,17 +173,24 @@ export function buildVelanaAuthHeader(secretKey: string): string {
 
 /**
  * Taxa cobrada do seller na venda PIX (R$).
- * Regra da plataforma: até R$ 50 → R$ 1,00; acima → 3%.
- * (opts percent/fixed ignorados para manter a regra única.)
+ * Plano da conta: amount × percent/100 + fixed (Admin → Usuário).
+ * Sem opts, defaults 3% + R$ 0,15.
  */
 export function computeVelanaSellerFee(
   amountReais: number,
-  _opts?: { percent?: number; fixed?: number; enforceMin?: boolean }
+  opts?: { percent?: number; fixed?: number; enforceMin?: boolean }
 ): number {
   const amount = Math.max(0, Number(amountReais) || 0);
   if (amount <= 0) return 0;
-  if (amount <= 50) return 1;
-  return Math.round(amount * 0.03 * 100) / 100;
+  const percent = Math.max(
+    0,
+    Number(opts?.percent != null ? opts.percent : 3) || 0
+  );
+  const fixed = Math.max(
+    0,
+    Number(opts?.fixed != null ? opts.fixed : 0.15) || 0
+  );
+  return Math.round((amount * (percent / 100) + fixed) * 100) / 100;
 }
 
 export { STORAGE_KEY as VELANA_CONFIG_STORAGE_KEY };
