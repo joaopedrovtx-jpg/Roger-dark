@@ -155,13 +155,14 @@ export function AdminUsuariosView() {
     }
   ) {
     try {
-      await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fees }),
       });
+      if (!res.ok) return;
     } catch {
-      /* local */
+      return;
     }
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, fees } : u))
@@ -173,13 +174,14 @@ export function AdminUsuariosView() {
 
   async function saveUserDocs(id: string, documentsStatus: "aprovado" | "pendente" | "rejeitado") {
     try {
-      await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentsStatus }),
       });
+      if (!res.ok) return;
     } catch {
-      /* local */
+      return;
     }
   }
 

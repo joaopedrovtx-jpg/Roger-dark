@@ -24,8 +24,7 @@ export default async function AdminLayout({
   }
 
   const hdrs = await headers();
-  const url = hdrs.get("next-url") || "";
-  const pathname = url ? new URL(url, "http://n").pathname : "";
+  const pathname = hdrs.get("x-pathname") || "";
   const required = permissionForAdminPath(pathname);
   if (required && !hasStaffPermission(user, required)) {
     redirect("/admin");

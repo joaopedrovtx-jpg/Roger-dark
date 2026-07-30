@@ -1,13 +1,12 @@
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { DashboardView } from "@/components/dashboard/DashboardView";
+import { getSessionUser } from "@/lib/server/auth";
 
-/**
- * Dashboard do seller.
- * Staff (admin/gerente) chega aqui via "Dashboard" no modal do usuário
- * em modo visualização (prova social) — só leitura, sem saque.
- * (A home `/` redireciona admin para /admin.)
- */
-export default function SellerDashPage() {
+export default async function SellerDashPage() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login?next=/dash");
+
   return (
     <AppShell>
       <DashboardView />

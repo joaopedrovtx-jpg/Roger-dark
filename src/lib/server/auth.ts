@@ -7,6 +7,7 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import type {
+  AuthKyc,
   AuthUser,
   LoginInput,
   RegisterInput,
@@ -77,8 +78,9 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
     console.error("[enrichAuthUser] 2FA policy error:", e);
   }
 
+  let buildKyc: ((status: string, docs: Array<{ kind: string; status: string }>) => AuthKyc) | undefined;
   try {
-    const { buildKyc } = await import("@/lib/kyc");
+    ({ buildKyc } = await import("@/lib/kyc"));
     const docs = await prisma.document.findMany({
       where: { userId: user.id },
       select: { kind: true, status: true },
@@ -88,8 +90,9 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
       kyc: buildKyc(user.status, docs),
     };
   } catch {
-    const { buildKyc } = await import("@/lib/kyc");
-    next = { ...next, kyc: buildKyc(user.status, []) };
+    if (buildKyc) {
+      next = { ...next, kyc: buildKyc(user.status, []) };
+    }
   }
 
   // Gerente: carrega permissões do registro Manager
@@ -116,8 +119,8 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
         }
       }
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.error("[enrichAuthUser] manager permissions error:", e);
   }
 
   return next;

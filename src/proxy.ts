@@ -86,8 +86,15 @@ async function cookieLooksValid(
   }
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  function passThrough(): NextResponse {
+    const res = NextResponse.next();
+    res.headers.set("x-pathname", pathname);
+    return res;
+  }
+
   const token = req.cookies.get(COOKIE)?.value;
 
   if (
@@ -95,7 +102,7 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/v1/") ||
     pathname.startsWith("/api/health")
   ) {
-    return NextResponse.next();
+    return passThrough();
   }
 
   const isPublic =
@@ -127,7 +134,7 @@ export async function middleware(req: NextRequest) {
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
-    return NextResponse.next();
+    return passThrough();
   }
 
   if (!token || !(await cookieLooksValid(token))) {
@@ -140,7 +147,7 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  return NextResponse.next();
+  return passThrough();
 }
 
 export const config = {

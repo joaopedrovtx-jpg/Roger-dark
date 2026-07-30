@@ -6,7 +6,7 @@
  * Não usa token em sessionStorage.
  */
 
-import type { DarkPayApi } from "../client";
+import type { DarkPayApi } from "../types";
 
 const base =
   (typeof process !== "undefined" &&

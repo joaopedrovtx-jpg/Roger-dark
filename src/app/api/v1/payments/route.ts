@@ -110,7 +110,7 @@ export async function POST(req: Request) {
         expiresAt: charge.expiresAt,
         createdAt: charge.createdAt,
         transactionId: charge.transactionId,
-        sellerId: charge.sellerId,
+        ...(isExternal ? {} : { sellerId: charge.sellerId }),
         message: isExternal
           ? "Cobrança PIX criada com sucesso."
           : provider === "mock"

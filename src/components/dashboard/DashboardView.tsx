@@ -139,7 +139,8 @@ export function DashboardView() {
         const fin = (await res.json()) as {
           fees?: { saquePercent?: number; saqueFixed?: number };
         };
-        if (fin.fees && !cancelled) {
+        if (fin.fees) {
+          if (cancelled) return;
           const p = Number(fin.fees.saquePercent);
           const f = Number(fin.fees.saqueFixed);
           setSaqueFees({

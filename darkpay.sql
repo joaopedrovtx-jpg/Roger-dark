@@ -390,6 +390,7 @@ CREATE TABLE `balance_ledger` (
   `description`   VARCHAR(255)  NULL,
   `createdAt`     DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `balance_ledger_referenceType_referenceId_key` (`referenceType`, `referenceId`),
   KEY `balance_ledger_userId_idx` (`userId`),
   KEY `balance_ledger_createdAt_idx` (`createdAt`),
   KEY `balance_ledger_type_idx` (`type`),
@@ -841,6 +842,65 @@ VALUES (
   JSON_ARRAY('dashboard','usuarios','saques'),0,0,'2025-06-01 10:00:00'
 );
 
+-- =============================================================================
+-- 20) RATE LIMIT  → anti brute-force persistente (não perde com restart)
+-- =============================================================================
+CREATE TABLE `rate_limits` (
+  `id`        VARCHAR(64)  NOT NULL,
+  `key`       VARCHAR(255) NOT NULL,
+  `attempts`  INT          NOT NULL DEFAULT 0,
+  `expiresAt` DATETIME(3)  NOT NULL,
+  `createdAt` DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rate_limits_key_key` (`key`),
+  KEY `rate_limits_key_idx` (`key`),
+  KEY `rate_limits_expiresAt_idx` (`expiresAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 21) WEBHOOK JOBS  → fila durável de webhooks
+-- =============================================================================
+CREATE TABLE `webhook_jobs` (
+  `id`        VARCHAR(64)  NOT NULL,
+  `provider`  VARCHAR(32)  NOT NULL,
+  `status`    VARCHAR(16)  NOT NULL DEFAULT 'pending',
+  `payload`   JSON         NOT NULL,
+  `error`     TEXT         NULL,
+  `createdAt` DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `webhook_jobs_status_idx` (`status`),
+  KEY `webhook_jobs_createdAt_idx` (`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 22) BUG LOGS  → diagnóstico de erros servidor + cliente
+-- =============================================================================
+CREATE TABLE `bug_logs` (
+  `id`         VARCHAR(64)   NOT NULL,
+  `source`     VARCHAR(16)   NOT NULL DEFAULT 'server',
+  `level`      VARCHAR(16)   NOT NULL DEFAULT 'error',
+  `message`    VARCHAR(512)  NOT NULL,
+  `stack`      TEXT          NULL,
+  `route`      VARCHAR(255)  NULL,
+  `method`     VARCHAR(16)   NULL,
+  `statusCode` INT           NULL,
+  `code`       VARCHAR(64)   NULL,
+  `userId`     VARCHAR(64)   NULL,
+  `userEmail`  VARCHAR(191)  NULL,
+  `requestId`  VARCHAR(64)   NULL,
+  `ip`         VARCHAR(64)   NULL,
+  `userAgent`  VARCHAR(512)  NULL,
+  `meta`       JSON          NULL,
+  `createdAt`  DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `bug_logs_createdAt_idx` (`createdAt`),
+  KEY `bug_logs_source_idx` (`source`),
+  KEY `bug_logs_route_idx` (`route`),
+  KEY `bug_logs_userId_idx` (`userId`),
+  KEY `bug_logs_level_idx` (`level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
 -- =============================================================================

@@ -61,7 +61,7 @@ model User {
   lastLoginAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
-  manager               Manager?  @relation(fields: [managerId], references: [id])
+  manager               Manager?  @relation(fields: [managerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   transactions          Transaction[]
   withdrawals           Withdrawal[]
   charges               PaymentCharge[]
@@ -224,6 +224,10 @@ model Transaction {
   @@index([status])
   @@index([date])
   @@index([providerId])
+  @@index([sellerId, date])
+  @@index([sellerId, status])
+  @@index([provider, providerId])
+  @@index([acquirerId])
   @@map("transactions")
 }
 
@@ -252,6 +256,8 @@ model Withdrawal {
   @@index([sellerId])
   @@index([status])
   @@index([date])
+  @@index([sellerId, status])
+  @@index([providerId])
   @@map("withdrawals")
 }
 
@@ -278,6 +284,9 @@ model PaymentCharge {
   seller           User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   @@index([sellerId])
   @@index([status])
+  @@index([providerId])
+  @@index([transactionId])
+  @@index([sellerId, status])
   @@map("payment_charges")
 }
 
@@ -296,6 +305,7 @@ model BalanceLedger {
   @@unique([referenceType, referenceId])
   @@index([userId])
   @@index([createdAt])
+  @@index([type])
   @@map("balance_ledger")
 }
 
@@ -325,6 +335,7 @@ model MetricDaily {
   updatedAt         DateTime @updatedAt
   @@unique([scope, userId, date])
   @@index([date])
+  @@index([userId])
   @@map("metric_daily")
 }
 

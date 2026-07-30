@@ -272,7 +272,7 @@ export async function createWithdrawal(
   const { debitAvailableBalance } = await import("@/lib/server/balance");
   const { isDatabaseConfigured, prisma } = await import("@/lib/server/prisma");
 
-  const { checkBalanceAvailable } = await import("@/lib/server/balance");
+
   let debitedOnDb = false;
 
   async function debitAfterAcquirer(): Promise<void> {
@@ -360,6 +360,7 @@ export async function createWithdrawal(
         .replace(/[^a-zA-Z0-9_\-.]/g, "")
         .slice(0, 100);
       try {
+        await debitAfterAcquirer();
         const remote = await createWithdrawalViaWoovi(
           sellerId,
           sellerName,
@@ -370,7 +371,6 @@ export async function createWithdrawal(
             autoApprove: saqueAutomatico,
           }
         );
-        await debitAfterAcquirer();
         w = {
           ...remote,
           id: localId,
@@ -430,24 +430,33 @@ export async function createWithdrawal(
     }
 
     if (only === "velana") {
+      await debitAfterAcquirer();
       w = await createWithdrawalViaVelana(sellerId, sellerName, payoutInput, {
         skipLocalDebit: true,
       });
       provider = "velana";
     } else if (only === "podpay") {
+      await debitAfterAcquirer();
       w = await createWithdrawalViaPodPay(sellerId, sellerName, payoutInput, {
         skipLocalDebit: true,
       });
       provider = "podpay";
     }
 
-    if (w && provider && w.status !== "recusado") {
-      await debitAfterAcquirer();
-    }
-
     if (w && provider) {
       const remoteAlreadyPaid = w.status === "pago";
       const remoteAlreadyRejected = w.status === "recusado";
+
+      if (remoteAlreadyRejected && isDatabaseConfigured()) {
+        const { prisma: p } = await import("@/lib/server/prisma");
+        await p.user.update({
+          where: { id: sellerId },
+          data: { balanceAvailable: { increment: input.amount } },
+        });
+        adjustBalance(sellerId, { available: input.amount });
+        debitedOnDb = false;
+      }
+
       const recorded: Withdrawal = {
         ...w,
         amount: round2(input.amount),
@@ -496,19 +505,11 @@ export async function createWithdrawal(
             reason: "Adquirente recusou na criação",
             source: "acquirer_sync",
           });
-          return { ...recorded, status: "recusado" };
         } catch {
           /* ignore */
         }
+        return recorded;
       }
-
-      // Velana/PodPay: PIX já foi enviado; saque automático só marca reviewed
-      // (status pro seller permanece processando até webhook)
-      if (saqueAutomatico) {
-        const settled = await maybeAutoApproveWithdrawal(sellerId, recorded.id);
-        return settled ?? { ...recorded, status: "processando" };
-      }
-      return { ...recorded, status: "processando" };
     }
 
     throw new Error(

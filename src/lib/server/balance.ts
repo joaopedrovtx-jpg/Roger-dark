@@ -156,7 +156,7 @@ export async function creditPaidSaleIdempotent(opts: {
                 ? [{ transactionId: opts.transactionId }]
                 : []),
             ],
-            status: { in: ["waiting_payment", "expired", "cancelled"] },
+            status: { in: ["waiting_payment", "expired"] },
           },
           data: {
             status: "paid",
@@ -167,7 +167,7 @@ export async function creditPaidSaleIdempotent(opts: {
         await tx.paymentCharge.updateMany({
           where: {
             transactionId: opts.transactionId,
-            status: { in: ["waiting_payment", "expired", "cancelled"] },
+            status: { in: ["waiting_payment", "expired"] },
           },
           data: {
             status: "paid",
@@ -337,8 +337,8 @@ export async function refundSaleIdempotent(opts: {
         data: { status: "reembolsada", refundedAt: new Date() },
       });
       if (pend.count === 1) {
-        await tx.user.update({
-          where: { id: opts.sellerId },
+        await tx.user.updateMany({
+          where: { id: opts.sellerId, balancePending: { gte: amount } },
           data: { balancePending: { decrement: amount } },
         });
         await tx.paymentCharge.updateMany({
@@ -460,7 +460,8 @@ export async function notifyUtmifyAfterPaid(opts: {
       createdAt: opts.createdAt || new Date(),
       approvedDate: new Date(),
     });
-  } catch {
-    /* silencioso */
+  } catch (e) {
+    const { log } = await import("@/lib/server/logger");
+    log.warn({ sellerId: opts.sellerId, amount: opts.amount, error: e instanceof Error ? e.message : String(e) }, "utmify_push_failed");
   }
 }

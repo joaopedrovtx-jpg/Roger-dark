@@ -67,15 +67,6 @@ export function parseSellerFeePlan(user: {
   };
 }
 
-/**
- * Taxa de venda PIX em R$ sobre o valor bruto.
- *
- * Regra da plataforma:
- * - amount ≤ 50 → R$ 1,00 fixo
- * - amount > 50 → 3% do valor
- *
- * Usa `fees` customizado do seller se fornecido, senão cai na regra padrão.
- */
 export function computeSaleFeeAmount(
   amountReais: number,
   fees?: Pick<SellerSaleFees, "mdrPercent" | "mdrFixed">
@@ -84,12 +75,12 @@ export function computeSaleFeeAmount(
   if (amount <= 0) return 0;
 
   const mdrPercent = fees?.mdrPercent ?? PIX_FEE_PERCENT_ABOVE_THRESHOLD;
-  const mdrFixed = fees?.mdrFixed ?? PIX_FEE_FIXED_UP_TO_THRESHOLD;
 
   if (amount <= PIX_FEE_THRESHOLD) {
+    const mdrFixed = fees?.mdrFixed ?? PIX_FEE_FIXED_UP_TO_THRESHOLD;
     return roundMoney(mdrFixed);
   }
-  return roundMoney((amount * mdrPercent) / 100 + mdrFixed);
+  return roundMoney((amount * mdrPercent) / 100);
 }
 
 export function computeSaleNetAmount(

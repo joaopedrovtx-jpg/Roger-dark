@@ -3,7 +3,7 @@
  * Seller e admin compartilham saques, cobranças e saldos.
  */
 
-import type { DarkPayApi } from "../client";
+import type { DarkPayApi } from "../types";
 import type {
   AuthUser,
   LoginInput,

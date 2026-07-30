@@ -59,10 +59,10 @@ async function upsertUser(data) {
         balanceAvailable: data.balanceAvailable ?? existing.balanceAvailable,
         balancePending: data.balancePending ?? existing.balancePending,
         balanceHeld: data.balanceHeld ?? existing.balanceHeld,
-        mdrPercent: data.mdrPercent ?? 3,
-        mdrFixed: data.mdrFixed ?? 0.15,
-        saquePercent: data.saquePercent ?? 3,
-        saqueFixed: data.saqueFixed ?? 0,
+    mdrPercent: data.mdrPercent ?? existing.mdrPercent,
+    mdrFixed: data.mdrFixed ?? existing.mdrFixed,
+    saquePercent: data.saquePercent ?? existing.saquePercent,
+    saqueFixed: data.saqueFixed ?? existing.saqueFixed,
       },
     });
     console.log("✓ atualizado", data.email, "(senha redefinida)");
@@ -85,10 +85,10 @@ async function upsertUser(data) {
       balancePending: data.balancePending ?? 0,
       balanceHeld: data.balanceHeld ?? 0,
       volumeTotal: data.volumeTotal ?? 0,
-      mdrPercent: 3,
-      mdrFixed: 0.15,
-      saquePercent: 3,
-      saqueFixed: 0,
+    mdrPercent: 3,
+    mdrFixed: 1,
+    saquePercent: 0,
+    saqueFixed: 0,
     },
   });
   await prisma.user2FA.upsert({
@@ -116,7 +116,7 @@ async function main() {
     name: "Admin DarkPay",
     email: "admin@darkpay.app",
     status: "ativo",
-    roles: ["admin", "seller"],
+    roles: ["admin"],
     personType: "pj",
     balanceAvailable: 0,
   });

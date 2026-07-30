@@ -67,12 +67,6 @@ const nextConfig: NextConfig = {
         source: "/_next/static/:path*",
         headers: [
           ...securityHeaders,
-          {
-            key: "Cache-Control",
-            value: isProd
-              ? "public, max-age=31536000, immutable"
-              : "no-store",
-          },
         ],
       },
       {
