@@ -226,12 +226,17 @@ export const velanaClient = {
    */
   createTransaction(
     dto: VelanaCreateTransaction,
-    opts?: { config?: VelanaConfig }
+    opts?: { config?: VelanaConfig; idempotencyKey?: string }
   ): Promise<VelanaTransaction> {
+    const headers: Record<string, string> = {};
+    if (opts?.idempotencyKey) {
+      headers["Idempotency-Key"] = opts.idempotencyKey;
+    }
     return velanaFetch<VelanaTransaction>("/transactions", {
       method: "POST",
       body: JSON.stringify(dto),
       config: opts?.config,
+      headers,
     });
   },
 
@@ -280,12 +285,17 @@ export const velanaClient = {
 
   createTransfer(
     dto: VelanaCreateTransfer,
-    opts?: { config?: VelanaConfig }
+    opts?: { config?: VelanaConfig; idempotencyKey?: string }
   ): Promise<VelanaTransfer> {
+    const headers: Record<string, string> = {};
+    if (opts?.idempotencyKey) {
+      headers["Idempotency-Key"] = opts.idempotencyKey;
+    }
     return velanaFetch<VelanaTransfer>("/transfers", {
       method: "POST",
       body: JSON.stringify(dto),
       config: opts?.config,
+      headers,
     });
   },
 

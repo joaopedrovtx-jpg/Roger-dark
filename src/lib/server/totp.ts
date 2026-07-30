@@ -6,7 +6,7 @@ import {
   generateURI,
   verifySync,
 } from "otplib";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import bcrypt from "bcryptjs";
 
 export function generateTotpSecret(): string {
@@ -78,8 +78,10 @@ export async function consumeBackupCode(
     if (entry.startsWith("$2")) {
       match = await bcrypt.compare(needle, entry);
     } else {
-      // legado: comparação case-insensitive
-      match = normalizeBackupCode(entry) === needle;
+      // legado: comparação timing-safe via hash SHA-256
+      const a = createHash("sha256").update(normalizeBackupCode(entry), "utf8").digest();
+      const b = createHash("sha256").update(needle, "utf8").digest();
+      match = a.length === b.length && timingSafeEqual(a, b);
     }
     if (match) {
       const next = [...hashes];

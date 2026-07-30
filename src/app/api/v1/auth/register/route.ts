@@ -10,6 +10,7 @@ import {
   securityHeaders,
   isProduction,
 } from "@/lib/server/security";
+import { registerSchema, formatZodError } from "@/lib/api/schemas";
 
 /** POST /api/v1/auth/register */
 export async function POST(req: Request) {
@@ -44,21 +45,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json()) as {
-      name?: string;
-      email?: string;
-      phone?: string;
-      password?: string;
-    };
-
-    if (!body.name?.trim() || !body.email?.trim() || !body.password) {
+    const raw = await req.json();
+    const parsed = registerSchema.safeParse(raw);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Nome, e-mail e senha são obrigatórios." },
+        { error: formatZodError(parsed.error) },
         { status: 400, headers: securityHeaders() }
       );
     }
 
-    const name = sanitizeDisplayName(body.name);
+    const name = sanitizeDisplayName(parsed.data.name);
     if (name.length < 2) {
       return NextResponse.json(
         { error: "Nome inválido." },
@@ -66,7 +62,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const email = body.email.trim().toLowerCase();
+    const email = parsed.data.email.trim().toLowerCase();
     if (
       isProduction() &&
       (email.endsWith("@darkpay.app") || email.endsWith("@example.com"))
@@ -81,8 +77,8 @@ export async function POST(req: Request) {
       {
         name,
         email,
-        phone: body.phone ?? "",
-        password: body.password,
+        phone: parsed.data.phone ?? "",
+        password: parsed.data.password,
       },
       {
         ip,

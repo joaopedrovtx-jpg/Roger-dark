@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/guards";
 import { getSellerFinance } from "@/lib/server/db/seller-finance.service";
 import { securityHeaders } from "@/lib/server/security";
+import { createWithdrawalSchema, formatZodError } from "@/lib/api/schemas";
 
 export async function GET(req: Request) {
   const gate = await requireAuth(req);
@@ -69,20 +70,18 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = (await req.json()) as {
-      amount?: number;
-      pixKey?: string;
-    };
-    if (!body.amount || !body.pixKey) {
+    const body = await req.json();
+    const parsed = createWithdrawalSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "amount e pixKey são obrigatórios" },
+        { error: formatZodError(parsed.error) },
         { status: 400, headers: securityHeaders() }
       );
     }
 
     const w = await createWithdrawal(scope.sellerId, gate.user.name, {
-      amount: body.amount,
-      pixKey: body.pixKey,
+      amount: parsed.data.amount,
+      pixKey: parsed.data.pixKey,
     });
 
     return NextResponse.json(
@@ -107,7 +106,7 @@ export async function POST(req: Request) {
         "withdrawal_create_failed"
       );
     } catch {
-      console.error("[withdrawals]", code, msg);
+      /* fallback silencioso */
     }
 
     // IP / auth Velana → 403; validação local → 400

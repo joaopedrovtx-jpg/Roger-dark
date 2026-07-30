@@ -33,10 +33,7 @@ export async function POST(
         { status: 404, headers: securityHeaders() }
       );
     }
-    if (
-      existing.sellerId !== gate.user.id &&
-      !gate.user.roles.includes("admin")
-    ) {
+    if (existing.sellerId !== gate.user.id) {
       return NextResponse.json(
         { error: "Sem permissão para esta cobrança" },
         { status: 403, headers: securityHeaders() }

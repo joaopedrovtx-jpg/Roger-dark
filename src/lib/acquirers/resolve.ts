@@ -83,12 +83,7 @@ export async function resolveAcquirerForSeller(
       },
     });
 
-    const prefRaw =
-      user?.preferredAdquirenteId?.trim() ||
-      (user?.routingMode === "personalizado"
-        ? user.preferredAdquirenteId?.trim()
-        : "") ||
-      "";
+    const prefRaw = user?.preferredAdquirenteId?.trim() || "";
 
     // 1) Preferência explícita do seller (personalizado)
     if (
@@ -183,9 +178,7 @@ export async function resolveAcquirerForSeller(
  *
  * Fallback: principal de cobrança (#1) se nenhuma payout primary.
  */
-export async function resolveAcquirerForPayout(
-  _sellerId?: string
-): Promise<ResolvedAcquirer | null> {
+export async function resolveAcquirerForPayout(): Promise<ResolvedAcquirer | null> {
   try {
     const { prisma, isDatabaseConfigured } = await import(
       "@/lib/server/prisma"

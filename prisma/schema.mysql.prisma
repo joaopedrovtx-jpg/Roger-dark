@@ -51,7 +51,7 @@ model User {
   volumeTotal           Decimal   @default(0) @db.Decimal(18, 2)
   platformProfit        Decimal   @default(0) @db.Decimal(18, 2)
   mdrPercent            Decimal   @default(3) @db.Decimal(8, 4)
-  mdrFixed              Decimal   @default(0.15) @db.Decimal(12, 2)
+  mdrFixed              Decimal   @default(1.00) @db.Decimal(12, 2)
   saquePercent          Decimal   @default(0) @db.Decimal(8, 4)
   saqueFixed            Decimal   @default(0) @db.Decimal(12, 2)
   saqueAutomatico       Boolean   @default(false)
@@ -293,6 +293,7 @@ model BalanceLedger {
   description   String?  @db.VarChar(255)
   createdAt     DateTime @default(now())
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([referenceType, referenceId])
   @@index([userId])
   @@index([createdAt])
   @@map("balance_ledger")
@@ -333,7 +334,7 @@ model PlatformFeePlan {
   method      String   @default("PIX") @db.VarChar(32)
   settlement  String   @default("D+0") @db.VarChar(32)
   mdrPercent  Decimal  @default(3) @db.Decimal(8, 4)
-  mdrFixed    Decimal  @default(0.15) @db.Decimal(12, 2)
+  mdrFixed    Decimal  @default(1.00) @db.Decimal(12, 2)
   reserveDays Int      @default(0)
   description String?  @db.Text
   active      Boolean  @default(true)
@@ -467,6 +468,33 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+/** Rate limit persistente (anti brute-force entre restarts) */
+model RateLimit {
+  id        String   @id @db.VarChar(64)
+  key       String   @unique @db.VarChar(255)
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([key])
+  @@index([expiresAt])
+  @@map("rate_limits")
+}
+
+/** Fila de webhooks durável (inline queue com persistência) */
+model WebhookJob {
+  id        String   @id @db.VarChar(64)
+  provider  String   @db.VarChar(32)
+  status    String   @default("pending") @db.VarChar(16)
+  payload   Json
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status])
+  @@index([createdAt])
+  @@map("webhook_jobs")
 }
 
 /** Log de bugs/erros (servidor + cliente) para diagnóstico em produção */

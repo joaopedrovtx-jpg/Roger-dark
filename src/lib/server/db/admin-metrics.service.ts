@@ -247,7 +247,7 @@ async function computeAcquirerCost(opts: {
         provider: true,
         acquirerId: true,
       },
-      take: 20_000,
+      take: 1000,
     }),
     prisma.withdrawal.findMany({
       where: { status: "pago", date: opts.wdDate },
@@ -255,7 +255,7 @@ async function computeAcquirerCost(opts: {
         amount: true,
         provider: true,
       },
-      take: 10_000,
+      take: 1000,
     }),
   ]);
 
@@ -263,7 +263,6 @@ async function computeAcquirerCost(opts: {
   for (const s of sales) {
     total += costOf(n(s.amount), resolveFee(s.provider, s.acquirerId));
   }
-  // Saque: só o fixo da adquirente (PIX out), sem % sobre o bruto do seller
   for (const w of withdrawals) {
     const fee = resolveFee(w.provider, null);
     total += round2(fee.feeFixed);

@@ -37,15 +37,10 @@ const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
-const defaultWeak = "DarkPay@123";
-let PASSWORD = process.env.SEED_PASSWORD || defaultWeak;
-if (!process.env.SEED_PASSWORD || PASSWORD === defaultWeak) {
-  if (process.env.NODE_ENV === "production") {
-    PASSWORD = randomBytes(18).toString("base64url") + "Aa1";
-    console.warn("⚠ SEED_PASSWORD não definido — gerada senha aleatória (anote):", PASSWORD);
-  } else {
-    console.warn("⚠ Usando senha seed padrão de DEV. Defina SEED_PASSWORD em staging/prod.");
-  }
+let PASSWORD = process.env.SEED_PASSWORD;
+if (!PASSWORD) {
+  PASSWORD = randomBytes(18).toString("base64url") + "Aa1";
+  console.warn("⚠ SEED_PASSWORD não definido — gerada senha aleatória (anote):", PASSWORD);
 }
 
 async function upsertUser(data) {

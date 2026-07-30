@@ -200,8 +200,7 @@ export async function reconcilePendingPayments(opts: {
       } else if (charge.status === "waiting_payment") {
         result.stillWaiting++;
       } else {
-        // cancelled/refunded/expired
-        result.stillWaiting++;
+        result.failed++;
       }
     } catch (e) {
       result.failed++;

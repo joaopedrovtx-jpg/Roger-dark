@@ -3,6 +3,8 @@
  * SameSite=Lax + Origin/Host. Ativo por padrão (desliga só com CSRF_STRICT=0).
  */
 
+import { env } from "@/lib/env";
+
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function parseHost(raw: string | null): string | null {
@@ -16,48 +18,44 @@ function parseHost(raw: string | null): string | null {
 }
 
 function isStrict(): boolean {
-  if (process.env.CSRF_STRICT === "0") return false;
-  if (process.env.CSRF_STRICT === "1") return true;
-  // default: sempre strict
-  return true;
+  return env.CSRF_STRICT !== "0";
 }
 
-/**
- * Valida Origin (ou Referer) contra Host.
- * Retorna null se ok, ou mensagem de erro.
- */
+function normalizeHost(h: string): string {
+  return h
+    .replace("127.0.0.1", "localhost")
+    .replace("::1", "localhost")
+    .replace("[::1]", "localhost");
+}
+
 export function validateSessionCsrf(req: Request): string | null {
   const method = req.method.toUpperCase();
   if (SAFE.has(method)) return null;
 
   if (!isStrict()) return null;
 
-  const host = parseHost(
-    req.headers.get("host") || req.headers.get("x-forwarded-host")
-  );
+  const host = parseHost(req.headers.get("host"));
   if (!host) {
     return "CSRF: Host ausente";
   }
 
   const origin = parseHost(req.headers.get("origin"));
   if (origin) {
-    if (origin !== host) {
-      const o = origin.replace("127.0.0.1", "localhost");
-      const h = host.replace("127.0.0.1", "localhost");
-      if (o !== h) return "CSRF: Origin não confere com Host";
+    if (normalizeHost(origin) !== normalizeHost(host)) {
+      return "CSRF: Origin não confere com Host";
     }
     return null;
   }
 
   const referer = parseHost(req.headers.get("referer"));
   if (referer) {
-    const r = referer.replace("127.0.0.1", "localhost");
-    const h = host.replace("127.0.0.1", "localhost");
-    if (r !== h) return "CSRF: Referer não confere com Host";
+    if (normalizeHost(referer) !== normalizeHost(host)) {
+      return "CSRF: Referer não confere com Host";
+    }
     return null;
   }
 
-  if (process.env.CSRF_ALLOW_MISSING_ORIGIN === "1") return null;
+  if (env.CSRF_ALLOW_MISSING_ORIGIN === "1") return null;
   return "CSRF: Origin/Referer ausente em mutação autenticada por sessão";
 }
 

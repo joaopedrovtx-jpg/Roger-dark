@@ -1,60 +1,27 @@
 import { randomBytes } from "crypto";
+import { isDatabaseConfigured } from "@/lib/server/prisma";
+import { env } from "@/lib/env";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS_COMBO = 10;
 const MAX_ATTEMPTS_EMAIL = 25;
 const MAX_ATTEMPTS_IP = 40;
 const MAX_REGISTER_IP = 8;
-/** 2FA: 8 tentativas por IP+user / 15 min (anti brute-force TOTP) */
 const MAX_2FA_COMBO = 8;
 const MAX_2FA_IP = 30;
-const MAX_MAP_SIZE = 10_000;
-
-const attempts = new Map<string, number[]>();
-
-function evictStale() {
-  if (attempts.size <= MAX_MAP_SIZE) return;
-  const entries = [...attempts.entries()].sort(
-    (a, b) => (a[1][a[1].length - 1] ?? 0) - (b[1][b[1].length - 1] ?? 0)
-  );
-  const toDelete = entries.slice(0, Math.floor(MAX_MAP_SIZE * 0.2));
-  for (const [k] of toDelete) attempts.delete(k);
-}
-
-function prune(key: string) {
-  const now = Date.now();
-  const timestamps = attempts.get(key);
-  if (!timestamps) return;
-  const fresh = timestamps.filter((t) => now - t < WINDOW_MS);
-  if (fresh.length === 0) {
-    attempts.delete(key);
-  } else {
-    attempts.set(key, fresh);
-  }
-}
 
 export function isProduction(): boolean {
-  return process.env.NODE_ENV === "production";
+  return env.NODE_ENV === "production";
 }
 
-/**
- * IP do cliente. Só confia em X-Forwarded-For se TRUST_PROXY=1
- * (proxy reverso sobrescreve o header).
- */
 export function getClientIp(req: Request): string {
-  // Só confia em XFF/X-Real-IP com TRUST_PROXY=1 (nginx/caddy sobrescreve o header).
-  // Nunca default em production sem flag — evita spoof de rate limit.
-  const trust =
-    process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
-
+  const trust = env.TRUST_PROXY === "1" || env.TRUST_PROXY === "true";
   if (trust) {
     const xff = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
     if (xff && /^[\w.:a-fA-F%]+$/.test(xff) && xff.length < 64) return xff;
     const real = req.headers.get("x-real-ip")?.trim();
     if (real && real.length < 64) return real;
   }
-
-  // Sem proxy confiável: não usa XFF controlado pelo cliente
   return "unknown";
 }
 
@@ -87,7 +54,7 @@ export function warnWeakSecrets(): void {
 
 export function isMockAllowed(): boolean {
   if (isProduction()) return false;
-  return process.env.ALLOW_MOCK_DATA === "1";
+  return env.ALLOW_MOCK_DATA === "1";
 }
 
 export function generateSecureToken(prefix = "tok"): string {
@@ -101,6 +68,8 @@ export function securityHeaders(): Record<string, string> {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "X-DNS-Prefetch-Control": "off",
+    "Content-Security-Policy":
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
     ...(isProduction()
       ? {
           "Strict-Transport-Security":
@@ -110,29 +79,68 @@ export function securityHeaders(): Record<string, string> {
   };
 }
 
-async function checkRateLimit(
+/**
+ * Rate limit usando banco (Prisma).
+ * Persiste entre restarts — substitui o antigo Map em memória que perdia
+ * estado e permitia brute-force após cada restart/deploy.
+ */
+async function checkRateLimitDb(
   key: string,
-  max: number
+  max: number,
+  windowMs: number = WINDOW_MS
 ): Promise<{ ok: boolean; retryAfterSec?: number }> {
-  evictStale();
-  prune(key);
-  const timestamps = attempts.get(key) ?? [];
-
-  if (timestamps.length >= max) {
-    const oldest = timestamps[0] ?? Date.now();
-    const retryAfterMs = WINDOW_MS - (Date.now() - oldest);
-    return {
-      ok: false,
-      retryAfterSec: Math.max(1, Math.ceil(retryAfterMs / 1000)),
-    };
+  const { prisma } = await import("@/lib/server/prisma");
+  if (!isDatabaseConfigured()) {
+    return { ok: true };
   }
 
-  timestamps.push(Date.now());
-  attempts.set(key, timestamps);
-  return { ok: true };
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + windowMs);
+
+  try {
+    const row = await prisma.rateLimit.upsert({
+      where: { key },
+      update: {
+        attempts: { increment: 1 },
+        expiresAt,
+      },
+      create: {
+        id: `rl_${key.slice(0, 40)}_${Date.now().toString(36)}`,
+        key,
+        attempts: 1,
+        expiresAt,
+      },
+    });
+
+    if (row.attempts > max) {
+      return {
+        ok: false,
+        retryAfterSec: Math.max(
+          1,
+          Math.ceil((row.expiresAt.getTime() - Date.now()) / 1000)
+        ),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: true };
+  }
 }
 
-/** Rate limit login: combo IP+email, email global, IP global */
+async function clearRateLimitDb(key: string): Promise<void> {
+  const { prisma } = await import("@/lib/server/prisma");
+  if (!isDatabaseConfigured()) return;
+  try {
+    await prisma.rateLimit.deleteMany({ where: { key } });
+  } catch {
+    /* best-effort */
+  }
+}
+
+function rateKey(type: string, ...parts: string[]): string {
+  return `${type}:${parts.join(":")}`;
+}
+
 export async function checkLoginRateLimit(opts: {
   ip: string;
   email: string;
@@ -141,9 +149,9 @@ export async function checkLoginRateLimit(opts: {
   const ip = opts.ip || "direct";
 
   const checks = await Promise.all([
-    checkRateLimit(`login:combo:${ip}:${email}`, MAX_ATTEMPTS_COMBO),
-    checkRateLimit(`login:email:${email}`, MAX_ATTEMPTS_EMAIL),
-    checkRateLimit(`login:ip:${ip}`, MAX_ATTEMPTS_IP),
+    checkRateLimitDb(rateKey("login", "combo", ip, email), MAX_ATTEMPTS_COMBO),
+    checkRateLimitDb(rateKey("login", "email", email), MAX_ATTEMPTS_EMAIL),
+    checkRateLimitDb(rateKey("login", "ip", ip), MAX_ATTEMPTS_IP),
   ]);
 
   for (const c of checks) {
@@ -152,12 +160,11 @@ export async function checkLoginRateLimit(opts: {
   return { ok: true };
 }
 
-/** Compat: chave única legada */
 export async function checkLoginRateLimitKey(key: string): Promise<{
   ok: boolean;
   retryAfterSec?: number;
 }> {
-  return checkRateLimit(`login:legacy:${key}`, MAX_ATTEMPTS_COMBO);
+  return checkRateLimitDb(rateKey("login", "legacy", key), MAX_ATTEMPTS_COMBO);
 }
 
 export async function clearLoginRateLimit(opts: {
@@ -166,19 +173,20 @@ export async function clearLoginRateLimit(opts: {
 }) {
   const email = opts.email.trim().toLowerCase();
   const ip = opts.ip || "direct";
-  attempts.delete(`login:combo:${ip}:${email}`);
-  attempts.delete(`login:email:${email}`);
-  attempts.delete(`login:ip:${ip}`);
+  await Promise.all([
+    clearRateLimitDb(rateKey("login", "combo", ip, email)),
+    clearRateLimitDb(rateKey("login", "email", email)),
+    clearRateLimitDb(rateKey("login", "ip", ip)),
+  ]);
 }
 
 export async function checkRegisterRateLimit(ip: string): Promise<{
   ok: boolean;
   retryAfterSec?: number;
 }> {
-  return checkRateLimit(`register:ip:${ip || "direct"}`, MAX_REGISTER_IP);
+  return checkRateLimitDb(rateKey("register", "ip", ip || "direct"), MAX_REGISTER_IP);
 }
 
-/** Rate limit do desafio 2FA (TOTP / backup code) */
 export async function check2faRateLimit(opts: {
   ip: string;
   userId: string;
@@ -186,8 +194,8 @@ export async function check2faRateLimit(opts: {
   const ip = opts.ip || "direct";
   const userId = opts.userId || "unknown";
   const checks = await Promise.all([
-    checkRateLimit(`2fa:combo:${ip}:${userId}`, MAX_2FA_COMBO),
-    checkRateLimit(`2fa:ip:${ip}`, MAX_2FA_IP),
+    checkRateLimitDb(rateKey("2fa", "combo", ip, userId), MAX_2FA_COMBO),
+    checkRateLimitDb(rateKey("2fa", "ip", ip), MAX_2FA_IP),
   ]);
   for (const c of checks) {
     if (!c.ok) return c;
@@ -201,8 +209,10 @@ export async function clear2faRateLimit(opts: {
 }) {
   const ip = opts.ip || "direct";
   const userId = opts.userId || "unknown";
-  attempts.delete(`2fa:combo:${ip}:${userId}`);
-  attempts.delete(`2fa:ip:${ip}`);
+  await Promise.all([
+    clearRateLimitDb(rateKey("2fa", "combo", ip, userId)),
+    clearRateLimitDb(rateKey("2fa", "ip", ip)),
+  ]);
 }
 
 export const MIN_PASSWORD_LENGTH = 10;
@@ -214,13 +224,20 @@ export function validatePasswordStrength(password: string): string | null {
   if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
     return "Senha deve conter letras e números.";
   }
+  if (!/[A-Z]/.test(password)) {
+    return "Senha deve conter pelo menos uma letra maiúscula.";
+  }
+  if (!/[a-z]/.test(password)) {
+    return "Senha deve conter pelo menos uma letra minúscula.";
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return "Senha deve conter pelo menos um caractere especial.";
+  }
   return null;
 }
 
-/** Nome de exibição seguro (anti stored XSS) */
 export function sanitizeDisplayName(raw: string, maxLen = 80): string {
   let s = raw.normalize("NFKC").trim();
-  // remove tags HTML e caracteres de controle / markup
   s = s.replace(/<[^>]*>/g, "");
   s = s.replace(/[\u0000-\u001F\u007F<>`"{}\\/]/g, "");
   s = s.replace(/\s+/g, " ");
@@ -239,8 +256,19 @@ export function assertSellerCanTransact(status: string): void {
   }
 }
 
-/** Arredonda para centavos (mitiga Float IEEE754) */
 export function roundMoney(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
+}
+
+export async function cleanupStaleRateLimits(): Promise<void> {
+  const { prisma } = await import("@/lib/server/prisma");
+  if (!isDatabaseConfigured()) return;
+  try {
+    await prisma.rateLimit.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+  } catch {
+    /* best-effort */
+  }
 }

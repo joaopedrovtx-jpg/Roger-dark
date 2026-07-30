@@ -91,15 +91,11 @@ export function secretHint(secret: string): string {
 }
 
 function secretEncKey(): Buffer {
-  const raw =
-    process.env.API_SECRET_ENCRYPTION_KEY?.trim() ||
-    process.env.SESSION_SECRET?.trim() ||
-    process.env.NEXTAUTH_SECRET?.trim() ||
-    "";
+  const raw = process.env.API_SECRET_ENCRYPTION_KEY?.trim() || "";
   if (!raw || raw.length < 16) {
     throw new Error(
       "API_SECRET_ENCRYPTION_KEY obrigatório (mín. 16 chars). " +
-      "Caso não exista, defina como: $(openssl rand -hex 32)"
+      "Use uma chave DIFERENTE de SESSION_SECRET: $(openssl rand -hex 32)"
     );
   }
   return createHash("sha256").update(raw).digest();

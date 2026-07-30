@@ -236,13 +236,16 @@ export function AdminPersonalizacaoView() {
       setBranding(payload);
       // MySQL / API
       try {
-        await fetch("/api/v1/branding", {
+        const res = await fetch("/api/v1/branding", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-      } catch {
-        /* offline localStorage já salvo */
+        if (!res.ok) {
+          console.warn("[branding] API save returned", res.status);
+        }
+      } catch (e) {
+        console.warn("[branding] API save failed, localStorage only:", e);
       }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);

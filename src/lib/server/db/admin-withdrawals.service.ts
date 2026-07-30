@@ -89,13 +89,8 @@ export async function listAdminWithdrawals(status?: string, page = 1, pageSize =
   if (!(await dbAvailable())) return null;
   const safePage = Math.max(1, page);
   const safePageSize = Math.min(Math.max(1, pageSize), 200);
-  const where = status && status !== "todos" ? { status } : {};
-  const statusMap: Record<string, string> = {
-    processando: "processando",
-    pago: "pago",
-    recusado: "recusado",
-  };
-  const w = status && statusMap[status] ? { status: statusMap[status] } : where;
+  const validStatuses = ["processando", "pago", "recusado"];
+  const w = status && validStatuses.includes(status) ? { status } : {};
 
   const [items, total] = await Promise.all([
     prisma.withdrawal.findMany({
@@ -159,7 +154,7 @@ async function dispatchPayoutToAcquirer(w: {
   const { resolveAcquirerForPayout } = await import(
     "@/lib/acquirers/resolve"
   );
-  const route = await resolveAcquirerForPayout(w.sellerId);
+  const route = await resolveAcquirerForPayout();
   const sellerProvider = route?.provider ?? null;
 
   const isPendingLocal =

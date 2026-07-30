@@ -144,9 +144,9 @@ async function syncChargeAuto(id: string, sellerId: string) {
   }
 }
 
-export async function GET(
-  req: Request,
-  ctx: { params: Promise<{ id: string }> }
-) {
-  return POST(req, ctx);
+export async function GET() {
+  return NextResponse.json(
+    { error: "Use POST para sincronizar cobrança. GET não é suportado." },
+    { status: 405 }
+  );
 }

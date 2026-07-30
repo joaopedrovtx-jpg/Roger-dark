@@ -4,6 +4,7 @@
  */
 
 import { randomBytes } from "crypto";
+import { log } from "@/lib/server/logger";
 import {
   adjustBalance,
   getStore,
@@ -139,10 +140,7 @@ export async function createChargeViaWoovi(
     remote = await wooviClient.createCharge(chargeBody, { config });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Falha na cobrança";
-    console.error("[woovi] createCharge failed", msg, {
-      amount: amountCents,
-      correlationID,
-    });
+    log.error({ error: msg, amount: amountCents, correlationID }, "woovi_create_charge_failed");
     // Mantém código interno; a rota /payments sanitiza a mensagem pública
     throw e;
   }
@@ -535,12 +533,12 @@ export async function syncBalanceFromWoovi(_sellerId?: string) {
  * Aplica webhook Woovi (OPENPIX:CHARGE_COMPLETED etc.) em memória.
  * MySQL é atualizado na rota do webhook via creditPaidSaleIdempotent.
  */
-export function applyWooviWebhook(payload: WooviWebhookPayload): {
+export async function applyWooviWebhook(payload: WooviWebhookPayload): Promise<{
   ok: boolean;
   kind?: "charge" | "unknown";
   status?: string;
   remoteId?: string;
-} {
+}> {
   const event = String(payload.event || "").toUpperCase();
   const charge = payload.charge || payload.pix?.charge;
   if (!charge && !event.includes("CHARGE")) {
@@ -561,8 +559,26 @@ export function applyWooviWebhook(payload: WooviWebhookPayload): {
         (charge?.transactionID && c.id === charge.transactionID)
     );
     if (local && status === "aprovada" && local.status !== "paid") {
+      const wasWaiting = local.status === "waiting_payment";
       local.status = "paid";
       local.paidAt = charge?.paidAt || new Date().toISOString();
+      if (wasWaiting) {
+        const { computeSaleFeeAmount, getSellerSaleFees } = await import(
+          "@/lib/server/seller-fees"
+        );
+        let fee = 0;
+        try {
+          const plan = await getSellerSaleFees(local.sellerId);
+          fee = computeSaleFeeAmount(local.amount, plan);
+        } catch {
+          fee = computeSaleFeeAmount(local.amount);
+        }
+        const net = Math.max(0, Math.round((local.amount - fee) * 100) / 100);
+        adjustBalance(local.sellerId, {
+          pending: -local.amount,
+          available: net,
+        });
+      }
     }
   } catch {
     /* ignore */
@@ -744,10 +760,7 @@ export async function syncChargeFromWoovi(
       }
     }
     if (wasWaiting && nextStatus === "paid") {
-      let fee = computeSaleFeeAmount(local.amount, {
-        mdrPercent: 0,
-        mdrFixed: 0,
-      });
+      let fee = computeSaleFeeAmount(local.amount);
       try {
         const { getSellerSaleFees } = await import("@/lib/server/seller-fees");
         const plan = await getSellerSaleFees(local.sellerId);
@@ -854,17 +867,22 @@ async function applyWooviPaidStatusToMysql(opts: {
       feeAmount: fee,
     });
     if (credit.credited) {
-      await notifyUtmifyAfterPaid({
-        sellerId: tx.sellerId,
-        orderId: tx.id,
-        amount,
-        feeAmount: fee,
-        description: tx.description,
-        customerName: tx.customer,
-        customerEmail: tx.customerEmail,
-        customerDocument: tx.customerDocument,
-        createdAt: tx.createdAt,
-      }).catch(() => {});
+      try {
+        await notifyUtmifyAfterPaid({
+          sellerId: tx.sellerId,
+          orderId: tx.id,
+          amount,
+          feeAmount: fee,
+          description: tx.description,
+          customerName: tx.customer,
+          customerEmail: tx.customerEmail,
+          customerDocument: tx.customerDocument,
+          createdAt: tx.createdAt,
+        });
+      } catch {
+        const { log } = await import("@/lib/server/logger");
+        log.warn({ orderId: tx.id }, "woovi_notify_utmify_failed");
+      }
     }
     return;
   }

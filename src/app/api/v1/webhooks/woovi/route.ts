@@ -89,7 +89,7 @@ export async function POST(req: Request) {
       payload,
     });
 
-    applyWooviWebhook(payload);
+    await applyWooviWebhook(payload);
 
     let applied = false;
     let reason: string | undefined;
@@ -491,17 +491,22 @@ async function applyChargeWebhook(
       feeAmount: fee,
     });
     if (credit.credited) {
-      await notifyUtmifyAfterPaid({
-        sellerId: tx.sellerId,
-        orderId: tx.id,
-        amount,
-        feeAmount: fee,
-        description: tx.description,
-        customerName: tx.customer,
-        customerEmail: tx.customerEmail,
-        customerDocument: tx.customerDocument,
-        createdAt: tx.createdAt,
-      }).catch(() => {});
+      try {
+        await notifyUtmifyAfterPaid({
+          sellerId: tx.sellerId,
+          orderId: tx.id,
+          amount,
+          feeAmount: fee,
+          description: tx.description,
+          customerName: tx.customer,
+          customerEmail: tx.customerEmail,
+          customerDocument: tx.customerDocument,
+          createdAt: tx.createdAt,
+        });
+      } catch {
+        const { log } = await import("@/lib/server/logger");
+        log.warn({ orderId: tx.id }, "woovi_webhook_notify_utmify_failed");
+      }
     }
     return {
       applied: credit.credited === true,

@@ -91,19 +91,21 @@ export async function dbSaveBranding(input: {
       authImageUrl: input.authImageUrl,
     },
   });
-  await prisma.brandBanner.deleteMany({});
-  if (input.banners.length) {
-    await prisma.brandBanner.createMany({
-      data: input.banners.map((b, i) => ({
-        id: b.id || newId("ban"),
-        imageUrl: b.imageUrl,
-        name: b.name ?? "",
-        linkUrl: b.linkUrl ?? "",
-        sortOrder: i,
-        active: true,
-      })),
-    });
-  }
+  await prisma.$transaction(async (tx) => {
+    await tx.brandBanner.deleteMany({});
+    if (input.banners.length) {
+      await tx.brandBanner.createMany({
+        data: input.banners.map((b, i) => ({
+          id: b.id || newId("ban"),
+          imageUrl: b.imageUrl,
+          name: b.name ?? "",
+          linkUrl: b.linkUrl ?? "",
+          sortOrder: i,
+          active: true,
+        })),
+      });
+    }
+  });
   await audit("branding.save", "branding", "default");
   return getBrandingFromDb();
 }

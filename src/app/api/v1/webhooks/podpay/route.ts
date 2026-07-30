@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = applyPodPayWebhook(payload);
+    const result = await applyPodPayWebhook(payload);
 
     const data = payload.data as Record<string, unknown>;
     const remoteId = String(data.id ?? data.transactionId ?? "");

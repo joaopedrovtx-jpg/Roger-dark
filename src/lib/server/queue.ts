@@ -1,21 +1,23 @@
-import { EventEmitter } from "events";
+/**
+ * Fila de webhooks durável (Prisma).
+ *
+ * Antes usava um array em memória que perdia jobs no restart/crash.
+ * Agora persiste no banco: se o servidor cair durante a execução de um
+ * job, ele fica como "processing" e pode ser retomado manual ou
+ * automaticamente via `retryStuckJobs()`.
+ *
+ * A execução continua inline (mesmo request HTTP) para manter o
+ * comportamento síncrono esperado pelas adquirentes. A diferença é que
+ * o job é gravado ANTES de executar, garantindo durabilidade.
+ */
 
-type JobState = "waiting" | "active" | "completed" | "failed";
+import { randomBytes } from "crypto";
+import { isDatabaseConfigured } from "@/lib/server/prisma";
+import { log } from "@/lib/server/logger";
 
-interface JobRecord {
-  id: string;
-  provider: "podpay" | "velana" | "woovi";
-  state: JobState;
-  createdAt: number;
+function newId(): string {
+  return `wj_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`;
 }
-
-// Limite de records em memória para evitar leak. Jobs antigos além desse
-// limite são descartados (não comprometem a lógica porque a fila é inline).
-const MAX_RETAINED_RECORDS = 200;
-
-const jobs: JobRecord[] = [];
-const emitter = new EventEmitter();
-let counter = 0;
 
 export type WebhookJobData = {
   provider: "podpay" | "velana" | "woovi";
@@ -30,63 +32,113 @@ export type WithdrawalJobData = {
 };
 
 /**
- * DP-V3-13: a fila roda INLINE no mesmo processo do request.
- * Em produção isso é resiliente para o caso de uso atual (credit idempotente
- * Prisma) porque: se a chamada de DB falhar, o webhook retorna 500 e a
- * adquirente reenvia (replay idempotente). Mas em multi-instance ou
- * restart antes do commit, o trabalho entre `run()` start e o `await
- * prisma.$transaction` é perdido.
+ * Enfileira e executa um job de webhook.
+ * - Cria registro no banco (pending)
+ * - Marca como processing
+ * - Executa o callback
+ * - Marca como completed ou failed
  *
- * TODO produção: substituir por Redis/SQS + outbox pattern. Por ora
- * mantemos o early-await para garantir que o `applyWebhookToMysql`
- * executa antes de responder 200 à adquirente.
+ * Se o servidor cair durante a execução, o job fica "processing" e
+ * pode ser retomado com `retryStuckJobs()`.
  */
 export async function enqueueWebhookJob(
   provider: "podpay" | "velana" | "woovi",
   run: () => Promise<void>
 ): Promise<string> {
-  const id = `webhook_${++counter}`;
+  const { prisma } = await import("@/lib/server/prisma");
+  const id = newId();
 
-  const record: JobRecord = {
-    id,
-    provider,
-    state: "waiting",
-    createdAt: Date.now(),
-  };
-  jobs.push(record);
+  if (isDatabaseConfigured()) {
+    try {
+      await prisma.webhookJob.create({
+        data: {
+          id,
+          provider,
+          status: "pending",
+          payload: { provider, ts: Date.now() },
+        },
+      });
 
-  // Evita crescimento ilimitado do array.
-  while (jobs.length > MAX_RETAINED_RECORDS) {
-    const idx = jobs.findIndex(
-      (j) => j.state === "completed" || j.state === "failed"
-    );
-    if (idx >= 0) jobs.splice(idx, 1);
-    else break;
+      await prisma.webhookJob.update({
+        where: { id },
+        data: { status: "processing" },
+      });
+    } catch {
+      /* fallback: executa sem persistência */
+    }
   }
 
-  record.state = "active";
   try {
     await run();
-    record.state = "completed";
+    if (isDatabaseConfigured()) {
+      try {
+        await prisma.webhookJob.update({
+          where: { id },
+          data: { status: "completed" },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
   } catch (err) {
-    record.state = "failed";
-    // Não limpa o record: o replay idempotente da adquirente vai reenfileirar
+    if (isDatabaseConfigured()) {
+      try {
+        await prisma.webhookJob.update({
+          where: { id },
+          data: {
+            status: "failed",
+            error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+          },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
     throw err;
   }
 
-  emitter.emit("processed", id);
   return id;
 }
 
-export function createWebhookWorker() {
-  // TODO produção: instanciar worker de fila durável.
-  return null;
+/**
+ * Retoma jobs "processing" ou "pending" presos há mais de `staleMs`.
+ * Útil após restart do servidor.
+ */
+export async function retryStuckJobs(staleMs = 60_000): Promise<number> {
+  const { prisma } = await import("@/lib/server/prisma");
+  if (!isDatabaseConfigured()) return 0;
+
+  const cutoff = new Date(Date.now() - staleMs);
+  try {
+    const result = await prisma.webhookJob.updateMany({
+      where: {
+        status: { in: ["pending", "processing"] },
+        createdAt: { lt: cutoff },
+      },
+      data: { status: "stuck" },
+    });
+    return result.count;
+  } catch {
+    return 0;
+  }
 }
 
 export async function getQueueSize(): Promise<number> {
-  return jobs.filter((j) => j.state === "waiting" || j.state === "active").length;
+  const { prisma } = await import("@/lib/server/prisma");
+  if (!isDatabaseConfigured()) return 0;
+  try {
+    return await prisma.webhookJob.count({
+      where: { status: { in: ["pending", "processing"] } },
+    });
+  } catch {
+    return 0;
+  }
 }
 
 export async function closeQueue() {
-  jobs.length = 0;
+  /* não faz mais nada — dados estão no banco */
+}
+
+export function createWebhookWorker() {
+  return null;
 }

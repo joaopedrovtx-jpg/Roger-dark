@@ -33,16 +33,14 @@ export async function POST(req: Request) {
     const secret = process.env.VELANA_WEBHOOK_SECRET;
     let signedOk = false;
 
-    if (signature?.trim() && secret?.trim()) {
-      const sigCheck = verifyVelanaWebhook(rawBody, signature, secret);
-      if (!sigCheck.ok) {
-        return NextResponse.json(
-          { error: "Assinatura inválida", reason: sigCheck.reason },
-          { status: 401 }
-        );
-      }
-      signedOk = true;
+    const sigCheck = verifyVelanaWebhook(rawBody, signature, secret);
+    if (!sigCheck.ok) {
+      return NextResponse.json(
+        { error: "Assinatura inválida", reason: sigCheck.reason },
+        { status: 401 }
+      );
     }
+    signedOk = true;
 
     let payload: VelanaPostbackPayload;
     try {
@@ -60,7 +58,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = applyVelanaWebhook(payload);
+    const result = await applyVelanaWebhook(payload);
 
     const vData = (payload.data || {}) as Record<string, unknown>;
     const vRemoteId = String(vData.id ?? payload.objectId ?? "").trim();

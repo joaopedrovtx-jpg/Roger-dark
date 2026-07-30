@@ -12,9 +12,14 @@ export function verifyWooviWebhook(
 ): { ok: boolean; reason?: string; signed: boolean } {
   const secretTrim = secret?.trim();
   if (!secretTrim) {
-    // Sem secret configurado: não bloqueia (evita quebrar produção atual).
-    // A rota deve reconfirmar status na API Woovi antes de creditar.
-    return { ok: true, reason: "woovi_secret_optional", signed: false };
+    if (
+      !isProduction() &&
+      (process.env.ALLOW_UNSIGNED_WEBHOOKS === "1" ||
+        process.env.WOOVI_ALLOW_UNSIGNED_WEBHOOK === "1")
+    ) {
+      return { ok: true, reason: "woovi_unsigned_dev", signed: false };
+    }
+    return { ok: false, reason: "woovi_secret_not_configured", signed: false };
   }
 
   const auth =

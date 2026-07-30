@@ -695,7 +695,7 @@ export function AdminUserDetailModal({
   }
 
   /** Aprova todos os documentos exigidos da conta */
-  function approveAllDocs() {
+  async function approveAllDocs() {
     if (!user) return;
     const base = getSellerDocPreviews(user);
     const next: DocStatusMap = {};
@@ -706,7 +706,7 @@ export function AdminUserDetailModal({
     setViewingDoc((cur) =>
       cur ? { ...cur, status: "aprovado" } : cur
     );
-    void onSaveDocs?.(user.id, "aprovado");
+    await onSaveDocs?.(user.id, "aprovado");
     onStatusChange?.(user.id, "ativo");
   }
 
@@ -1633,9 +1633,15 @@ export function AdminUserDetailModal({
           ) : tab === "taxas" ? (
             <button
               type="button"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                if (user) void onSaveFees?.(user.id, fees);
+                if (user) {
+                  try {
+                    await onSaveFees?.(user.id, fees);
+                  } catch {
+                    /* erro já tratado no callback */
+                  }
+                }
                 onClose();
               }}
               className="inline-flex items-center justify-center font-semibold transition-opacity hover:opacity-90"

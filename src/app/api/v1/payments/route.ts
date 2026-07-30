@@ -41,7 +41,10 @@ export async function POST(req: Request) {
           if (!customerPhone && u.phone) customerPhone = u.phone;
           if (!customerEmail) customerEmail = u.email;
         }
-      } catch { /* ignore */ }
+      } catch {
+        const { log } = await import("@/lib/server/logger");
+        log.warn({ sellerId }, "payment_fetch_user_defaults_failed");
+      }
     }
 
     const charge = await createPixCharge({
@@ -137,7 +140,7 @@ export async function POST(req: Request) {
         "payment_create_failed"
       );
     } catch {
-      console.error("[payments]", errCode, internalMsg);
+      /* fallback silencioso */
     }
 
     const lower = internalMsg.toLowerCase();

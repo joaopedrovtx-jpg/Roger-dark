@@ -7,6 +7,7 @@
  */
 
 import { randomBytes } from "crypto";
+import { log } from "@/lib/server/logger";
 import {
   adjustBalance,
   getStore,
@@ -182,10 +183,7 @@ export async function createChargeViaVelana(
     remote = await velanaClient.createTransaction(dto, { config });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Falha Velana";
-    console.error("[velana] createTransaction failed", msg, {
-      amount: dto.amount,
-      paymentMethod: dto.paymentMethod,
-    });
+    log.error({ error: msg, amount: dto.amount, paymentMethod: dto.paymentMethod }, "velana_create_transaction_failed");
     throw e;
   }
 
@@ -826,15 +824,15 @@ async function applyPaidStatusToMysql(opts: {
  * Processa postback Velana e atualiza store local.
  * Formato: { type: "transaction"|"transfer"|"checkout", data: {...} }
  */
-export function applyVelanaWebhook(payload: VelanaPostbackPayload): {
+export async function applyVelanaWebhook(payload: VelanaPostbackPayload): Promise<{
   ok: boolean;
   message: string;
-} {
+}> {
   const store = getStore();
   const type = String(payload.type || "").toLowerCase();
   const data = payload.data || {};
 
-  if (type === "transaction" || data.status != null) {
+  if (type === "transaction") {
     const remoteId = String(data.id || payload.objectId || "");
     const status = String(data.status || "");
     const mapped = mapVelanaTxStatus(status);
@@ -848,7 +846,16 @@ export function applyVelanaWebhook(payload: VelanaPostbackPayload): {
         charge.status = "paid";
         charge.paidAt = new Date().toISOString();
         if (wasWaiting) {
-          const fee = computeVelanaSellerFee(charge.amount);
+          let fee = computeVelanaSellerFee(charge.amount);
+          try {
+            const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+              "@/lib/server/seller-fees"
+            );
+            const plan = await getSellerSaleFees(charge.sellerId);
+            fee = computeSaleFeeAmount(charge.amount, plan);
+          } catch {
+            /* default */
+          }
           const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
           adjustBalance(charge.sellerId, { pending: -charge.amount, available: net });
         }
@@ -887,7 +894,7 @@ export function applyVelanaWebhook(payload: VelanaPostbackPayload): {
   if (type === "checkout") {
     const txData = (data.transaction || data) as Record<string, unknown>;
     if (txData && txData.id) {
-      return applyVelanaWebhook({
+      return await applyVelanaWebhook({
         type: "transaction",
         objectId: String(txData.id),
         data: txData,

@@ -165,13 +165,15 @@ export async function dbSetAcquirerPayoutPrimary(id: string) {
   if (!target) throw new Error(`Adquirente "${id}" não encontrada`);
 
   try {
-    await prisma.$executeRawUnsafe(
-      `UPDATE acquirers SET isPayoutPrimary = 0`
-    );
-    await prisma.$executeRawUnsafe(
-      `UPDATE acquirers SET isPayoutPrimary = 1, enabled = 1, status = 'ativo' WHERE id = ?`,
-      target.id
-    );
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `UPDATE acquirers SET isPayoutPrimary = 0`
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE acquirers SET isPayoutPrimary = 1, enabled = 1, status = 'ativo' WHERE id = ?`,
+        target.id
+      );
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/Unknown column|no such column|isPayoutPrimary/i.test(msg)) {
@@ -371,8 +373,15 @@ export async function dbSaveAcquirerCredentials(
   const isVelana = id.toLowerCase() === "velana" || id.toUpperCase() === "VELANA";
 
   if (!existing && isPodPay) {
-    existing = await prisma.acquirer.create({
-      data: {
+    existing = await prisma.acquirer.upsert({
+      where: { id: "podpay" },
+      update: {
+        publicKey: (data.publicKey ?? "").trim() || null,
+        privateKey: (data.privateKey ?? "").trim() || null,
+        env: data.env === "live" ? "live" : "sandbox",
+        isPrimary: !!data.setPrimary,
+      },
+      create: {
         id: "podpay",
         name: "PodPay",
         code: "PODPAY",
@@ -388,7 +397,7 @@ export async function dbSaveAcquirerCredentials(
         settlement: "D+0",
       },
     });
-    await audit("acquirer.credentials", "acquirer", existing.id, { created: true });
+    await audit("acquirer.credentials", "acquirer", existing.id, { created: !!existing.createdAt });
     return {
       id: existing.id,
       publicKey: existing.publicKey ?? "",
@@ -401,8 +410,15 @@ export async function dbSaveAcquirerCredentials(
   }
 
   if (!existing && isVelana) {
-    existing = await prisma.acquirer.create({
-      data: {
+    existing = await prisma.acquirer.upsert({
+      where: { id: "velana" },
+      update: {
+        publicKey: (data.publicKey ?? "").trim() || null,
+        privateKey: (data.privateKey ?? "").trim() || null,
+        env: data.env === "sandbox" ? "sandbox" : "live",
+        isPrimary: !!data.setPrimary,
+      },
+      create: {
         id: "velana",
         name: "Velana",
         code: "VELANA",
@@ -424,7 +440,7 @@ export async function dbSaveAcquirerCredentials(
         data: { isPrimary: false },
       });
     }
-    await audit("acquirer.credentials", "acquirer", existing.id, { created: true });
+    await audit("acquirer.credentials", "acquirer", existing.id, { created: !!existing.createdAt });
     return {
       id: existing.id,
       publicKey: existing.publicKey ?? "",

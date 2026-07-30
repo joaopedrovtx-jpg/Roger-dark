@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { CreateWithdrawalInput, SaqueStatus, Withdrawal } from "@/lib/domain/types";
 import {
   adjustBalance,
@@ -266,19 +267,22 @@ export async function createWithdrawal(
 
   // Saque SEMPRE na adquirente white de PIX out (Admin → Adquirentes → Saque).
   // Independente da adquirente de cobrança do seller.
-  const active = await resolveAcquirerForPayout(sellerId);
+  const active = await resolveAcquirerForPayout();
 
   const { debitAvailableBalance } = await import("@/lib/server/balance");
-  const { isDatabaseConfigured } = await import("@/lib/server/prisma");
+  const { isDatabaseConfigured, prisma } = await import("@/lib/server/prisma");
 
+  const { checkBalanceAvailable } = await import("@/lib/server/balance");
   let debitedOnDb = false;
-  if (isDatabaseConfigured()) {
+
+  async function debitAfterAcquirer(): Promise<void> {
+    if (debitedOnDb || !isDatabaseConfigured()) return;
     const debit = await debitAvailableBalance(sellerId, input.amount);
     if (!debit.ok) {
       throw new Error(
         debit.reason === "insufficient_balance"
-          ? "Saldo insuficiente"
-          : "Não foi possível debitar o saldo"
+          ? "Saldo insuficiente (concorrência)"
+          : "Não foi possível debitar o saldo após saque"
       );
     }
     debitedOnDb = true;
@@ -287,6 +291,16 @@ export async function createWithdrawal(
       ...bal,
       available: debit.newBalance,
     };
+  }
+
+  if (isDatabaseConfigured()) {
+    const bal = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { balanceAvailable: true },
+    });
+    if (!bal || Number(bal.balanceAvailable) < input.amount) {
+      throw new Error("Saldo insuficiente");
+    }
   } else {
     if (process.env.ALLOW_MOCK_DATA !== "1") {
       throw new Error("MySQL indisponível. Impossível solicitar saque real.");
@@ -351,11 +365,12 @@ export async function createWithdrawal(
           sellerName,
           payoutInput,
           {
-            skipLocalDebit: debitedOnDb,
+            skipLocalDebit: true,
             correlationId,
             autoApprove: saqueAutomatico,
           }
         );
+        await debitAfterAcquirer();
         w = {
           ...remote,
           id: localId,
@@ -416,14 +431,18 @@ export async function createWithdrawal(
 
     if (only === "velana") {
       w = await createWithdrawalViaVelana(sellerId, sellerName, payoutInput, {
-        skipLocalDebit: debitedOnDb,
+        skipLocalDebit: true,
       });
       provider = "velana";
     } else if (only === "podpay") {
       w = await createWithdrawalViaPodPay(sellerId, sellerName, payoutInput, {
-        skipLocalDebit: debitedOnDb,
+        skipLocalDebit: true,
       });
       provider = "podpay";
+    }
+
+    if (w && provider && w.status !== "recusado") {
+      await debitAfterAcquirer();
     }
 
     if (w && provider) {
@@ -540,9 +559,24 @@ export async function createWithdrawal(
 
     if (debitedOnDb && isDatabaseConfigured()) {
       const { prisma } = await import("@/lib/server/prisma");
-      await prisma.user.update({
-        where: { id: sellerId },
-        data: { balanceAvailable: { increment: input.amount } },
+      await prisma.$transaction(async (tx) => {
+        const user = await tx.user.update({
+          where: { id: sellerId },
+          data: { balanceAvailable: { increment: input.amount } },
+          select: { balanceAvailable: true },
+        });
+        await tx.balanceLedger.create({
+          data: {
+            id: `led_${Date.now().toString(36)}_${randomBytes(6).toString("base64url")}`,
+            userId: sellerId,
+            type: "reversal_withdrawal_failed",
+            amount: input.amount,
+            bucket: "available",
+            balanceAfter: Number(user.balanceAvailable),
+            referenceType: "withdrawal",
+            description: "Estorno saque falhou (reversão débito)",
+          },
+        });
       });
       adjustBalance(sellerId, { available: input.amount });
     }

@@ -77,27 +77,32 @@ function isPlatformSuperAdmin(rolesRaw: unknown, email?: string | null): boolean
 export async function getAdminUsersPageMetrics() {
   if (!(await dbAvailable())) return null;
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const sevenDaysAgo = new Date(Date.now() - 7 * 864e5);
+  const now = new Date();
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const sevenDaysAgo = new Date(startOfToday.getTime() - 7 * 864e5);
 
   const all = await prisma.user.findMany({
     select: {
       status: true,
       createdAt: true,
-      roles: true,
-      email: true,
     },
+    take: 2000,
   });
-  const sellers = all.filter((u) => !isPlatformSuperAdmin(u.roles, u.email));
+
+  const total = all.length;
+  const ativo = all.filter((u) => u.status === "ativo").length;
+  const pendente = all.filter((u) => u.status === "pendente").length;
+  const bloqueado = all.filter((u) => u.status === "bloqueado").length;
+  const hoje = all.filter((u) => u.createdAt >= startOfToday).length;
+  const novos = all.filter((u) => u.createdAt >= sevenDaysAgo).length;
 
   return {
-    total: sellers.length,
-    ativo: sellers.filter((u) => u.status === "ativo").length,
-    pendente: sellers.filter((u) => u.status === "pendente").length,
-    bloqueado: sellers.filter((u) => u.status === "bloqueado").length,
-    hoje: sellers.filter((u) => u.createdAt >= startOfToday).length,
-    novos: sellers.filter((u) => u.createdAt >= sevenDaysAgo).length,
+    total,
+    ativo,
+    pendente,
+    bloqueado,
+    hoje,
+    novos,
   };
 }
 
@@ -119,7 +124,6 @@ export async function listAdminUsers(opts?: {
     where.OR = [
       { name: { contains: q } },
       { email: { contains: q } },
-      { id: { contains: q } },
       { document: { contains: q } },
     ];
   }
@@ -180,6 +184,11 @@ export async function dbUpdateUserStatus(
   status: "ativo" | "pendente" | "bloqueado"
 ) {
   if (!(await dbAvailable())) return null;
+
+  if (status === "bloqueado") {
+    await prisma.session.deleteMany({ where: { userId: id } });
+  }
+
   const u = await prisma.user.update({
     where: { id },
     data: { status },

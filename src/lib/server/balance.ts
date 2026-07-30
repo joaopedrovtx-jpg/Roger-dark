@@ -151,7 +151,6 @@ export async function creditPaidSaleIdempotent(opts: {
               { providerId: pid },
               { id: `vl_${pid}` },
               { id: `pp_${pid}` },
-              { id: `wo_${pid}` },
               { id: pid.startsWith("wo_") ? pid : `wo_${pid}`.slice(0, 64) },
               ...(opts.transactionId
                 ? [{ transactionId: opts.transactionId }]
@@ -222,7 +221,10 @@ export async function creditPaidSaleIdempotent(opts: {
     return { credited: false };
   } finally {
     if (credited && opts.sellerId && opts.amount > 0) {
-      notifySaleApproved(opts.sellerId, opts.amount).catch(() => {});
+      notifySaleApproved(opts.sellerId, opts.amount).catch(async (e) => {
+        const { log } = await import("@/lib/server/logger");
+        log.warn({ sellerId: opts.sellerId, amount: opts.amount, error: e instanceof Error ? e.message : String(e) }, "notify_sale_approved_failed");
+      });
     }
   }
 }
@@ -283,7 +285,6 @@ export async function rejectPendingSaleIdempotent(opts: {
               { providerId: pid },
               { id: `vl_${pid}` },
               { id: `pp_${pid}` },
-              { id: `wo_${pid}` },
               { id: pid.startsWith("wo_") ? pid : `wo_${pid}`.slice(0, 64) },
               { transactionId: opts.transactionId },
             ],

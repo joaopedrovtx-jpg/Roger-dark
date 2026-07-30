@@ -89,7 +89,7 @@ export function computeSaleFeeAmount(
   if (amount <= PIX_FEE_THRESHOLD) {
     return roundMoney(mdrFixed);
   }
-  return roundMoney((amount * mdrPercent) / 100);
+  return roundMoney((amount * mdrPercent) / 100 + mdrFixed);
 }
 
 export function computeSaleNetAmount(

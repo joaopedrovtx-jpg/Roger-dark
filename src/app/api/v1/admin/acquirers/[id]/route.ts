@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isGuardFail, requireStaffPermission } from "@/lib/server/guards";
+import { log } from "@/lib/server/logger";
 import {
   dbClearAcquirerCredentials,
   dbClearAcquirerPayoutPrimary,
@@ -152,7 +153,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Body inválido" }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro";
-    console.error("[admin/acquirers PATCH]", id, msg);
+    log.error({ error: msg, id }, "admin_acquirers_patch_failed");
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

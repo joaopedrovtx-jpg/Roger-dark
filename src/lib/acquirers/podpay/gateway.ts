@@ -309,7 +309,6 @@ async function persistChargeToMysql(
         data: { balancePending: { increment: charge.amount } },
       });
     } else if (mappedStatus === "aprovada") {
-      const fee = computePodPaySellerFee(charge.amount);
       const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
       await db.user.update({
         where: { id: input.sellerId },
@@ -697,10 +696,10 @@ async function applyPaidStatusToMysql(opts: {
  * reativa refletir rápido). Qualquer ajuste de saldo em produção deve ir
  * pelo DB.
  */
-export function applyPodPayWebhook(payload: PodPayWebhookPayload): {
+export async function applyPodPayWebhook(payload: PodPayWebhookPayload): Promise<{
   ok: boolean;
   message: string;
-} {
+}> {
   const store = getStore();
   const event = String(payload.event || "");
   const data = payload.data || {};
@@ -718,7 +717,18 @@ export function applyPodPayWebhook(payload: PodPayWebhookPayload): {
         charge.status = "paid";
         charge.paidAt = payload.timestamp || new Date().toISOString();
         if (wasWaiting) {
-          const fee = computePodPaySellerFee(charge.amount);
+          let fee = computePodPaySellerFee(charge.amount);
+          try {
+            const { getSellerSaleFees, computeSaleFeeAmount } = await import(
+              "@/lib/server/seller-fees"
+            );
+            fee = computeSaleFeeAmount(
+              charge.amount,
+              await getSellerSaleFees(charge.sellerId)
+            );
+          } catch {
+            /* default */
+          }
           const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
           adjustBalance(charge.sellerId, { pending: -charge.amount, available: net });
         }

@@ -51,7 +51,19 @@ const fieldInput: CSSProperties = {
 };
 
 function parseAmount(raw: string): number {
-  const cleaned = raw.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  const s = raw.replace(/\s/g, "");
+  // Detecta formato brasileiro (1.234,56) vs internacional (1,234.56)
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  let cleaned: string;
+  if (hasComma && hasDot) {
+    // Formato BR: 1.234,56 → remove dots, replace comma
+    cleaned = s.replace(/\./g, "").replace(",", ".");
+  } else if (hasComma) {
+    cleaned = s.replace(",", ".");
+  } else {
+    cleaned = s;
+  }
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
 }

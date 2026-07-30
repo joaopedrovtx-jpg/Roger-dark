@@ -52,7 +52,7 @@ model User {
   volumeTotal           Float   @default(0)
   platformProfit        Float   @default(0)
   mdrPercent            Float   @default(3)
-  mdrFixed              Float   @default(0.15)
+  mdrFixed              Float   @default(1.00)
   saquePercent          Float   @default(0)
   saqueFixed            Float   @default(0)
   saqueAutomatico       Boolean   @default(false)
@@ -62,7 +62,7 @@ model User {
   lastLoginAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
-  manager               Manager?  @relation(fields: [managerId], references: [id])
+  manager               Manager?  @relation(fields: [managerId], references: [id], onDelete: SetNull)
   transactions          Transaction[]
   withdrawals           Withdrawal[]
   charges               PaymentCharge[]
@@ -301,6 +301,7 @@ model BalanceLedger {
   description   String?
   createdAt     DateTime @default(now())
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([referenceType, referenceId])
   @@index([userId])
   @@index([createdAt])
   @@map("balance_ledger")
@@ -341,7 +342,7 @@ model PlatformFeePlan {
   method      String   @default("PIX")
   settlement  String   @default("D+0")
   mdrPercent  Float  @default(3)
-  mdrFixed    Float  @default(0.15)
+  mdrFixed    Float  @default(1.00)
   reserveDays Int      @default(0)
   description String?
   active      Boolean  @default(true)
@@ -475,6 +476,33 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+/** Rate limit persistente (anti brute-force entre restarts) */
+model RateLimit {
+  id        String   @id
+  key       String   @unique
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([key])
+  @@index([expiresAt])
+  @@map("rate_limits")
+}
+
+/** Fila de webhooks durável (inline queue com persistência) */
+model WebhookJob {
+  id        String   @id
+  provider  String
+  status    String   @default("pending")
+  payload   Json
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status])
+  @@index([createdAt])
+  @@map("webhook_jobs")
 }
 
 /** Log de bugs/erros (servidor + cliente) */

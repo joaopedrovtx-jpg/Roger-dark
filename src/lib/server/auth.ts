@@ -73,8 +73,8 @@ export async function enrichAuthUser(user: AuthUser): Promise<AuthUser> {
     const twoFactorEnabled = await userHas2faEnabled(user.id);
     const mustSetup2fa = await adminMustSetup2fa(user.id, user.roles);
     next = { ...next, twoFactorEnabled, mustSetup2fa };
-  } catch {
-    /* policy best-effort */
+  } catch (e) {
+    console.error("[enrichAuthUser] 2FA policy error:", e);
   }
 
   try {
