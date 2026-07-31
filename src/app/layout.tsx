@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { BrandingProvider } from "@/components/branding/BrandingProvider";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ImpersonateProvider } from "@/components/auth/ImpersonateProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
+import { ToastProvider } from "@/components/notifications/ToastProvider";
+import { SaleNotificationsProvider } from "@/components/notifications/SaleNotificationsProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -50,7 +53,15 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`}>
         <QueryProvider>
           <AuthProvider>
-            <BrandingProvider>{children}</BrandingProvider>
+            <ImpersonateProvider>
+              <BrandingProvider>
+                <ToastProvider>
+                  <SaleNotificationsProvider>
+                    {children}
+                  </SaleNotificationsProvider>
+                </ToastProvider>
+              </BrandingProvider>
+            </ImpersonateProvider>
           </AuthProvider>
         </QueryProvider>
       </body>

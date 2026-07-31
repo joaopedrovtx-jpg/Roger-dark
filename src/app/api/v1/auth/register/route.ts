@@ -11,6 +11,7 @@ import {
   isProduction,
 } from "@/lib/server/security";
 import { registerSchema, formatZodError } from "@/lib/api/schemas";
+import { verifyTurnstile, isTurnstileServerEnabled } from "@/lib/server/turnstile";
 
 /** POST /api/v1/auth/register */
 export async function POST(req: Request) {
@@ -26,6 +27,26 @@ export async function POST(req: Request) {
     }
 
     const ip = getClientIp(req);
+    const raw = await req.json();
+    const parsed = registerSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: formatZodError(parsed.error) },
+        { status: 400, headers: securityHeaders() }
+      );
+    }
+
+    // Cloudflare Turnstile — anti-bot humano (fail-closed quando habilitado)
+    if (isTurnstileServerEnabled()) {
+      const ts = await verifyTurnstile(parsed.data.turnstileToken, req);
+      if (!ts.ok) {
+        return NextResponse.json(
+          { error: ts.error ?? "Verificação anti-bot falhou." },
+          { status: 403, headers: securityHeaders() }
+        );
+      }
+    }
+
     const rate = await checkRegisterRateLimit(ip);
     if (!rate.ok) {
       return NextResponse.json(
@@ -42,15 +63,6 @@ export async function POST(req: Request) {
               : {}),
           },
         }
-      );
-    }
-
-    const raw = await req.json();
-    const parsed = registerSchema.safeParse(raw);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: formatZodError(parsed.error) },
-        { status: 400, headers: securityHeaders() }
       );
     }
 

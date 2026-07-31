@@ -30,6 +30,10 @@ export const env = cleanEnv(process.env, {
   VELANA_SECRET_KEY: str({ default: "" }),
   WOOVI_APP_ID: str({ default: "" }),
 
+  // Cloudflare Turnstile (anti-bot)
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: str({ default: "" }),
+  TURNSTILE_SECRET_KEY: str({ default: "" }),
+
   REDIS_URL: url({ default: "redis://localhost:6379" }),
 
   UPLOADTHING_SECRET: str({ default: "" }),

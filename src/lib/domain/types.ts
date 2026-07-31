@@ -91,6 +91,8 @@ export interface RegisterInput {
   email: string;
   phone: string;
   password: string;
+  /** Token opcional do Cloudflare Turnstile (anti-bot). */
+  turnstileToken?: string;
 }
 
 // ─── Seller / User ──────────────────────────────────────

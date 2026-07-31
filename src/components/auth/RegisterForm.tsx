@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Lock, Mail, Phone, User } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
@@ -10,6 +10,8 @@ import {
   waitBrandLoadingMin,
 } from "@/components/layout/BrandLoadingScreen";
 import { AuthInput, authButtonStyle } from "./AuthInput";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
+import type { UseTurnstileResult } from "@/hooks/useTurnstile";
 function onlyDigits(v: string) {
   return v.replace(/\D/g, "");
 }
@@ -33,6 +35,7 @@ export function RegisterForm() {
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const turnstileRef = useRef<UseTurnstileResult | null>(null);
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -57,16 +60,25 @@ export function RegisterForm() {
     setLoading(true);
     const startedAt = Date.now();
     try {
+      const ts = turnstileRef.current;
+      if (ts?.enabled && !ts.token) {
+        setError("Confirme a verificação anti-bot para continuar.");
+        setLoading(false);
+        return;
+      }
       await register({
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim(),
         password,
+        turnstileToken: ts?.enabled ? ts.token : undefined,
       });
       // Logo pulsando no mínimo 2s antes de entrar
       await waitBrandLoadingMin(startedAt);
       window.location.assign("/");
     } catch (err) {
+      // Erro de auth: gira captcha novo p/ re-tentar
+      if (turnstileRef.current?.enabled) turnstileRef.current.reset();
       setError(
         err instanceof Error ? err.message : "Não foi possível criar a conta."
       );
@@ -221,6 +233,12 @@ export function RegisterForm() {
             </Link>
           </span>
         </label>
+
+        {/* Cloudflare Turnstile — anti-bot humano */}
+        <TurnstileWidget
+          action="register"
+          onReady={(c) => (turnstileRef.current = c)}
+        />
 
         {error ? (
           <p

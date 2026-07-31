@@ -16,6 +16,7 @@ import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { create2faChallenge } from "@/lib/server/signed-token";
 import { loginSchema, formatZodError } from "@/lib/api/schemas";
 import { checkSeedLogin } from "@/lib/server/seed-block";
+import { verifyTurnstile, isTurnstileServerEnabled } from "@/lib/server/turnstile";
 import { z } from "zod";
 import { log } from "@/lib/server/logger";
 
@@ -34,6 +35,17 @@ export async function POST(req: Request) {
 
     const ip = getClientIp(req);
     const email = body.email.trim().toLowerCase();
+
+    // Cloudflare Turnstile — anti-bot humano (fail-closed quando habilitado)
+    if (isTurnstileServerEnabled()) {
+      const ts = await verifyTurnstile(body.turnstileToken, req);
+      if (!ts.ok) {
+        return NextResponse.json(
+          { error: ts.error ?? "Verificação anti-bot falhou." },
+          { status: 403, headers: securityHeaders() }
+        );
+      }
+    }
 
     // Hardening: bloqueia contas de seed em produção (DP-V3-02)
     const seedCheck = checkSeedLogin(email);

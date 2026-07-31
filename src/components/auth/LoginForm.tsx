@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Lock, Mail } from "lucide-react";
 import { useBranding } from "@/components/branding/BrandingProvider";
@@ -11,6 +11,8 @@ import {
 import { AuthInput, authButtonStyle } from "./AuthInput";
 import { Icon2FAFilled } from "@/components/dashboard/KpiIcons";
 import { authedFetch, clearClientToken } from "@/lib/client/session";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
+import type { UseTurnstileResult } from "@/hooks/useTurnstile";
 export function LoginForm() {
   const { branding } = useBranding();
   const [email, setEmail] = useState("");
@@ -19,6 +21,7 @@ export function LoginForm() {
   const [challenge, setChallenge] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const turnstileRef = useRef<UseTurnstileResult | null>(null);
   function goAfterLogin(roles: string[]) {
     const isStaff =
       roles.includes("admin") || roles.includes("manager");
@@ -92,9 +95,22 @@ export function LoginForm() {
     const startedAt = Date.now();
     try {
       clearClientToken();
+      const payload: Record<string, unknown> = {
+        email: email.trim(),
+        password,
+      };
+      const ts = turnstileRef.current;
+      if (ts?.enabled) {
+        if (!ts.token) {
+          setError("Confirme a verificação anti-bot para continuar.");
+          setLoading(false);
+          return;
+        }
+        payload.turnstileToken = ts.token;
+      }
       const res = await authedFetch("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify(payload),
       });
       const json = (await res.json()) as {
         error?: string;
@@ -102,9 +118,16 @@ export function LoginForm() {
         challenge?: string;
         user?: { roles?: string[] };
       };
-      if (!res.ok) throw new Error(json.error || "Não foi possível entrar.");
+      if (!res.ok) {
+        // Erro de auth: gira captcha novo
+        if (ts?.enabled) ts.reset();
+        throw new Error(json.error || "Não foi possível entrar.");
+      }
 
       if (json.requires2fa && json.challenge) {
+        // Token do Turnstile já foi consumido pelo servidor neste login:
+        // força reset p/ gerar token novo quando o user voltar do 2FA.
+        if (ts?.enabled) ts.reset();
         setChallenge(json.challenge);
         setOtp("");
         setLoading(false);
@@ -210,6 +233,11 @@ export function LoginForm() {
                 </Link>
               </div>
             </div>
+            {/* Cloudflare Turnstile — anti-bot humano */}
+            <TurnstileWidget
+              action="login"
+              onReady={(c) => (turnstileRef.current = c)}
+            />
           </>
         ) : (
           <AuthInput
