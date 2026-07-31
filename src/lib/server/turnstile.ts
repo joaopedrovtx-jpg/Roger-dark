@@ -19,21 +19,41 @@ import { log } from "@/lib/server/logger";
 const SITEVERIFY_URL =
   "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-function siteKeyFromEnv(): string {
+/** Keys dummy oficiais da CF (banner "Somente para teste"). Nunca usar em prod. */
+function isDummyKey(key: string): boolean {
+  const k = key.trim();
   return (
-    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
-    process.env.TURNSTILE_SITE_KEY?.trim() ||
-    env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
-    ""
+    /^1x0{10,}/i.test(k) ||
+    /^2x0{10,}/i.test(k) ||
+    /^3x0{10,}/i.test(k) ||
+    k.includes("00000000000000000000")
   );
 }
 
+function siteKeyFromEnv(): string {
+  // Prefer runtime process.env (VPS .env) over envalid snapshot / build-time inline
+  const candidates = [
+    process.env.TURNSTILE_SITE_KEY,
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+  ];
+  for (const raw of candidates) {
+    const k = String(raw || "").trim();
+    if (k.length >= 8 && !isDummyKey(k)) return k;
+  }
+  return "";
+}
+
 function secretFromEnv(): string {
-  return (
-    process.env.TURNSTILE_SECRET_KEY?.trim() ||
-    env.TURNSTILE_SECRET_KEY?.trim() ||
-    ""
-  );
+  const candidates = [
+    process.env.TURNSTILE_SECRET_KEY,
+    env.TURNSTILE_SECRET_KEY,
+  ];
+  for (const raw of candidates) {
+    const k = String(raw || "").trim();
+    if (k.length >= 8 && !isDummyKey(k)) return k;
+  }
+  return "";
 }
 
 /** Hostnames aceitos no siteverify (prod). */
