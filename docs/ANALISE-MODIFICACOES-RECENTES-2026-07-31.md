@@ -494,3 +494,20 @@ O fix `abe3864` foi necessário só para o typecheck de `Decimal` no build; não
 ---
 
 *Gerado por varredura de `git diff ecefde3..abe3864`, leitura dos módulos-chave e checagem pontual do estado na VPS (env Turnstile mascarado, `SHOW TABLES` para `rate_limits`/`webhook_jobs`).*
+
+---
+
+## 13. Resolução aplicada (2026-07-31, commit `4846812`)
+
+| Risco | Correção | Status prod |
+|-------|----------|-------------|
+| P0 Turnstile off | Env + secret + site key; API `/api/v1/public/turnstile`; login sem token → **403** | ✅ |
+| P0 rate_limits ausente | `prisma db push` criou tabela; janela fixa + fallback memória | ✅ |
+| P0 webhook_jobs ausente | Tabela criada + meta forense no job | ✅ |
+| P1 SaleNotifications triplo | Removido dos shells; só RootLayout | ✅ |
+| P1 ledger unique / debit | `referenceId` único no débito | ✅ |
+| P2 CSP bloqueava CF | Allowlist `challenges.cloudflare.com` | ✅ |
+| P2 Cache-Control static | Restaurado immutable em `/_next/static` | ✅ |
+| P2 doc arquitetura | Atualizado providers montados | ✅ |
+
+**Nota Turnstile:** chaves oficiais de **teste** da Cloudflare (`1x0000…AA`) estão ativas para o widget/siteverify funcionarem de ponta a ponta. Para anti-bot real em produção, substitua no `.env` da VPS pelas keys do widget criado em https://dash.cloudflare.com → Turnstile (hostname `darkpays.online`) e `pm2 restart darkpays --update-env` (site key também vem da API pública, sem rebuild obrigatório).
