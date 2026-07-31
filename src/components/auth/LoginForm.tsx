@@ -101,6 +101,11 @@ export function LoginForm() {
       };
       const ts = turnstileRef.current;
       if (ts?.enabled) {
+        if (ts.loading && !ts.token) {
+          setError("Aguarde a verificação anti-bot carregar.");
+          setLoading(false);
+          return;
+        }
         if (!ts.token) {
           setError("Confirme a verificação anti-bot para continuar.");
           setLoading(false);
@@ -233,10 +238,13 @@ export function LoginForm() {
                 </Link>
               </div>
             </div>
-            {/* Cloudflare Turnstile — anti-bot humano */}
+            {/* Cloudflare Turnstile — anti-bot (site key via runtime API se preciso) */}
             <TurnstileWidget
               action="login"
-              onReady={(c) => (turnstileRef.current = c)}
+              className="flex justify-center w-full"
+              onReady={(c) => {
+                turnstileRef.current = c;
+              }}
             />
           </>
         ) : (

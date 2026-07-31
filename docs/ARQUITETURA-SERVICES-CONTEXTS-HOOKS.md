@@ -14,7 +14,7 @@
 | UI | React 19 + Tailwind 3 + Lucide + Recharts | |
 | Tipagem | TypeScript 6 | `strict` |
 | DB/ORM | Prisma 6 (SQLite dev / MySQL prod) | `prisma/schema.prisma` |
-| Data fetching | `@tanstack/react-query` 5 | ✅ instalado · ⚠️ **zero uso em `src`** |
+| Data fetching | `@tanstack/react-query` 5 | ✅ instalado · hooks em `src/hooks/*` · ⚠️ views ainda majoritariamente com `authedFetch` |
 | Auth | bcryptjs + otplib + cookie HMAC (Edge) | `src/proxy.ts` middleware |
 | E-mail | Resend | `src/lib/server/email.ts` |
 | Upload | UploadThing | `src/app/api/uploadthing/**` |
@@ -24,7 +24,7 @@
 
 Padrão arquitetural: **todas as mutações passam por API routes em `src/app/api/v1/**`**, protegidas por guards (`requireAuth`, `requireSellerAuth`, `requireAdmin`, `requireStaffPermission`) — que fazem CSRF + sessão + API key + 2FA + permissões de gerente.
 
-RootLayout encadeia: `QueryProvider → AuthProvider → BrandingProvider`.
+RootLayout encadeia: `QueryProvider → AuthProvider → ImpersonateProvider → BrandingProvider → ToastProvider → SaleNotificationsProvider`.
 
 ---
 
@@ -153,21 +153,21 @@ Cada adquirente segue o mesmo padrão modular:
 | `AuthProvider` | `src/components/auth/AuthProvider.tsx` | `user: AuthUser \| null`, `loading`. No mount chama `/api/v1/auth/me`, instala bug handlers, mostra `BrandLoadingScreen`. Em 401 fora de rota pública → redirect `/login?next=`. | `useAuth()` → `{ user, loading, login, register, logout, refresh, isAdmin, isSuperAdmin, isManager, isSeller }` |
 | `BrandingProvider` | `src/components/branding/BrandingProvider.tsx` | `branding: PlatformBranding`. Persiste em localStorage (`darkpay.branding.v4…v1`) + escuta `storage` / evento custom `darkpay:branding` para sincronizar abas. Aplica favicon dinâmico; sem flash SSR. | `useBranding()` → `{ branding, setBranding, updateBranding, resetBranding }` |
 
-### 2.2 Provider definido, mas **NÃO montado**
+### 2.2 Providers montados (atualizado 2026-07-31)
 
 | Provider | Arquivo | Situação |
 |---|---|---|
-| `SaleNotificationsProvider` | `src/components/notifications/SaleNotificationsProvider.tsx` | Não está em `src/app/layout.tsx`. Polling de venda/cha-ching/notificação nativa **não funcionam enquanto não for montado** (sugestão: depois de `AuthProvider`). |
+| `SaleNotificationsProvider` | `.../SaleNotificationsProvider.tsx` | ✅ Montado **só** no `RootLayout` (removido dos shells para evitar poll/toast duplicado). |
+| `ToastProvider` / `useToast` | `.../ToastProvider.tsx` | ✅ Montado; views ainda migrando de `useState` local. |
+| `ImpersonateProvider` / `useImpersonate` | `.../ImpersonateProvider.tsx` | ✅ Montado no root. |
 
-### 2.3 Providers ausentes (a criar)
+### 2.3 Providers ainda opcionais
 
 | Provider proposto | Motivo |
 |---|---|
-| `ToastProvider` / `useToast` | Não existe sistema global de toast/snackbar. Feedbacks são estados locais. |
 | `ThemeProvider` | Dark fixo em `<html class="dark">`. Necessário só se houver light mode. |
-| `ModalProvider` | Modais admin usam estado local; um provider "openModal(name, data)" reduz boilerplate. |
-| `ImpersonateProvider` / `useImpersonate` | `impersonate.ts` só expõe helpers + window event; falta contexto React para o banner "você está visualizando o seller X". |
-| `RequestIdProvider` | Propagar `X-Request-ID` middleware → API → bug log para correlação distribuída. |
+| `ModalProvider` | Modais admin usam estado local. |
+| `RequestIdProvider` | Correlação `X-Request-Id`. |
 
 ---
 

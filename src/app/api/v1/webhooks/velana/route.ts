@@ -80,9 +80,13 @@ export async function POST(req: Request) {
         const { enqueueWebhookJob } = await import(
           "@/lib/server/webhook-queue"
         );
-        await enqueueWebhookJob("velana", async () => {
-          applyResult = await applyWebhookToMysql(payload, { signedOk });
-        });
+        await enqueueWebhookJob(
+          "velana",
+          async () => {
+            applyResult = await applyWebhookToMysql(payload, { signedOk });
+          },
+          payload
+        );
         if (inbox.created) {
           await markInbox(
             inbox.inboxId,

@@ -9,7 +9,6 @@ import { UserMenu } from "@/components/layout/UserMenu";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { BrandLoadingScreen } from "@/components/layout/BrandLoadingScreen";
-import { SaleNotificationsProvider } from "@/components/notifications/SaleNotificationsProvider";
 
 interface AdminShellProps {
   children: React.ReactNode;
@@ -77,8 +76,9 @@ export function AdminShell({ children, title }: AdminShellProps) {
     );
   }
 
+  // SaleNotificationsProvider só no RootLayout (evita poll/toast duplicado).
   return (
-    <SaleNotificationsProvider>
+    <>
       <div className="app-shell">
         <header
           className="app-mobile-topbar lg:hidden"
@@ -180,6 +180,6 @@ export function AdminShell({ children, title }: AdminShellProps) {
           </div>
         </div>
       ) : null}
-    </SaleNotificationsProvider>
+    </>
   );
 }

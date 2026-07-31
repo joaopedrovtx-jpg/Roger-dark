@@ -101,7 +101,9 @@ export async function POST(req: Request) {
 
     try {
       const { enqueueWebhookJob } = await import("@/lib/server/webhook-queue");
-      await enqueueWebhookJob("woovi", async () => {
+      await enqueueWebhookJob(
+        "woovi",
+        async () => {
         // ── PIX OUT (saque) ──────────────────────────────────
         if (isPaymentEvent && lookupIds.length > 0) {
           const result = await applyPaymentWebhook(event, lookupIds, {
@@ -129,7 +131,9 @@ export async function POST(req: Request) {
         }
 
         reason = lookupIds.length ? "event_ignored" : "missing_remote_id";
-      });
+        },
+        payload
+      );
     } catch (e) {
       reason = e instanceof Error ? e.message : String(e);
       if (inbox.created) await markInbox(inbox.inboxId, "failed", reason);

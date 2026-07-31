@@ -1,14 +1,8 @@
 /**
- * Fila de webhooks durável (Prisma).
+ * Fila de webhooks durável (Prisma WebhookJob).
  *
- * Antes usava um array em memória que perdia jobs no restart/crash.
- * Agora persiste no banco: se o servidor cair durante a execução de um
- * job, ele fica como "processing" e pode ser retomado manual ou
- * automaticamente via `retryStuckJobs()`.
- *
- * A execução continua inline (mesmo request HTTP) para manter o
- * comportamento síncrono esperado pelas adquirentes. A diferença é que
- * o job é gravado ANTES de executar, garantindo durabilidade.
+ * Execução inline (mesmo request) — as adquirentes esperam 200 após processar.
+ * Persistência grava o job ANTES de executar para forense e detecção de stuck.
  */
 
 import { randomBytes } from "crypto";
@@ -31,22 +25,38 @@ export type WithdrawalJobData = {
   provider: string;
 };
 
+function safePayloadPreview(payload: unknown): Record<string, unknown> {
+  try {
+    if (payload == null) return { ts: Date.now() };
+    if (typeof payload !== "object") {
+      return { ts: Date.now(), kind: typeof payload };
+    }
+    const obj = payload as Record<string, unknown>;
+    // Evita gravar secrets / bodies gigantes — só metadados úteis.
+    const keys = Object.keys(obj).slice(0, 24);
+    return {
+      ts: Date.now(),
+      keys,
+      id: obj.id ?? obj.eventId ?? obj.chargeId ?? obj.transactionId ?? null,
+      type: obj.type ?? obj.event ?? obj.status ?? null,
+    };
+  } catch {
+    return { ts: Date.now() };
+  }
+}
+
 /**
- * Enfileira e executa um job de webhook.
- * - Cria registro no banco (pending)
- * - Marca como processing
- * - Executa o callback
- * - Marca como completed ou failed
- *
- * Se o servidor cair durante a execução, o job fica "processing" e
- * pode ser retomado com `retryStuckJobs()`.
+ * Enfileira e executa um job de webhook com persistência best-effort.
+ * @param meta opcional — payload resumido p/ forense (não o body bruto completo)
  */
 export async function enqueueWebhookJob(
   provider: "podpay" | "velana" | "woovi",
-  run: () => Promise<void>
+  run: () => Promise<void>,
+  meta?: unknown
 ): Promise<string> {
   const { prisma } = await import("@/lib/server/prisma");
   const id = newId();
+  let persisted = false;
 
   if (isDatabaseConfigured()) {
     try {
@@ -55,22 +65,28 @@ export async function enqueueWebhookJob(
           id,
           provider,
           status: "pending",
-          payload: { provider, ts: Date.now() },
+          payload: safePayloadPreview(meta ?? { provider }) as object,
         },
       });
-
       await prisma.webhookJob.update({
         where: { id },
         data: { status: "processing" },
       });
-    } catch {
-      /* fallback: executa sem persistência */
+      persisted = true;
+    } catch (e) {
+      log.warn(
+        {
+          provider,
+          err: e instanceof Error ? e.message : String(e),
+        },
+        "webhook_job_persist_failed"
+      );
     }
   }
 
   try {
     await run();
-    if (isDatabaseConfigured()) {
+    if (persisted) {
       try {
         await prisma.webhookJob.update({
           where: { id },
@@ -81,13 +97,16 @@ export async function enqueueWebhookJob(
       }
     }
   } catch (err) {
-    if (isDatabaseConfigured()) {
+    if (persisted) {
       try {
         await prisma.webhookJob.update({
           where: { id },
           data: {
             status: "failed",
-            error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+            error:
+              err instanceof Error
+                ? err.message.slice(0, 500)
+                : String(err).slice(0, 500),
           },
         });
       } catch {
@@ -101,8 +120,8 @@ export async function enqueueWebhookJob(
 }
 
 /**
- * Retoma jobs "processing" ou "pending" presos há mais de `staleMs`.
- * Útil após restart do servidor.
+ * Marca jobs pending/processing antigos como `stuck` (observabilidade).
+ * Não reexecuta — webhooks de adquirente já usam replay/idempotência no crédito.
  */
 export async function retryStuckJobs(staleMs = 60_000): Promise<number> {
   const { prisma } = await import("@/lib/server/prisma");
@@ -117,6 +136,9 @@ export async function retryStuckJobs(staleMs = 60_000): Promise<number> {
       },
       data: { status: "stuck" },
     });
+    if (result.count > 0) {
+      log.warn({ count: result.count }, "webhook_jobs_marked_stuck");
+    }
     return result.count;
   } catch {
     return 0;
@@ -136,7 +158,7 @@ export async function getQueueSize(): Promise<number> {
 }
 
 export async function closeQueue() {
-  /* não faz mais nada — dados estão no banco */
+  /* no-op — dados no banco */
 }
 
 export function createWebhookWorker() {

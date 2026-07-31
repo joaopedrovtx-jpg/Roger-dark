@@ -65,9 +65,13 @@ export async function POST(req: Request) {
         const { enqueueWebhookJob } = await import(
           "@/lib/server/webhook-queue"
         );
-        await enqueueWebhookJob("podpay", async () => {
-          await applyWebhookToMysql(payload);
-        });
+        await enqueueWebhookJob(
+          "podpay",
+          async () => {
+            await applyWebhookToMysql(payload);
+          },
+          payload
+        );
         if (inbox.created) await markInbox(inbox.inboxId, "applied");
       } catch (applyErr) {
         if (inbox.created) {

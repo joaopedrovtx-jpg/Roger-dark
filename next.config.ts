@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
 
+// Allowlist Cloudflare Turnstile (script + iframe + connect).
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -11,10 +12,12 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   isProd
-    ? "script-src 'self' 'unsafe-inline'"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    ? "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: wss:",
+  "connect-src 'self' https: wss: https://challenges.cloudflare.com",
+  "frame-src https://challenges.cloudflare.com",
+  "child-src https://challenges.cloudflare.com",
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   ...(isProd ? ["upgrade-insecure-requests"] : []),
@@ -67,6 +70,12 @@ const nextConfig: NextConfig = {
         source: "/_next/static/:path*",
         headers: [
           ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: isProd
+              ? "public, max-age=31536000, immutable"
+              : "no-store",
+          },
         ],
       },
       {

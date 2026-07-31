@@ -38,7 +38,9 @@ export async function POST(req: Request) {
 
     // Cloudflare Turnstile — anti-bot humano (fail-closed quando habilitado)
     if (isTurnstileServerEnabled()) {
-      const ts = await verifyTurnstile(parsed.data.turnstileToken, req);
+      const ts = await verifyTurnstile(parsed.data.turnstileToken, req, {
+        expectedAction: "register",
+      });
       if (!ts.ok) {
         return NextResponse.json(
           { error: ts.error ?? "Verificação anti-bot falhou." },

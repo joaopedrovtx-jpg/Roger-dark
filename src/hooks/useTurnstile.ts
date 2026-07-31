@@ -6,22 +6,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { fetchTurnstilePublicConfig } from "@/lib/client/turnstile";
 
 /**
  * Hook client-side p/ renderizar e capturar o token do Cloudflare Turnstile.
  *
- * Carrega o script `https://challenges.cloudflare.com/turnstile/v0/api.js`
- * via inject uma única vez, depois renderiza o widget no elemento alvo e
- * expõe o token + estado de loading/erro.
- *
- * Quando Turnstile está desabilitado (sem NEXT_PUBLIC_TURNSTILE_SITE_KEY),
- * o hook retorna `enabled=false` e `token=""` — o servidor também pula a
- * verificação, mantendo o fluxo em dev/local.
- *
- * Uso típico:
- *   const { token, containerRef, reset, enabled, error } = useTurnstile();
- *   <div ref={containerRef} />;
- *   submit({ ..., turnstileToken: token });
+ * Site key:
+ * 1) NEXT_PUBLIC_TURNSTILE_SITE_KEY no build
+ * 2) GET /api/v1/public/turnstile (runtime .env — sem rebuild)
  */
 
 declare global {
@@ -51,7 +43,6 @@ declare global {
 
 const SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 const SCRIPT_ID = "cf-turnstile-script";
-/** Cloudflare: cdata máximo 32 chars. */
 const CDATA_MAX = 32;
 
 let scriptPromise: Promise<void> | null = null;
@@ -68,6 +59,8 @@ function loadScript(): Promise<void> {
       existing.addEventListener("error", () => reject(new Error("script_error")), {
         once: true,
       });
+      // se já carregou
+      if (window.turnstile) resolve();
       return;
     }
     const script = document.createElement("script");
@@ -83,15 +76,10 @@ function loadScript(): Promise<void> {
 }
 
 export interface UseTurnstileOptions {
-  /** Ação nominal p/ analytics Cloudflare (ex.: "login"). */
   action?: string;
-  /** Tema visual; default "dark" p/ casar com DarkPay. */
   theme?: "light" | "dark" | "auto";
-  /** Compacto p/ mobile. */
   size?: "normal" | "compact";
-  /** Idioma (`pt-br`). */
   language?: string;
-  /** Idempotência/controle — mapa p/ `cdata` (máx 32 chars). */
   cdata?: string;
 }
 
@@ -100,37 +88,52 @@ export interface UseTurnstileResult {
   siteKey: string;
   token: string;
   loading: boolean;
+  ready: boolean;
   error: string | null;
   expired: boolean;
-  /** Ref callback p/ atribuir ao <div> container do widget. */
   containerRef: (el: HTMLElement | null) => void;
-  /** Re-renderiza o widget (token novo). */
   reset: () => void;
-  /** Limpa token atual. */
   clear: () => void;
 }
 
 export function useTurnstile(
   options: UseTurnstileOptions = {}
 ): UseTurnstileResult {
-  const siteKey =
-    (typeof process !== "undefined" &&
-      process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) ||
-    "";
-  const enabled = !!siteKey && siteKey.length > 8;
-
+  const [siteKey, setSiteKey] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [configReady, setConfigReady] = useState(false);
   const [token, setToken] = useState("");
-  const [loading, setLoading] = useState(enabled);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
   const containerElRef = useRef<HTMLElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const optionsRef = useRef(options);
+  const siteKeyRef = useRef("");
 
-  // Mantém options atualizadas sem precisar re-renderizar o widget.
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const cfg = await fetchTurnstilePublicConfig();
+      if (cancelled) return;
+      const key = cfg.siteKey?.trim() || "";
+      const on = Boolean(cfg.enabled && key.length >= 8);
+      siteKeyRef.current = key;
+      setSiteKey(key);
+      setEnabled(on);
+      setConfigReady(true);
+      if (!on) {
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const destroy = useCallback(() => {
     if (widgetIdRef.current && window.turnstile?.remove) {
@@ -145,20 +148,21 @@ export function useTurnstile(
 
   const renderWidget = useCallback(
     async (el: HTMLElement) => {
-      if (!enabled || !window.turnstile) {
+      const key = siteKeyRef.current;
+      if (!key || !window.turnstile) {
         setLoading(false);
         return;
       }
       try {
         destroy();
         const opts = optionsRef.current;
-        // CF exige cdata <= 32 chars; trunca p/ evitar rejeição silenciosa.
         const cdata =
           typeof opts.cdata === "string" && opts.cdata.length > 0
             ? opts.cdata.slice(0, CDATA_MAX)
             : undefined;
+        setLoading(true);
         widgetIdRef.current = window.turnstile.render(el, {
-          sitekey: siteKey,
+          sitekey: key,
           theme: opts.theme ?? "dark",
           size: opts.size ?? "normal",
           language: opts.language ?? "pt-br",
@@ -192,7 +196,7 @@ export function useTurnstile(
         setLoading(false);
       }
     },
-    [destroy, enabled, siteKey]
+    [destroy]
   );
 
   const containerRef = useCallback(
@@ -202,7 +206,8 @@ export function useTurnstile(
         destroy();
         return;
       }
-      if (!enabled) {
+      if (!configReady) return;
+      if (!enabled || !siteKeyRef.current) {
         setLoading(false);
         return;
       }
@@ -213,12 +218,23 @@ export function useTurnstile(
           setLoading(false);
         });
     },
-    [destroy, enabled, renderWidget]
+    [configReady, destroy, enabled, renderWidget]
   );
 
+  // Re-render quando config ficar pronta e o container já existir
+  useEffect(() => {
+    if (!configReady || !enabled) return;
+    const el = containerElRef.current;
+    if (!el) return;
+    void loadScript()
+      .then(() => renderWidget(el))
+      .catch(() => {
+        setError("Não foi possível carregar verificação anti-bot.");
+        setLoading(false);
+      });
+  }, [configReady, enabled, renderWidget]);
+
   const reset = useCallback(() => {
-    // Limpa PRIMEIRO: o `turnstile.reset` da CF NÃO garante chamar
-    // `callback` novamente — sem token conhecido, o form não envia.
     setToken("");
     setError(null);
     setExpired(false);
@@ -228,10 +244,9 @@ export function useTurnstile(
         window.turnstile.reset(widgetIdRef.current);
         return;
       } catch {
-        /* cai no re-render abaixo */
+        /* fallback */
       }
     }
-    // Fallback: destrói e re-renderiza o widget no mesmo container.
     if (containerElRef.current) {
       void renderWidget(containerElRef.current);
     }
@@ -255,7 +270,8 @@ export function useTurnstile(
     enabled,
     siteKey,
     token,
-    loading,
+    loading: !configReady || loading,
+    ready: configReady,
     error,
     expired,
     containerRef,

@@ -18,7 +18,8 @@ function newLedgerId(): string {
  */
 export async function debitAvailableBalance(
   sellerId: string,
-  amount: number
+  amount: number,
+  opts?: { referenceId?: string; description?: string }
 ): Promise<{ ok: true; newBalance: number } | { ok: false; reason: string }> {
   if (!isDatabaseConfigured()) {
     return { ok: false, reason: "database_unavailable" };
@@ -27,6 +28,11 @@ export async function debitAvailableBalance(
   if (amt <= 0) {
     return { ok: false, reason: "invalid_amount" };
   }
+
+  // referenceId único evita colisão no @@unique([referenceType, referenceId])
+  const referenceId =
+    opts?.referenceId?.trim() ||
+    `wd_debit_${sellerId.slice(0, 12)}_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
 
   try {
     const newBalance = await prisma.$transaction(async (tx) => {
@@ -58,7 +64,8 @@ export async function debitAvailableBalance(
           bucket: "available",
           balanceAfter: Number(user?.balanceAvailable ?? 0),
           referenceType: "withdrawal",
-          description: "Débito saldo disponível",
+          referenceId,
+          description: opts?.description ?? "Débito saldo disponível",
         },
       });
 

@@ -68,8 +68,9 @@ export function securityHeaders(): Record<string, string> {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "X-DNS-Prefetch-Control": "off",
+    // CSP de API (JSON). Turnstile só no HTML — ver next.config.ts.
     "Content-Security-Policy":
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
     ...(isProduction()
       ? {
           "Strict-Transport-Security":
@@ -79,10 +80,49 @@ export function securityHeaders(): Record<string, string> {
   };
 }
 
+/** Fallback em memória quando a tabela rate_limits ainda não existe. */
+const memoryAttempts = new Map<string, { count: number; expiresAt: number }>();
+const MAX_MEMORY_KEYS = 20_000;
+
+function checkRateLimitMemory(
+  key: string,
+  max: number,
+  windowMs: number
+): { ok: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const cur = memoryAttempts.get(key);
+  if (!cur || cur.expiresAt <= now) {
+    if (memoryAttempts.size > MAX_MEMORY_KEYS) {
+      for (const [k, v] of memoryAttempts) {
+        if (v.expiresAt <= now) memoryAttempts.delete(k);
+      }
+    }
+    memoryAttempts.set(key, { count: 1, expiresAt: now + windowMs });
+    return { ok: true };
+  }
+  cur.count += 1;
+  if (cur.count > max) {
+    return {
+      ok: false,
+      retryAfterSec: Math.max(1, Math.ceil((cur.expiresAt - now) / 1000)),
+    };
+  }
+  return { ok: true };
+}
+
+function clearRateLimitMemory(key: string): void {
+  memoryAttempts.delete(key);
+}
+
 /**
- * Rate limit usando banco (Prisma).
- * Persiste entre restarts — substitui o antigo Map em memória que perdia
- * estado e permitia brute-force após cada restart/deploy.
+ * Rate limit com janela fixa:
+ * - 1ª tentativa cria contador + expiresAt = now + window
+ * - tentativas seguintes incrementam; NÃO estendem a janela
+ * - após expiresAt, contador zera
+ *
+ * Persistência em `rate_limits`. Se a tabela falhar:
+ * - produção: fallback memória (ainda limita) + log
+ * - sem DB: memória
  */
 async function checkRateLimitDb(
   key: string,
@@ -91,25 +131,36 @@ async function checkRateLimitDb(
 ): Promise<{ ok: boolean; retryAfterSec?: number }> {
   const { prisma } = await import("@/lib/server/prisma");
   if (!isDatabaseConfigured()) {
-    return { ok: true };
+    return checkRateLimitMemory(key, max, windowMs);
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + windowMs);
+  const nowMs = now.getTime();
 
   try {
-    const row = await prisma.rateLimit.upsert({
+    const existing = await prisma.rateLimit.findUnique({ where: { key } });
+
+    if (!existing || existing.expiresAt.getTime() <= nowMs) {
+      const expiresAt = new Date(nowMs + windowMs);
+      await prisma.rateLimit.upsert({
+        where: { key },
+        create: {
+          id: `rl_${randomBytes(8).toString("hex")}`,
+          key,
+          attempts: 1,
+          expiresAt,
+        },
+        update: {
+          attempts: 1,
+          expiresAt,
+        },
+      });
+      return { ok: true };
+    }
+
+    const row = await prisma.rateLimit.update({
       where: { key },
-      update: {
-        attempts: { increment: 1 },
-        expiresAt,
-      },
-      create: {
-        id: `rl_${key.slice(0, 40)}_${Date.now().toString(36)}`,
-        key,
-        attempts: 1,
-        expiresAt,
-      },
+      data: { attempts: { increment: 1 } },
     });
 
     if (row.attempts > max) {
@@ -117,17 +168,25 @@ async function checkRateLimitDb(
         ok: false,
         retryAfterSec: Math.max(
           1,
-          Math.ceil((row.expiresAt.getTime() - Date.now()) / 1000)
+          Math.ceil((row.expiresAt.getTime() - nowMs) / 1000)
         ),
       };
     }
     return { ok: true };
-  } catch {
-    return { ok: true };
+  } catch (e) {
+    // Tabela ausente / Prisma offline: não falhar aberto em prod.
+    if (isProduction()) {
+      console.warn(
+        "[security] rate_limit_db_failed_fallback_memory",
+        e instanceof Error ? e.message : String(e)
+      );
+    }
+    return checkRateLimitMemory(key, max, windowMs);
   }
 }
 
 async function clearRateLimitDb(key: string): Promise<void> {
+  clearRateLimitMemory(key);
   const { prisma } = await import("@/lib/server/prisma");
   if (!isDatabaseConfigured()) return;
   try {

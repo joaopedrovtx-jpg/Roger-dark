@@ -8,7 +8,6 @@ import { BrandLogo } from "./BrandLogo";
 import { AccountPendingBanner } from "./AccountPendingBanner";
 import { AccountAccessGate } from "./AccountAccessGate";
 import { ImpersonationBanner } from "./ImpersonationBanner";
-import { SaleNotificationsProvider } from "@/components/notifications/SaleNotificationsProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AppShellProps {
@@ -62,8 +61,9 @@ export function AppShell({
     </>
   );
 
+  // SaleNotificationsProvider fica só no RootLayout (evita poll/toast duplicado).
   return (
-    <SaleNotificationsProvider>
+    <>
       <div className="app-shell">
         {/* Topbar mobile / tablet */}
         <header className="app-mobile-topbar lg:hidden" style={{ gridColumn: "1 / -1" }}>
@@ -122,6 +122,6 @@ export function AppShell({
           </div>
         </div>
       ) : null}
-    </SaleNotificationsProvider>
+    </>
   );
 }

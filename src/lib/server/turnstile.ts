@@ -2,28 +2,74 @@
  * Verificação server-side do Cloudflare Turnstile (CAPTCHA humano).
  *
  * Fluxo:
- * 1. Cliente renderiza widget com a NEXT_PUBLIC_TURNSTILE_SITE_KEY → gera token.
- * 2. Servidor valida token via POST https://challenges.cloudflare.com/turnstile/v0/siteverify
- *    enviando TURNSTILE_SECRET_KEY + IP do cliente (rate-limit + contexto).
+ * 1. Cliente obtém site key (build NEXT_PUBLIC_* ou GET /api/v1/public/turnstile).
+ * 2. Widget gera token; form envia `turnstileToken`.
+ * 3. Servidor valida via siteverify com TURNSTILE_SECRET_KEY + IP.
  *
- * Se siteVerify falhar, o request é rejeitado (fail-closed). Em dev sem
- * secret configurado, pula verificação (mantém fluxo local).
- *
- * Nota: NÃO passamos `idempotency_key` — cada novo submit gera um token
- * novo no widget (cf-turnstile-response), e a Cloudflare já invalida
- * tokens consumidos. Chaves estáveis (ex.: "login:<ip>") causariam
- * conflito entre tentativas legítimas do mesmo IP.
+ * Regras:
+ * - Só habilita se site key E secret estiverem configurados (evita captcha cosmético).
+ * - Fail-closed quando habilitado (rede CF ou token inválido → rejeita).
+ * - Valida hostname e action quando configurados.
  */
 
 import { env } from "@/lib/env";
 import { getClientIp } from "@/lib/server/security";
 import { log } from "@/lib/server/logger";
 
-const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const SITEVERIFY_URL =
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-/** true quando a verificação server-side deve rodar (prod/dev com secret). */
+function siteKeyFromEnv(): string {
+  return (
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
+    process.env.TURNSTILE_SITE_KEY?.trim() ||
+    env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
+    ""
+  );
+}
+
+function secretFromEnv(): string {
+  return (
+    process.env.TURNSTILE_SECRET_KEY?.trim() ||
+    env.TURNSTILE_SECRET_KEY?.trim() ||
+    ""
+  );
+}
+
+/** Hostnames aceitos no siteverify (prod). */
+function allowedHostnames(): string[] {
+  const raw =
+    process.env.TURNSTILE_ALLOWED_HOSTNAMES?.trim() ||
+    process.env.APP_URL?.replace(/^https?:\/\//, "").split("/")[0] ||
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, "").split("/")[0] ||
+    "darkpays.online";
+  const hosts = raw
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  const withWww = new Set<string>();
+  for (const h of hosts) {
+    withWww.add(h);
+    if (h.startsWith("www.")) withWww.add(h.slice(4));
+    else withWww.add(`www.${h}`);
+  }
+  // Dummy keys da CF (testes) podem reportar hostname "example.com"
+  withWww.add("example.com");
+  withWww.add("localhost");
+  return [...withWww];
+}
+
+/** true quando captcha deve ser exigido (site key + secret). */
 export function isTurnstileServerEnabled(): boolean {
-  return !!env.TURNSTILE_SECRET_KEY && env.TURNSTILE_SECRET_KEY.length >= 8;
+  const site = siteKeyFromEnv();
+  const secret = secretFromEnv();
+  return site.length >= 8 && secret.length >= 8;
+}
+
+/** Site key pública (nunca o secret). */
+export function getTurnstileSiteKey(): string | null {
+  if (!isTurnstileServerEnabled()) return null;
+  return siteKeyFromEnv();
 }
 
 export interface VerifyResult {
@@ -35,30 +81,35 @@ export interface VerifyResult {
   challengeTs?: string;
 }
 
+export interface VerifyTurnstileOptions {
+  /** action esperado do widget (ex.: "login" | "register"). */
+  expectedAction?: string;
+}
+
 /**
- * Verifica token Turnstile. Em caso de falha de rede da Cloudflare,
- * retorna ok=false (fail-closed) — nunca relaxa segurança.
- *
- * @param token Token retornado pelo widget do client (cf-turnstile-response).
- * @param req Requisição HTTP (extrai IP p/ contexto da Cloudflare).
+ * Verifica token Turnstile. Fail-closed quando habilitado.
  */
 export async function verifyTurnstile(
   token: string | undefined | null,
-  req?: Request
+  req?: Request,
+  opts: VerifyTurnstileOptions = {}
 ): Promise<VerifyResult> {
   if (!isTurnstileServerEnabled()) {
-    // Sem secret: não bloqueia o fluxo (dev/local sem captcha configurado).
     return { ok: true };
   }
   if (!token || typeof token !== "string" || token.length < 10) {
-    return { ok: false, error: "Verificação anti-bot ausente. Recarregue a página." };
+    return {
+      ok: false,
+      error: "Verificação anti-bot ausente. Recarregue a página.",
+    };
   }
 
+  const secret = secretFromEnv();
   const ip = req ? getClientIp(req) : undefined;
   const formData = new URLSearchParams();
-  formData.append("secret", env.TURNSTILE_SECRET_KEY);
+  formData.append("secret", secret);
   formData.append("response", token);
-  if (ip) formData.append("remoteip", ip);
+  if (ip && ip !== "unknown") formData.append("remoteip", ip);
 
   try {
     const res = await fetch(SITEVERIFY_URL, {
@@ -69,10 +120,7 @@ export async function verifyTurnstile(
     });
 
     if (!res.ok) {
-      log.warn(
-        { status: res.status },
-        "turnstile_siteverify_http_failed"
-      );
+      log.warn({ status: res.status }, "turnstile_siteverify_http_failed");
       return {
         ok: false,
         error: "Falha ao validar verificação anti-bot (CF). Tente novamente.",
@@ -88,21 +136,46 @@ export async function verifyTurnstile(
       challenge_ts?: string;
     };
 
-    if (json.success) {
-      return {
-        ok: true,
-        action: json.action,
-        cdata: json.cdata,
-        hostname: json.hostname,
-        challengeTs: json.challenge_ts,
-      };
+    if (!json.success) {
+      const codes = json["error-codes"] ?? [];
+      log.warn({ codes }, "turnstile_verification_failed");
+      return { ok: false, error: humanizeErrorCodes(codes) };
     }
 
-    const codes = json["error-codes"] ?? [];
-    log.warn({ codes }, "turnstile_verification_failed");
+    // Hostname (mitiga token gerado em outro domínio)
+    const hostname = (json.hostname || "").toLowerCase();
+    if (hostname) {
+      const allowed = allowedHostnames();
+      if (!allowed.includes(hostname)) {
+        log.warn({ hostname, allowed }, "turnstile_hostname_mismatch");
+        return {
+          ok: false,
+          error: "Verificação anti-bot inválida para este domínio.",
+        };
+      }
+    }
+
+    // Action (login vs register)
+    if (opts.expectedAction) {
+      const got = (json.action || "").trim();
+      if (got && got !== opts.expectedAction) {
+        log.warn(
+          { expected: opts.expectedAction, got },
+          "turnstile_action_mismatch"
+        );
+        return {
+          ok: false,
+          error: "Verificação anti-bot inválida. Recarregue a página.",
+        };
+      }
+    }
+
     return {
-      ok: false,
-      error: humanizeErrorCodes(codes),
+      ok: true,
+      action: json.action,
+      cdata: json.cdata,
+      hostname: json.hostname,
+      challengeTs: json.challenge_ts,
     };
   } catch (e) {
     log.warn(
@@ -123,7 +196,10 @@ function humanizeErrorCodes(codes: string[]): string {
   if (codes.includes("invalid-input-response")) {
     return "Verificação anti-bot inválida. Recarregue a página.";
   }
-  if (codes.includes("bad-request") || codes.includes("invalid-input-secret")) {
+  if (
+    codes.includes("bad-request") ||
+    codes.includes("invalid-input-secret")
+  ) {
     return "Configuração anti-bot inválida no servidor. Contate o suporte.";
   }
   return "Verificação anti-bot falhou. Tente novamente.";

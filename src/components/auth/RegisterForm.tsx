@@ -234,10 +234,13 @@ export function RegisterForm() {
           </span>
         </label>
 
-        {/* Cloudflare Turnstile — anti-bot humano */}
+        {/* Cloudflare Turnstile — anti-bot (site key via runtime API se preciso) */}
         <TurnstileWidget
           action="register"
-          onReady={(c) => (turnstileRef.current = c)}
+          className="flex justify-center w-full"
+          onReady={(c) => {
+            turnstileRef.current = c;
+          }}
         />
 
         {error ? (

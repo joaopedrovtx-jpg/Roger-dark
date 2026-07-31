@@ -4,27 +4,15 @@ import { useEffect } from "react";
 import { useTurnstile, type UseTurnstileOptions } from "@/hooks/useTurnstile";
 
 export interface TurnstileWidgetProps extends UseTurnstileOptions {
-  /** Container className/id p/ layout. */
   className?: string;
-  /** Esvazia o widget quando `visible=false` (UX p/ step de 2FA). */
   visible?: boolean;
-  /**
-   * Recebe o controller do hook sempre que seus campos relevantes mudam
-   * (token/loading/error/expired). Use p/ o form pai enviar `token` na
-   * mutation e chamar `reset()` em erros.
-   */
   onReady?: (controller: ReturnType<typeof useTurnstile>) => void;
 }
 
 /**
  * Widget Cloudflare Turnstile.
- *
- * Renderiza o <div> container e emite o controller do hook `useTurnstile`
- * via `onReady` (em `useEffect` — nunca no corpo do render, evitando
- * re-render loop e efeito colateral síncrono).
- *
- * Caso Turnstile não esteja configurado (sem NEXT_PUBLIC_TURNSTILE_SITE_KEY),
- * o componente renderiza `null` — o servidor também pula a verificação.
+ * Site key via build env ou GET /api/v1/public/turnstile (runtime).
+ * Sem keys (site+secret no servidor) → null.
  */
 export function TurnstileWidget({
   className,
@@ -34,7 +22,6 @@ export function TurnstileWidget({
 }: TurnstileWidgetProps) {
   const controller = useTurnstile(opts);
 
-  // Notifica o pai apenas quando campos relevantes mudam.
   useEffect(() => {
     if (onReady) onReady(controller);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -44,17 +31,52 @@ export function TurnstileWidget({
     controller.error,
     controller.expired,
     controller.enabled,
+    controller.ready,
     onReady,
   ]);
 
-  if (!controller.enabled || !visible) return null;
+  if (!visible) return null;
+
+  // Ainda resolvendo se captcha está ligado
+  if (!controller.ready) {
+    return (
+      <div
+        className={className}
+        aria-hidden
+        style={{
+          minHeight: 65,
+          width: "100%",
+          maxWidth: 300,
+          margin: "0 auto",
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.04)",
+        }}
+      />
+    );
+  }
+
+  if (!controller.enabled) return null;
 
   return (
-    <div
-      ref={controller.containerRef}
-      className={className}
-      aria-label="Verificação anti-bot"
-      style={{ minHeight: 65 }}
-    />
+    <div className={className} style={{ width: "100%" }}>
+      <div
+        ref={controller.containerRef}
+        aria-label="Verificação anti-bot"
+        style={{ minHeight: 65, display: "flex", justifyContent: "center" }}
+      />
+      {controller.error ? (
+        <p
+          role="alert"
+          style={{
+            margin: "8px 0 0",
+            fontSize: 12,
+            color: "#f87171",
+            textAlign: "center",
+          }}
+        >
+          {controller.error}
+        </p>
+      ) : null}
+    </div>
   );
 }
