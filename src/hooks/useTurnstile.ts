@@ -28,6 +28,9 @@ declare global {
           language?: string;
           action?: string;
           cdata?: string;
+          /** always = sempre mostra o checkbox/botão para clicar */
+          appearance?: "always" | "execute" | "interaction-only";
+          execution?: "render" | "execute";
           callback?: (token: string) => void;
           "error-callback"?: (error: string) => void;
           "expired-callback"?: () => void;
@@ -168,6 +171,9 @@ export function useTurnstile(
           language: opts.language ?? "pt-br",
           action: opts.action,
           cdata,
+          // Sempre mostra o widget (checkbox/botão) para o usuário clicar e confirmar
+          appearance: "always",
+          execution: "render",
           callback: (t) => {
             setToken(t);
             setError(null);

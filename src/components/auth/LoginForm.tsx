@@ -22,6 +22,8 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const turnstileRef = useRef<UseTurnstileResult | null>(null);
+  /** true quando captcha Cloudflare está ligado e ainda não foi clicado/confirmado */
+  const [turnstileBlocked, setTurnstileBlocked] = useState(false);
   function goAfterLogin(roles: string[]) {
     const isStaff =
       roles.includes("admin") || roles.includes("manager");
@@ -244,6 +246,10 @@ export function LoginForm() {
               className="flex justify-center w-full"
               onReady={(c) => {
                 turnstileRef.current = c;
+                // Bloqueia "Entrar" até o usuário clicar/confirmar o captcha
+                setTurnstileBlocked(
+                  Boolean(c.enabled && !c.token && !challenge)
+                );
               }}
             />
           </>
@@ -267,18 +273,21 @@ export function LoginForm() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || (!challenge && turnstileBlocked)}
           style={{
             ...authButtonStyle,
-            opacity: loading ? 0.55 : 1,
-            cursor: loading ? "wait" : "pointer",
+            opacity: loading || (!challenge && turnstileBlocked) ? 0.55 : 1,
+            cursor:
+              loading || (!challenge && turnstileBlocked) ? "not-allowed" : "pointer",
           }}
         >
           {loading
             ? "Entrando…"
             : challenge
               ? "Confirmar código"
-              : "Entrar"}
+              : turnstileBlocked
+                ? "Confirme o captcha acima"
+                : "Entrar"}
         </button>
 
         {challenge ? (

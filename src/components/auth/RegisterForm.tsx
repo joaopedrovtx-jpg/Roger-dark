@@ -36,6 +36,7 @@ export function RegisterForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const turnstileRef = useRef<UseTurnstileResult | null>(null);
+  const [turnstileBlocked, setTurnstileBlocked] = useState(false);
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -234,12 +235,13 @@ export function RegisterForm() {
           </span>
         </label>
 
-        {/* Cloudflare Turnstile — anti-bot (site key via runtime API se preciso) */}
+        {/* Cloudflare Turnstile — clique no captcha para confirmar */}
         <TurnstileWidget
           action="register"
           className="flex justify-center w-full"
           onReady={(c) => {
             turnstileRef.current = c;
+            setTurnstileBlocked(Boolean(c.enabled && !c.token));
           }}
         />
 
@@ -259,16 +261,20 @@ export function RegisterForm() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || turnstileBlocked}
           className="auth-cta w-full font-semibold transition-opacity"
           style={{
             ...authButtonStyle,
             marginTop: 2,
-            cursor: loading ? "wait" : "pointer",
-            opacity: loading ? 0.55 : 1,
+            cursor: loading || turnstileBlocked ? "not-allowed" : "pointer",
+            opacity: loading || turnstileBlocked ? 0.55 : 1,
           }}
         >
-          {loading ? "Criando conta…" : "Criar minha conta"}
+          {loading
+            ? "Criando conta…"
+            : turnstileBlocked
+              ? "Confirme o captcha acima"
+              : "Criar minha conta"}
         </button>
       </form>
 
