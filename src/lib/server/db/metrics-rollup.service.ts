@@ -11,6 +11,25 @@ import { prisma, isDatabaseConfigured } from "@/lib/server/prisma";
 import { computeSaleNetAmount, getSellerSaleFees } from "@/lib/server/seller-fees";
 import { roundMoney } from "@/lib/server/security";
 
+/** Prisma Decimal | number | string → number seguro para roundMoney. */
+function toNum(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (value != null && typeof value === "object" && "toNumber" in value) {
+    try {
+      const n = (value as { toNumber: () => number }).toNumber();
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export type MetricScope = "seller" | "platform";
 
 export interface RollupInput {
@@ -101,7 +120,7 @@ export async function rollupSellerDay(
   for (const t of txs) {
     if (t.kind !== "venda") continue;
     m.txCount += 1;
-    const amount = roundMoney(t.amount);
+    const amount = roundMoney(toNum(t.amount));
     gross += amount;
     if (t.status === "aprovada") {
       paidCount += 1;
@@ -133,7 +152,7 @@ export async function rollupSellerDay(
   let wFees = 0;
   for (const w of withdrawals) {
     m.withdrawalCount += 1;
-    const amt = roundMoney(w.amount);
+    const amt = roundMoney(toNum(w.amount));
     m.outflowTotal += amt;
     if (w.status === "pago") {
       wPaid += amt;
@@ -141,14 +160,14 @@ export async function rollupSellerDay(
       wPending += amt;
     }
     const fee = roundMoney(
-      (amt * (w.feePercent ?? 0)) / 100 + (w.feeFixed ?? 0)
+      (amt * toNum(w.feePercent ?? 0)) / 100 + toNum(w.feeFixed ?? 0)
     );
     wFees += fee;
   }
   m.withdrawalPaid = roundMoney(wPaid);
   m.withdrawalPending = roundMoney(wPending);
   m.withdrawalFees = roundMoney(wFees);
-  m.heldBalanceEod = roundMoney(userEnd?.balanceHeld ?? 0);
+  m.heldBalanceEod = roundMoney(toNum(userEnd?.balanceHeld ?? 0));
 
   await prisma.metricDaily.upsert({
     where: { scope_userId_date: { scope: "seller", userId, date: day } },
@@ -184,7 +203,7 @@ export async function rollupPlatformDay(date: Date): Promise<RollupResult> {
   let refundedCount = 0;
   for (const t of txs) {
     m.txCount += 1;
-    gross += roundMoney(t.amount);
+    gross += roundMoney(toNum(t.amount));
     if (t.status === "aprovada") paidCount += 1;
     else if (t.status === "pendente") pendingCount += 1;
     else if (t.status === "recusada") failedCount += 1;
@@ -203,18 +222,18 @@ export async function rollupPlatformDay(date: Date): Promise<RollupResult> {
   let wFees = 0;
   for (const w of withdrawals) {
     m.withdrawalCount += 1;
-    const amt = roundMoney(w.amount);
+    const amt = roundMoney(toNum(w.amount));
     m.outflowTotal += amt;
     if (w.status === "pago") wPaid += amt;
     else if (w.status === "processando" || w.status === "pendente") wPending += amt;
     wFees += roundMoney(
-      (amt * (w.feePercent ?? 0)) / 100 + (w.feeFixed ?? 0)
+      (amt * toNum(w.feePercent ?? 0)) / 100 + toNum(w.feeFixed ?? 0)
     );
   }
   m.withdrawalPaid = roundMoney(wPaid);
   m.withdrawalPending = roundMoney(wPending);
   m.withdrawalFees = roundMoney(wFees);
-  m.heldBalanceEod = roundMoney(heldSum._sum.balanceHeld ?? 0);
+  m.heldBalanceEod = roundMoney(toNum(heldSum._sum.balanceHeld ?? 0));
 
   await prisma.metricDaily.upsert({
     where: { scope_userId_date: { scope: "platform", userId: "", date: day } },
