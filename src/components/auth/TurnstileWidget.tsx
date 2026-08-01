@@ -57,8 +57,6 @@ export function TurnstileWidget({
 
   if (!controller.enabled) return null;
 
-  const confirmed = Boolean(controller.token && !controller.expired);
-
   return (
     <div className={className} style={{ width: "100%" }}>
       <div
@@ -66,19 +64,6 @@ export function TurnstileWidget({
         aria-label="Verificação anti-bot Cloudflare"
         style={{ minHeight: 65, display: "flex", justifyContent: "center" }}
       />
-      {!confirmed ? (
-        <p
-          style={{
-            margin: "8px 0 0",
-            fontSize: 12,
-            lineHeight: 1.4,
-            color: "var(--text-3)",
-            textAlign: "center",
-          }}
-        >
-          Clique na caixa da Cloudflare para confirmar que você não é um robô.
-        </p>
-      ) : null}
       {controller.error ? (
         <p
           role="alert"
