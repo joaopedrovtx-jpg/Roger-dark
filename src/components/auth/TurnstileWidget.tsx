@@ -66,19 +66,19 @@ export function TurnstileWidget({
         aria-label="Verificação anti-bot Cloudflare"
         style={{ minHeight: 65, display: "flex", justifyContent: "center" }}
       />
-      <p
-        style={{
-          margin: "8px 0 0",
-          fontSize: 12,
-          lineHeight: 1.4,
-          color: confirmed ? "#34d399" : "var(--text-3)",
-          textAlign: "center",
-        }}
-      >
-        {confirmed
-          ? "Verificação confirmada. Você já pode continuar."
-          : "Clique na caixa da Cloudflare para confirmar que você não é um robô."}
-      </p>
+      {!confirmed ? (
+        <p
+          style={{
+            margin: "8px 0 0",
+            fontSize: 12,
+            lineHeight: 1.4,
+            color: "var(--text-3)",
+            textAlign: "center",
+          }}
+        >
+          Clique na caixa da Cloudflare para confirmar que você não é um robô.
+        </p>
+      ) : null}
       {controller.error ? (
         <p
           role="alert"
