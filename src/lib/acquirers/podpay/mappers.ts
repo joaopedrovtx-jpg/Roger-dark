@@ -35,13 +35,14 @@ export function mapPodPayTxStatus(
     case "PROCESSING":
       return "pendente";
     case "REFUNDED":
+    case "CHARGEBACK":
+    case "PRE_CHARGEBACK":
+      // Chargeback/refund de venda já paga → path refundSaleIdempotent
       return "reembolsada";
     case "FAILED":
     case "CANCELED":
     case "CANCELLED":
     case "BLOCKED":
-    case "CHARGEBACK":
-    case "PRE_CHARGEBACK":
       return "recusada";
     default:
       return "pendente";

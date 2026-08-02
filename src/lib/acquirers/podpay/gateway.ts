@@ -325,7 +325,11 @@ export async function createWithdrawalViaPodPay(
   sellerId: string,
   sellerName: string,
   input: CreateWithdrawalInput,
-  opts?: { skipLocalDebit?: boolean }
+  opts?: {
+    skipLocalDebit?: boolean;
+    /** Chave estável p/ retry sem double PIX (ex.: wd_SQ-xxx) */
+    idempotencyKey?: string;
+  }
 ): Promise<Withdrawal> {
   if (!isPodPayEnabled()) {
     throw new PodPayError("PodPay não configurada", {
@@ -340,13 +344,21 @@ export async function createWithdrawalViaPodPay(
     });
   }
 
-  const remote = await podpayClient.createWithdrawal({
-    method: "fiat",
-    amount: amountCents,
-    netPayout: true,
-    pixKey: input.pixKey.trim(),
-    pixKeyType: detectPixKeyType(input.pixKey),
-  });
+  const idem =
+    opts?.idempotencyKey?.replace(/[^a-zA-Z0-9_\-.]/g, "").slice(0, 100) ||
+    undefined;
+
+  const remote = await podpayClient.createWithdrawal(
+    {
+      method: "fiat",
+      amount: amountCents,
+      // amount já é líquido da taxa DarkPay; netPayout true reaplicaria fee PodPay
+      netPayout: false,
+      pixKey: input.pixKey.trim(),
+      pixKeyType: detectPixKeyType(input.pixKey),
+    },
+    { idempotencyKey: idem }
+  );
 
   const w: Withdrawal = {
     id: remote.id,

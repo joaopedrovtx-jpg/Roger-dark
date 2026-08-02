@@ -73,11 +73,11 @@ export function mapVelanaTxStatus(
     case "in_protest":
       return "pendente";
     case "refunded":
+    case "chargedback": // chargeback = estornar saldo se já pago
       return "reembolsada";
     case "refused":
     case "canceled":
     case "cancelled":
-    case "chargedback":
       return "recusada";
     default:
       return "pendente";

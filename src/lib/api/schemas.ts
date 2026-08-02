@@ -25,7 +25,14 @@ export const twoFactorSetupSchema = z.object({
 });
 
 export const createWithdrawalSchema = z.object({
-  amount: z.number().min(5, "Saque mínimo: R$ 5,00"),
+  amount: z
+    .number({ error: "Valor inválido" })
+    .finite("Valor inválido")
+    .min(5, "Saque mínimo: R$ 5,00")
+    .max(100_000, "Saque máximo: R$ 100000.00")
+    .refine((n) => Math.round(n * 100) === n * 100 || Number.isInteger(n * 100), {
+      message: "Use no máximo 2 casas decimais",
+    }),
   /** Qualquer chave PIX (e-mail, telefone, CPF, CNPJ, EVP) — não precisa ser do doc da conta */
   pixKey: z
     .string()

@@ -87,14 +87,18 @@ Arquivos principais:
 
 ---
 
-## 4. Ainda em backlog (não bloqueante deste deploy)
+## 4. Continuação (2026-08-02, commits seguintes)
 
-| Item | Por quê |
-|------|---------|
-| Chargeback → `refundSaleIdempotent` | Precisa path de disputa completo + testes |
-| Encrypt secrets de `acquirers` no DB | Migração de dados + key rotation |
-| Cron reconcile global | UI já sobe limit; cron é ops |
-| Remover `adjustBalance` memory em webhook se DB on | Higiene; DB é fonte da verdade |
+| Item | Estado |
+|------|--------|
+| Chargeback → `reembolsada` → refund | ✅ mappers Velana/PodPay + event chargeback |
+| PodPay idempotency + netPayout false | ✅ |
+| Local SQ- id Velana/PodPay + debit referenceId | ✅ |
+| Memory adjustBalance só se DB off (Velana webhook) | ✅ |
+| Expire resolve TX real (não charge id) | ✅ |
+| Schema saque amount finito/max/decimais | ✅ |
+| Encrypt secrets de `acquirers` no DB | ⏳ backlog |
+| Cron reconcile global | ⏳ ops |
 
 ---
 

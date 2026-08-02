@@ -277,9 +277,16 @@ export async function createWithdrawal(
   /** true após createTransfer na adquirente — NÃO estornar cego no catch */
   let remoteDispatched = false;
 
-  async function debitAfterAcquirer(): Promise<void> {
+  async function debitAfterAcquirer(withdrawalRef?: string): Promise<void> {
     if (debitedOnDb || !isDatabaseConfigured()) return;
-    const debit = await debitAvailableBalance(sellerId, input.amount);
+    const debit = await debitAvailableBalance(sellerId, input.amount, {
+      referenceId: withdrawalRef
+        ? `wd_debit_${withdrawalRef}`.slice(0, 64)
+        : undefined,
+      description: withdrawalRef
+        ? `Débito saque ${withdrawalRef}`
+        : "Débito saldo disponível (saque)",
+    });
     if (!debit.ok) {
       throw new Error(
         debit.reason === "insufficient_balance"
@@ -428,19 +435,57 @@ export async function createWithdrawal(
     }
 
     if (only === "velana") {
-      await debitAfterAcquirer();
-      w = await createWithdrawalViaVelana(sellerId, sellerName, payoutInput, {
-        skipLocalDebit: true,
-      });
+      const localId = `SQ-${randomBytes(6).toString("hex")}`;
+      await debitAfterAcquirer(localId);
+      const remote = await createWithdrawalViaVelana(
+        sellerId,
+        sellerName,
+        payoutInput,
+        { skipLocalDebit: true }
+      );
       remoteDispatched = true;
+      w = {
+        ...remote,
+        id: localId,
+        amount: round2(input.amount),
+        feePercent,
+        feeFixed,
+        destination: pixKey,
+        status:
+          remote.status === "pago" || remote.status === "recusado"
+            ? remote.status
+            : "processando",
+      };
       provider = "velana";
+      // providerId = id remoto Velana para webhook casar
+      (w as Withdrawal & { _providerId?: string })._providerId = remote.id;
     } else if (only === "podpay") {
-      await debitAfterAcquirer();
-      w = await createWithdrawalViaPodPay(sellerId, sellerName, payoutInput, {
-        skipLocalDebit: true,
-      });
+      const localId = `SQ-${randomBytes(6).toString("hex")}`;
+      const correlationId = `wd_${localId}`
+        .replace(/[^a-zA-Z0-9_\-.]/g, "")
+        .slice(0, 100);
+      await debitAfterAcquirer(localId);
+      const remote = await createWithdrawalViaPodPay(
+        sellerId,
+        sellerName,
+        payoutInput,
+        { skipLocalDebit: true, idempotencyKey: correlationId }
+      );
       remoteDispatched = true;
+      w = {
+        ...remote,
+        id: localId,
+        amount: round2(input.amount),
+        feePercent,
+        feeFixed,
+        destination: pixKey,
+        status:
+          remote.status === "pago" || remote.status === "recusado"
+            ? remote.status
+            : "processando",
+      };
       provider = "podpay";
+      (w as Withdrawal & { _providerId?: string })._providerId = remote.id;
     }
 
     if (w && provider) {
@@ -461,6 +506,9 @@ export async function createWithdrawal(
             ? w.status
             : "processando",
       };
+      const remoteProviderId =
+        (w as Withdrawal & { _providerId?: string })._providerId || w.id;
+
       await persistWithdrawalDb(
         { ...recorded, status: "processando" },
         {
@@ -469,7 +517,7 @@ export async function createWithdrawal(
           feeAmount,
           netAmount,
           provider,
-          providerId: w.id,
+          providerId: remoteProviderId,
         }
       );
 
@@ -481,7 +529,7 @@ export async function createWithdrawal(
           );
           await finalizeWithdrawalPaid(recorded.id, {
             provider,
-            providerId: w.id,
+            providerId: remoteProviderId,
             source: saqueAutomatico ? "saque_automatico" : "acquirer_sync",
           });
           return { ...recorded, status: "pago" };

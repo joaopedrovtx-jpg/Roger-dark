@@ -78,6 +78,7 @@ export async function expireAbandonedPendingSales(opts?: {
       sellerId: true,
       amount: true,
       providerId: true,
+      provider: true,
       transactionId: true,
     },
   });
@@ -102,7 +103,23 @@ export async function expireAbandonedPendingSales(opts?: {
     });
   }
   for (const c of expiredCharges) {
-    const txId = c.transactionId || c.id;
+    // Nunca usar charge.id (vl_/pp_) como transactionId — reject falharia
+    let txId = c.transactionId || null;
+    if (!txId && c.providerId) {
+      try {
+        const found = await prisma.transaction.findFirst({
+          where: {
+            providerId: c.providerId,
+            ...(c.provider ? { provider: c.provider } : {}),
+            status: "pendente",
+          },
+          select: { id: true },
+        });
+        txId = found?.id ?? null;
+      } catch {
+        txId = null;
+      }
+    }
     if (!txId || seen.has(txId)) continue;
     seen.add(txId);
     queue.push({

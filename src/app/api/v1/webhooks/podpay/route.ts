@@ -120,6 +120,8 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
       "transaction.failed": "recusada",
       "transaction.pending": "pendente",
       "transaction.refunded": "reembolsada",
+      "transaction.chargeback": "reembolsada",
+      "transaction.chargedback": "reembolsada",
     };
     const status = statusMap[event];
     if (!status) return;

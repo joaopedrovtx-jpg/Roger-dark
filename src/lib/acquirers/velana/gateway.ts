@@ -857,7 +857,14 @@ export async function applyVelanaWebhook(payload: VelanaPostbackPayload): Promis
             /* default */
           }
           const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
-          adjustBalance(charge.sellerId, { pending: -charge.amount, available: net });
+          // Só memory se MySQL off — com DB o credit é no applyWebhookToMysql
+          const { isDatabaseConfigured } = await import("@/lib/server/prisma");
+          if (!(await isDatabaseConfigured())) {
+            adjustBalance(charge.sellerId, {
+              pending: -charge.amount,
+              available: net,
+            });
+          }
         }
       } else if (mapped === "recusada" && charge.status === "waiting_payment") {
         charge.status = "cancelled";
@@ -883,7 +890,10 @@ export async function applyVelanaWebhook(payload: VelanaPostbackPayload): Promis
       const prev = w.status;
       w.status = mapped;
       if (mapped === "recusado" && prev === "processando") {
-        adjustBalance(w.sellerId, { available: w.amount });
+        const { isDatabaseConfigured } = await import("@/lib/server/prisma");
+        if (!(await isDatabaseConfigured())) {
+          adjustBalance(w.sellerId, { available: w.amount });
+        }
       }
       const tx = store.transactions.find((t) => t.id === w.id);
       if (tx) tx.status = mapped;
