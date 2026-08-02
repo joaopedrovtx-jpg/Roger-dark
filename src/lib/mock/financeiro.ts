@@ -3,10 +3,28 @@ export type SaqueStatus = "pago" | "recusado" | "processando";
 export interface SaqueTransaction {
   id: string;
   date: string; // ISO
+  /** Valor bruto solicitado (debitado do saldo disponível) */
   amount: number;
+  /** Valor líquido creditado no PIX (bruto − taxa de saque) */
+  netAmount?: number;
+  feeAmount?: number;
+  feePercent?: number;
+  feeFixed?: number;
   method: string;
   destination: string;
   status: SaqueStatus;
+}
+
+/** Valor exibido no histórico: sempre o líquido que o seller recebe no PIX. */
+export function saqueDisplayAmount(s: SaqueTransaction): number {
+  const net = Number(s.netAmount);
+  if (Number.isFinite(net) && net > 0) return net;
+  const fee = Number(s.feeAmount) || 0;
+  const gross = Number(s.amount) || 0;
+  if (fee > 0 && gross > fee) {
+    return Math.round((gross - fee) * 100) / 100;
+  }
+  return gross;
 }
 
 export interface FinanceiroMetrics {

@@ -33,6 +33,7 @@ export async function getSellerFinance(sellerId: string) {
     orderBy: { date: "desc" },
     take: 100,
   });
+  // Total saído do saldo = valor bruto debitado nos saques pagos
   const totalOut = withdrawals
     .filter((w) => w.status === "pago")
     .reduce((a, w) => a + n(w.amount), 0);
@@ -53,19 +54,32 @@ export async function getSellerFinance(sellerId: string) {
       mdrPercent: plan.mdrPercent,
       mdrFixed: plan.mdrFixed,
     },
-    withdrawals: withdrawals.map((w) => ({
-      id: w.id,
-      sellerId: w.sellerId,
-      sellerName: w.sellerName,
-      date: w.date.toISOString(),
-      amount: n(w.amount),
-      method: w.method,
-      destination: w.destination,
-      status: w.status,
-      feePercent: n(w.feePercent),
-      feeFixed: n(w.feeFixed),
-      feeAmount: n(w.feeAmount),
-    })),
+    withdrawals: withdrawals.map((w) => {
+      const amount = n(w.amount);
+      const feeAmount = n(w.feeAmount);
+      let netAmount = n(w.netAmount);
+      // Legado: net vazio → deriva do bruto − taxa
+      if (!(netAmount > 0) && amount > 0) {
+        netAmount =
+          feeAmount > 0 && amount > feeAmount
+            ? Math.round((amount - feeAmount) * 100) / 100
+            : amount;
+      }
+      return {
+        id: w.id,
+        sellerId: w.sellerId,
+        sellerName: w.sellerName,
+        date: w.date.toISOString(),
+        amount,
+        netAmount,
+        method: w.method,
+        destination: w.destination,
+        status: w.status,
+        feePercent: n(w.feePercent),
+        feeFixed: n(w.feeFixed),
+        feeAmount,
+      };
+    }),
     totalOut,
     sellerName: user.name,
   };

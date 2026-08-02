@@ -9,7 +9,11 @@ import {
 } from "react";
 import { Loader2, X } from "lucide-react";
 import { formatBRL, formatDateTime } from "@/lib/format";
-import type { SaqueStatus, SaqueTransaction } from "@/lib/mock/financeiro";
+import {
+  saqueDisplayAmount,
+  type SaqueStatus,
+  type SaqueTransaction,
+} from "@/lib/mock/financeiro";
 import {
   IconDolarSymbol,
   IconOutflowFilled,
@@ -132,6 +136,12 @@ function SaqueDetailModal({
   if (!open || !saque) return null;
 
   const tone = toneForStatus(saque.status);
+  const liquido = saqueDisplayAmount(saque);
+  const bruto = Number(saque.amount) || liquido;
+  const taxa =
+    Number(saque.feeAmount) > 0
+      ? Number(saque.feeAmount)
+      : Math.max(0, Math.round((bruto - liquido) * 100) / 100);
 
   return (
     <div
@@ -208,7 +218,12 @@ function SaqueDetailModal({
             className="tabular font-bold"
             style={{ margin: 0, fontSize: 22, color: tone.color }}
           >
-            {formatBRL(saque.amount)}
+            {formatBRL(liquido)}
+          </p>
+          <p
+            style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-3)" }}
+          >
+            Valor líquido (PIX)
           </p>
           <p
             className="font-semibold"
@@ -236,7 +251,11 @@ function SaqueDetailModal({
               ["Data", formatDateTime(saque.date)],
               ["Método", saque.method],
               ["Chave PIX", saque.destination],
-              ["Valor", formatBRL(saque.amount)],
+              ["Solicitado", formatBRL(bruto)],
+              ...(taxa > 0
+                ? ([["Taxa de saque", formatBRL(taxa)]] as const)
+                : []),
+              ["Líquido (PIX)", formatBRL(liquido)],
             ] as const
           ).map(([label, value]) => (
             <div
@@ -252,12 +271,18 @@ function SaqueDetailModal({
                 {label}
               </span>
               <span
-                className={label === "Valor" ? "tabular" : undefined}
+                className={
+                  label === "Líquido (PIX)" ||
+                  label === "Solicitado" ||
+                  label === "Taxa de saque"
+                    ? "tabular"
+                    : undefined
+                }
                 style={{
                   fontSize: 14,
                   fontWeight: 600,
                   color:
-                    label === "Valor" ? tone.color : "var(--text-1)",
+                    label === "Líquido (PIX)" ? tone.color : "var(--text-1)",
                   wordBreak: "break-all",
                 }}
               >
@@ -328,6 +353,10 @@ export function FinanceiroOverview() {
           id: string;
           date: string;
           amount: number;
+          netAmount?: number;
+          feeAmount?: number;
+          feePercent?: number;
+          feeFixed?: number;
           method: string;
           destination: string;
           status: SaqueStatus;
@@ -347,6 +376,10 @@ export function FinanceiroOverview() {
           id: w.id,
           date: w.date,
           amount: w.amount,
+          netAmount: w.netAmount,
+          feeAmount: w.feeAmount,
+          feePercent: w.feePercent,
+          feeFixed: w.feeFixed,
           method: w.method as "PIX",
           destination: w.destination,
           status: w.status,
@@ -501,7 +534,7 @@ export function FinanceiroOverview() {
           <table className="w-full" style={{ borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Data", "Chave PIX", "Valor", "Status", ""].map((h) => (
+                {["Data", "Chave PIX", "Valor líquido", "Status", ""].map((h) => (
                   <th
                     key={h || "acoes"}
                     className="px-4 py-3 font-medium text-center"
@@ -566,7 +599,7 @@ export function FinanceiroOverview() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {formatBRL(row.amount)}
+                      {formatBRL(saqueDisplayAmount(row))}
                     </td>
                     <td className="px-4 py-3.5 text-center" style={tdBase}>
                       <div className="flex items-center justify-center w-full">
