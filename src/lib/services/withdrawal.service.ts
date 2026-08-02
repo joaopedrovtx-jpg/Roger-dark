@@ -493,7 +493,8 @@ export async function createWithdrawal(
           });
           return { ...recorded, status: "pago" };
         } catch {
-          /* webhook finaliza depois */
+          // PIX já foi criado na adquirente — seller vê processando; webhook finaliza.
+          return { ...recorded, status: "processando" };
         }
       }
       if (remoteAlreadyRejected) {
@@ -510,6 +511,11 @@ export async function createWithdrawal(
         }
         return recorded;
       }
+
+      // Velana/PodPay: saque criado com sucesso (pending/processing).
+      // Antes faltava este return → caía no throw genérico, mostrava erro ao seller
+      // e o catch estornava o saldo mesmo com transfer já criado na adquirente.
+      return recorded;
     }
 
     throw new Error(
