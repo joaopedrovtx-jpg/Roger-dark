@@ -274,6 +274,8 @@ export async function createWithdrawal(
 
 
   let debitedOnDb = false;
+  /** true após createTransfer na adquirente — NÃO estornar cego no catch */
+  let remoteDispatched = false;
 
   async function debitAfterAcquirer(): Promise<void> {
     if (debitedOnDb || !isDatabaseConfigured()) return;
@@ -314,8 +316,6 @@ export async function createWithdrawal(
   try {
     let w: Withdrawal | null = null;
     let provider: "podpay" | "velana" | "woovi" | undefined;
-    /** true após createTransfer/createWithdrawal na adquirente — NÃO estornar cego no catch */
-    let remoteDispatched = false;
 
     // Adquirente recebe o líquido (após taxa da plataforma).
     // Saldo do seller foi debitado pelo bruto (input.amount).
