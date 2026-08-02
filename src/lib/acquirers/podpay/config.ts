@@ -107,6 +107,7 @@ export async function resolvePodPayConfigServer(): Promise<PodPayConfig | null> 
       // 1) Somente adquirente PodPay explícita
       const preferred = await prisma.acquirer.findFirst({
         where: {
+          enabled: true,
           OR: [{ code: "PODPAY" }, { id: "podpay" }],
         },
         orderBy: [{ isPrimary: "desc" }, { priority: "asc" }],

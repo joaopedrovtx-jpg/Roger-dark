@@ -55,10 +55,10 @@ export function mapWooviWebhookStatus(
   // Prefixo OPENPIX: opcional; compara o sufixo do evento
   const name = ev.includes(":") ? ev.split(":").pop() || ev : ev;
 
+  // MOVEMENT_* é PIX out (saque) — NÃO mapear como venda aprovada
   if (
     name === "CHARGE_COMPLETED" ||
     name === "TRANSACTION_RECEIVED" ||
-    name === "MOVEMENT_CONFIRMED" ||
     name === "PIX_RECEIVED"
   ) {
     return "aprovada";

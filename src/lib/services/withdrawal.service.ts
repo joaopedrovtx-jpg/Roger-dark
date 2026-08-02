@@ -265,8 +265,8 @@ export async function createWithdrawal(
     throw new Error("Taxa de saque maior ou igual ao valor");
   }
 
-  // Saque SEMPRE na adquirente white de PIX out (Admin → Adquirentes → Saque).
-  // Independente da adquirente de cobrança do seller.
+  // Saque SEMPRE na white de PIX out global (Admin → Adquirentes → Saque).
+  // Não usa a rota de cobrança do seller — liquidez fica na conta white.
   const active = await resolveAcquirerForPayout();
 
   const { debitAvailableBalance } = await import("@/lib/server/balance");
@@ -322,12 +322,7 @@ export async function createWithdrawal(
       pixKey,
     };
 
-    /**
-     * Saque SEMPRE na adquirente da conta do seller:
-     * - personalizado + preferred → só essa (Velana / PodPay / Woovi)
-     * - plataforma → #1 global da plataforma
-     * NUNCA troca de adquirente no meio do caminho (saldo PIX fica na conta certa).
-     */
+    /** White de saque (isPayoutPrimary) ou fallback #1 de cobrança da plataforma. */
     const only = active?.provider ?? null;
     if (!only) {
       throw new Error(

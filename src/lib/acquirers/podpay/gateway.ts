@@ -169,7 +169,7 @@ export async function createChargeViaPodPay(
   };
 
   // TX local + MySQL
-  const txId = `TX-PP-${Date.now().toString().slice(-8)}`;
+  const txId = `TX-PP-${randomBytes(8).toString("hex")}`;
   charge.transactionId = txId;
   pushCharge(charge);
   pushTransaction({

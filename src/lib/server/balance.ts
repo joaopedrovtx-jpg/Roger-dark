@@ -101,51 +101,51 @@ export async function creditPaidSaleIdempotent(opts: {
   let credited = false;
   try {
     const result = await prisma.$transaction(async (tx) => {
-      let updated = 0;
       let txId: string | null = opts.transactionId ?? null;
+      let prevStatus: string | null = null;
 
       // Aceita pendente E abandonada (PIX pago após TTL 15 min)
       const creditFromStatuses = ["pendente", "abandonada"] as const;
 
+      // Lê status anterior ANTES do CAS — abandonada já zerou pending no TTL
       if (opts.transactionId) {
-        const r = await tx.transaction.updateMany({
+        const row = await tx.transaction.findFirst({
           where: {
             id: opts.transactionId,
             status: { in: [...creditFromStatuses] },
           },
-          data: {
-            status: "aprovada",
-            paidAt: new Date(),
-          },
+          select: { id: true, status: true },
         });
-        updated = r.count;
+        if (!row) return { credited: false };
+        prevStatus = row.status;
+        txId = row.id;
       } else if (opts.providerId) {
-        const r = await tx.transaction.updateMany({
+        const row = await tx.transaction.findFirst({
           where: {
             providerId: opts.providerId,
             ...(opts.provider ? { provider: opts.provider } : {}),
             status: { in: [...creditFromStatuses] },
           },
-          data: {
-            status: "aprovada",
-            paidAt: new Date(),
-          },
+          select: { id: true, status: true },
         });
-        updated = r.count;
-        if (updated > 0) {
-          const found = await tx.transaction.findFirst({
-            where: {
-              providerId: opts.providerId,
-              ...(opts.provider ? { provider: opts.provider } : {}),
-              status: "aprovada",
-            },
-            select: { id: true },
-          });
-          txId = found?.id ?? null;
-        }
+        if (!row) return { credited: false };
+        prevStatus = row.status;
+        txId = row.id;
+      } else {
+        return { credited: false };
       }
 
-      if (updated === 0) {
+      const r = await tx.transaction.updateMany({
+        where: {
+          id: txId!,
+          status: { in: [...creditFromStatuses] },
+        },
+        data: {
+          status: "aprovada",
+          paidAt: new Date(),
+        },
+      });
+      if (r.count === 0) {
         return { credited: false };
       }
 
@@ -183,18 +183,23 @@ export async function creditPaidSaleIdempotent(opts: {
         });
       }
 
-      // Se veio de abandonada, pending já foi decrementado no abandon —
-      // só credita available. Se veio de pendente, move pending → available.
-      // CAS: só decrementa pending se houver saldo suficiente (floor ≥ 0).
-      const decPending = await tx.user.updateMany({
-        where: {
-          id: opts.sellerId,
-          balancePending: { gte: amount },
-        },
-        data: {
-          balancePending: { decrement: amount },
-        },
-      });
+      // pendente → move pending→available (CAS).
+      // abandonada → pending já saiu no TTL; só credita available (não toca pending de outras vendas).
+      if (prevStatus === "pendente") {
+        const decPending = await tx.user.updateMany({
+          where: {
+            id: opts.sellerId,
+            balancePending: { gte: amount },
+          },
+          data: {
+            balancePending: { decrement: amount },
+          },
+        });
+        if (decPending.count === 0) {
+          // Inconsistência: não credita free available sem pending
+          throw new Error("pending_insufficient_for_credit");
+        }
+      }
 
       const user = await tx.user.update({
         where: { id: opts.sellerId },
@@ -204,7 +209,6 @@ export async function creditPaidSaleIdempotent(opts: {
         },
         select: { balanceAvailable: true },
       });
-      void decPending;
 
       await tx.balanceLedger.create({
         data: {
@@ -216,7 +220,10 @@ export async function creditPaidSaleIdempotent(opts: {
           balanceAfter: Number(user.balanceAvailable),
           referenceType: "transaction",
           referenceId: txId,
-          description: "Crédito venda paga",
+          description:
+            prevStatus === "abandonada"
+              ? "Crédito venda paga (após abandonada)"
+              : "Crédito venda paga",
         },
       });
 
@@ -261,7 +268,8 @@ export async function rejectPendingSaleIdempotent(opts: {
       });
       if (r.count === 0) return { applied: false };
 
-      // Floor: nunca deixa balancePending negativo
+      // Floor: só decrementa o que existe desta venda — NUNCA zera o bucket inteiro
+      // (isso roubaria pending de outras cobranças abertas do mesmo seller).
       const dec = await tx.user.updateMany({
         where: {
           id: opts.sellerId,
@@ -270,18 +278,19 @@ export async function rejectPendingSaleIdempotent(opts: {
         data: { balancePending: { decrement: amount } },
       });
       if (dec.count === 0) {
-        // pending insuficiente (legado/inconsistente) — zera se positivo
         const seller = await tx.user.findUnique({
           where: { id: opts.sellerId },
           select: { balancePending: true },
         });
-        const pendingNow = Number(seller?.balancePending ?? 0);
+        const pendingNow = Math.max(0, Number(seller?.balancePending ?? 0));
         if (pendingNow > 0) {
+          const partial = Math.min(amount, pendingNow);
           await tx.user.update({
             where: { id: opts.sellerId },
-            data: { balancePending: { decrement: pendingNow } },
+            data: { balancePending: { decrement: partial } },
           });
         }
+        // shortfall só logável — TX já marcou terminal; não toca mais pending
       }
 
       if (opts.providerId) {

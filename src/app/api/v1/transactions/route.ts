@@ -28,8 +28,8 @@ export async function GET(req: Request) {
         reconcilePendingWithdrawals,
       } = await import("@/lib/server/reconcile-payments");
       await Promise.all([
-        reconcilePendingPayments({ sellerId, limit: 6 }),
-        reconcilePendingWithdrawals({ sellerId, limit: 6 }),
+        reconcilePendingPayments({ sellerId, limit: 20 }),
+        reconcilePendingWithdrawals({ sellerId, limit: 15 }),
       ]);
     } catch {
       /* listagem segue mesmo se sync falhar */

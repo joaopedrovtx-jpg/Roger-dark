@@ -124,15 +124,20 @@ async function applyWebhookToMysql(payload: PodPayWebhookPayload) {
     const status = statusMap[event];
     if (!status) return;
 
+    // Sempre filtrar por provider — evita cruzar com Velana/Woovi se IDs colidirem
     const tx = await prisma.transaction.findFirst({
       where: {
-        OR: [
-          { providerId: remoteId, provider: "podpay" },
-          { providerId: remoteId },
-        ],
+        providerId: remoteId,
+        provider: "podpay",
       },
     });
-    if (!tx) return;
+    // Paid sem TX local: 503 p/ adquirente reenviar (corrida com persist)
+    if (!tx) {
+      if (status === "aprovada") {
+        throw new Error("podpay_tx_not_found_retry");
+      }
+      return;
+    }
 
     if (status === "aprovada") {
       const { notifyUtmifyAfterPaid } = await import("@/lib/server/balance");

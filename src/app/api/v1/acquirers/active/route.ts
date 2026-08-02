@@ -31,7 +31,7 @@ export async function GET(req: Request) {
       id: string;
       name: string;
       code: string;
-      provider: "podpay" | "velana" | "other";
+      provider: "podpay" | "velana" | "woovi" | "other";
       configured: boolean;
       isPrimary: boolean;
       priority: number;
@@ -45,8 +45,12 @@ export async function GET(req: Request) {
       const rows = await prisma.acquirer.findMany({
         where: {
           OR: [
-            { id: { in: ["podpay", "velana"] } },
-            { code: { in: ["PODPAY", "VELANA"] } },
+            { id: { in: ["podpay", "velana", "woovi", "openpix"] } },
+            {
+              code: {
+                in: ["PODPAY", "VELANA", "WOOVI", "OPENPIX"],
+              },
+            },
           ],
         },
         orderBy: [{ priority: "asc" }, { isPrimary: "desc" }],
@@ -55,12 +59,17 @@ export async function GET(req: Request) {
       for (const a of rows) {
         const code = (a.code || "").toUpperCase();
         const id = (a.id || "").toLowerCase();
-        const provider: "podpay" | "velana" | "other" =
+        const provider: "podpay" | "velana" | "woovi" | "other" =
           code === "VELANA" || id === "velana"
             ? "velana"
             : code === "PODPAY" || id === "podpay"
               ? "podpay"
-              : "other";
+              : code === "WOOVI" ||
+                  code === "OPENPIX" ||
+                  id === "woovi" ||
+                  id === "openpix"
+                ? "woovi"
+                : "other";
         const priv = (a.privateKey || "").trim();
         const pub = (a.publicKey || "").trim();
         const isActive =
@@ -73,7 +82,7 @@ export async function GET(req: Request) {
           name: a.name,
           code: a.code,
           provider,
-          configured: !!priv,
+          configured: !!(priv || pub),
           isPrimary: a.isPrimary || a.priority === 1,
           priority: a.priority,
           env: a.env || "live",

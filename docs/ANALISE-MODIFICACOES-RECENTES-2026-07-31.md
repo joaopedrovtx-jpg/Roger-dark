@@ -510,4 +510,5 @@ O fix `abe3864` foi necessário só para o typecheck de `Decimal` no build; não
 | P2 Cache-Control static | Restaurado immutable em `/_next/static` | ✅ |
 | P2 doc arquitetura | Atualizado providers montados | ✅ |
 
-**Nota Turnstile:** chaves oficiais de **teste** da Cloudflare (`1x0000…AA`) estão ativas para o widget/siteverify funcionarem de ponta a ponta. Para anti-bot real em produção, substitua no `.env` da VPS pelas keys do widget criado em https://dash.cloudflare.com → Turnstile (hostname `darkpays.online`) e `pm2 restart darkpays --update-env` (site key também vem da API pública, sem rebuild obrigatório).
+**Nota Turnstile (atualizado):** as chaves de **teste** (`1x0000…`) foram **removidas** da VPS — elas exibiam o aviso “Somente para teste…”.  
+Captcha real de produção exige widget no [Cloudflare Dashboard → Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) com hostname `darkpays.online` e as keys `0x4AAAA…` no `.env` (`NEXT_PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`) + `pm2 restart darkpays --update-env`.

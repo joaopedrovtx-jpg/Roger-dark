@@ -31,7 +31,7 @@ function detectProvider(a: {
   const id = (a.id || "").toLowerCase();
   const key = (a.privateKey || a.publicKey || "").trim();
 
-  // Código/id mandam — nunca classificar por prefixo de key genérico
+  // Código/id mandam — NUNCA classificar por prefixo sk_ (Velana também usa sk_)
   if (code === "VELANA" || id === "velana") return "velana";
   if (code === "PODPAY" || id === "podpay") return "podpay";
   if (
@@ -43,11 +43,7 @@ function detectProvider(a: {
     return "woovi";
   }
 
-  // Legado: chave PodPay em adquirente genérica
-  if (key && (key.startsWith("sk_live") || key.startsWith("sk_test"))) {
-    return "podpay";
-  }
-
+  void key;
   return null;
 }
 
@@ -85,14 +81,13 @@ export async function resolveAcquirerForSeller(
 
     const prefRaw = user?.preferredAdquirenteId?.trim() || "";
 
-    // 1) Preferência explícita do seller (personalizado)
-    if (
-      (user?.routingMode === "personalizado" || !!prefRaw) &&
-      prefRaw
-    ) {
+    // 1) Preferência só quando routingMode=personalizado (não deixa pref stale forçar rota)
+    if (user?.routingMode === "personalizado" && prefRaw) {
       const pref = prefRaw;
       const a = await prisma.acquirer.findFirst({
         where: {
+          enabled: true,
+          status: "ativo",
           OR: [
             { id: pref },
             { code: pref },
@@ -116,26 +111,7 @@ export async function resolveAcquirerForSeller(
           };
         }
       }
-      const low = pref.toLowerCase();
-      const providerGuess: AcquirerProvider | null =
-        low === "podpay" || low.includes("pod")
-          ? "podpay"
-          : low === "velana" || low.includes("vel")
-            ? "velana"
-            : low === "woovi" || low.includes("openpix") || low.includes("woov")
-              ? "woovi"
-              : null;
-      if (providerGuess) {
-        return {
-          provider: providerGuess,
-          id: pref,
-          code: providerGuess.toUpperCase(),
-          isPrimary: false,
-          priority: 0,
-          hasKey: false,
-          routingMode: "personalizado",
-        };
-      }
+      // Preferência inválida/desligada: cai no #1 da plataforma (sem ghost provider)
     }
 
     // 2) Link user_acquirers (uma adquirente ativa no seller)
@@ -274,9 +250,9 @@ export async function resolveActiveAcquirer(): Promise<ResolvedAcquirer | null> 
         take: 30,
       });
 
-      // 1) Primeiro com chave na ordem da fila
+      // 1) Primeiro com chave na ordem da fila (private ou public — Woovi AppID)
       for (const a of rows) {
-        const key = (a.privateKey || "").trim();
+        const key = (a.privateKey || a.publicKey || "").trim();
         if (!key) continue;
         const provider = detectProvider(a);
         if (!provider) continue;

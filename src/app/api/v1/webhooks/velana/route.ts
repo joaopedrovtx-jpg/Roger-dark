@@ -31,8 +31,6 @@ export async function POST(req: Request) {
       req.headers.get("x-signature");
 
     const secret = process.env.VELANA_WEBHOOK_SECRET;
-    let signedOk = false;
-
     const sigCheck = verifyVelanaWebhook(rawBody, signature, secret);
     if (!sigCheck.ok) {
       return NextResponse.json(
@@ -40,7 +38,8 @@ export async function POST(req: Request) {
         { status: 401 }
       );
     }
-    signedOk = true;
+    // Só true com HMAC real — unsigned força reconfirm na API Velana
+    const signedOk = sigCheck.signed === true;
 
     let payload: VelanaPostbackPayload;
     try {
@@ -286,7 +285,6 @@ async function applyWebhookToMysql(
       where: {
         OR: [
           { providerId: remoteId, provider: "velana" },
-          { providerId: remoteId },
           { id: `TX-VL-${remoteId}` },
         ],
       },

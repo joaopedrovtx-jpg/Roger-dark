@@ -158,9 +158,10 @@ export async function reconcilePendingPayments(opts: {
   // Ordem invertida evita abandonar venda que já foi paga na adquirente
   // e só depois perder o crédito no sync (charge já expired).
   const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  // Inclui expired: PIX pode pagar após TTL local (abandon) e precisa de sync
   const charges = await prisma.paymentCharge.findMany({
     where: {
-      status: "waiting_payment",
+      status: { in: ["waiting_payment", "expired"] },
       ...(opts?.sellerId ? { sellerId: opts.sellerId } : {}),
     },
     orderBy: { createdAt: "desc" },

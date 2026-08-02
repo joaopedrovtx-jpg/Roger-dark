@@ -114,7 +114,7 @@ export function verifyVelanaWebhook(
   rawBody: string,
   signatureHeader: string | null,
   secret: string | undefined
-): { ok: boolean; reason?: string } {
+): { ok: boolean; reason?: string; signed?: boolean } {
   const secretTrim = secret?.trim();
   const allowUnsigned =
     !isProduction() &&
@@ -122,19 +122,35 @@ export function verifyVelanaWebhook(
       process.env.VELANA_ALLOW_UNSIGNED_WEBHOOK === "true" ||
       process.env.ALLOW_UNSIGNED_WEBHOOKS === "1");
 
+  // Velana frequentemente envia postback SEM HMAC. Em produção, se NÃO há secret
+  // configurado, aceita unsigned mas signed=false → caller DEVE reconfirmar na API.
+  // Se há secret, exige assinatura válida (fail-closed).
   if (!secretTrim) {
-    if (allowUnsigned) {
-      return { ok: true, reason: "velana_unsigned_allowed_explicit_dev" };
+    if (isProduction() || allowUnsigned) {
+      return {
+        ok: true,
+        signed: false,
+        reason: isProduction()
+          ? "velana_unsigned_no_secret_reconfirm_required"
+          : "velana_unsigned_allowed_explicit_dev",
+      };
     }
-    return { ok: false, reason: "velana_webhook_secret_required" };
+    return { ok: false, reason: "velana_webhook_secret_required", signed: false };
   }
 
   if (!signatureHeader?.trim()) {
-    if (allowUnsigned) {
-      return { ok: true, reason: "velana_signature_empty_allowed_explicit_dev" };
+    // Secret configurado mas Velana não mandou header: reconfirm path
+    if (isProduction() || allowUnsigned) {
+      return {
+        ok: true,
+        signed: false,
+        reason: "velana_signature_missing_reconfirm_required",
+      };
     }
-    return { ok: false, reason: "missing_signature" };
+    return { ok: false, reason: "missing_signature", signed: false };
   }
 
-  return verifyPodPaySignature(rawBody, signatureHeader, secretTrim);
+  const check = verifyPodPaySignature(rawBody, signatureHeader, secretTrim);
+  if (!check.ok) return { ...check, signed: false };
+  return { ok: true, signed: true };
 }

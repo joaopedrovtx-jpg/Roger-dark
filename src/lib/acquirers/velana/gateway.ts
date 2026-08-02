@@ -272,7 +272,7 @@ export async function createChargeViaVelana(
   });
   const net = Math.max(0, Math.round((charge.amount - fee) * 100) / 100);
 
-  const txId = `TX-VL-${Date.now().toString().slice(-8)}`;
+  const txId = `TX-VL-${randomBytes(8).toString("hex")}`;
   charge.transactionId = txId;
   store.charges.unshift(charge);
   store.transactions.unshift({
