@@ -314,6 +314,8 @@ export async function createWithdrawal(
   try {
     let w: Withdrawal | null = null;
     let provider: "podpay" | "velana" | "woovi" | undefined;
+    /** true após createTransfer/createWithdrawal na adquirente — NÃO estornar cego no catch */
+    let remoteDispatched = false;
 
     // Adquirente recebe o líquido (após taxa da plataforma).
     // Saldo do seller foi debitado pelo bruto (input.amount).
@@ -366,6 +368,7 @@ export async function createWithdrawal(
             autoApprove: saqueAutomatico,
           }
         );
+        remoteDispatched = true;
         w = {
           ...remote,
           id: localId,
@@ -429,12 +432,14 @@ export async function createWithdrawal(
       w = await createWithdrawalViaVelana(sellerId, sellerName, payoutInput, {
         skipLocalDebit: true,
       });
+      remoteDispatched = true;
       provider = "velana";
     } else if (only === "podpay") {
       await debitAfterAcquirer();
       w = await createWithdrawalViaPodPay(sellerId, sellerName, payoutInput, {
         skipLocalDebit: true,
       });
+      remoteDispatched = true;
       provider = "podpay";
     }
 
@@ -442,15 +447,8 @@ export async function createWithdrawal(
       const remoteAlreadyPaid = w.status === "pago";
       const remoteAlreadyRejected = w.status === "recusado";
 
-      if (remoteAlreadyRejected && isDatabaseConfigured()) {
-        const { prisma: p } = await import("@/lib/server/prisma");
-        await p.user.update({
-          where: { id: sellerId },
-          data: { balanceAvailable: { increment: input.amount } },
-        });
-        adjustBalance(sellerId, { available: input.amount });
-        debitedOnDb = false;
-      }
+      // NÃO estornar saldo aqui se recusado — finalizeWithdrawalFailed é o único
+      // path de reembolso (evita crédito em dobro se pre-refund + finalize).
 
       const recorded: Withdrawal = {
         ...w,
@@ -501,15 +499,14 @@ export async function createWithdrawal(
             reason: "Adquirente recusou na criação",
             source: "acquirer_sync",
           });
+          return { ...recorded, status: "recusado" };
         } catch {
-          /* ignore */
+          // Sem estorno manual: deixa processando p/ ops/reconcile
+          return { ...recorded, status: "processando" };
         }
-        return recorded;
       }
 
       // Velana/PodPay: saque criado com sucesso (pending/processing).
-      // Antes faltava este return → caía no throw genérico, mostrava erro ao seller
-      // e o catch estornava o saldo mesmo com transfer já criado na adquirente.
       return recorded;
     }
 
@@ -554,9 +551,26 @@ export async function createWithdrawal(
           ? "pending_manual_woovi"
           : "pending_manual",
       });
-      // Fila manual: se saque automático, tenta aprovar (create+approve na adquirente)
-      const settled = await maybeAutoApproveWithdrawal(sellerId, pending.id);
-      return settled ?? pending;
+      // Hard fail da adquirente (CPF terceiro / PIX out off): NÃO re-tenta auto-approve
+      return pending;
+    }
+
+    // Se a adquirente já recebeu o pedido, NÃO estorna cego (risco de PIX pago + saldo devolvido).
+    if (remoteDispatched) {
+      try {
+        const { log } = await import("@/lib/server/logger");
+        log.error(
+          {
+            sellerId,
+            amount: input.amount,
+            message: e instanceof Error ? e.message : String(e),
+          },
+          "withdrawal_post_acquirer_failure_no_auto_refund"
+        );
+      } catch {
+        /* ignore */
+      }
+      throw e;
     }
 
     if (debitedOnDb && isDatabaseConfigured()) {
@@ -724,11 +738,9 @@ export async function setWithdrawalStatusAsync(
       const store = getStore();
       const local = store.withdrawals.find((x) => x.id === id);
       if (local) {
-        // Status real pode continuar processando se adquirente pendente
+        // Status real pode continuar processando se adquirente pendente.
+        // NÃO adjustBalance aqui: DB já estornou em finalizeWithdrawalFailed.
         local.status = fromDb.status;
-        if (fromDb.status === "recusado") {
-          adjustBalance(local.sellerId, { available: local.amount });
-        }
       }
     } catch {
       /* ignore */

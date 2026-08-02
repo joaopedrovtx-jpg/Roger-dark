@@ -330,7 +330,8 @@ function needsAcquirerDispatch(provider: string | null | undefined): boolean {
 
 /** Interpreta status remoto da adquirente (já mapeado ou raw). */
 function mapRemotePayoutStatus(remote: string | undefined | null): "pago" | "recusado" | "processando" {
-  const s = String(remote || "").toLowerCase();
+  const s = String(remote || "").toLowerCase().trim();
+  // NÃO mapear bare "approved" → pago (Woovi APPROVED = ainda processando)
   if (
     s === "pago" ||
     s === "paid" ||
@@ -339,8 +340,7 @@ function mapRemotePayoutStatus(remote: string | undefined | null): "pago" | "rec
     s === "done" ||
     s === "transferred" ||
     s === "success" || // Velana transfer real
-    s === "ok" ||
-    s === "approved"
+    s === "ok"
   ) {
     return "pago";
   }
