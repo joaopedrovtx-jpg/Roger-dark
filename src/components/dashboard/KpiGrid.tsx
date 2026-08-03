@@ -5,6 +5,7 @@ import { KpiCard } from "./KpiCard";
 import {
   IconDolarSymbol,
   IconClockFilled,
+  IconMoneyFlying,
 } from "./KpiIcons";
 import { formatBRL } from "@/lib/format";
 import type { DashboardData } from "@/types/dashboard";
@@ -59,8 +60,7 @@ function WithdrawButton({
 }
 
 /**
- * Saldos: disponível + pendente (mesma altura e largura).
- * Reembolsos fica na lateral do gráfico (MetricsStack).
+ * Linha de cima (acima do gráfico): disponível | pendente | lucro líquido.
  */
 export function KpiGrid({
   data,
@@ -111,6 +111,12 @@ export function KpiGrid({
           icon={<IconClockFilled size={ICON} />}
           label="Saldo pendente"
           value={formatBRL(data.balances.pending)}
+          reserveAction
+        />
+        <KpiCard
+          icon={<IconMoneyFlying size={ICON} />}
+          label="Lucro líquido"
+          value={formatBRL(data.metrics.netProfit)}
           reserveAction
         />
       </div>

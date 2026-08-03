@@ -1,6 +1,5 @@
 import { KpiCard } from "./KpiCard";
 import {
-  IconMoneyFlying,
   IconTransferFilled,
   IconPercentFilled,
   IconOutflowFilled,
@@ -16,22 +15,15 @@ interface MetricsStackProps {
 const ICON = 22;
 
 /**
- * Indicadores laterais do gráfico (mesmo tamanho e alinhados ao gráfico).
- * fill: dividem a altura do gráfico em partes iguais.
+ * Lateral do gráfico (4 cards, mesmo tamanho, do topo à base):
+ * Total de Transações | Ticket médio | Total de saídas | Reembolsos
+ * Lucro líquido fica na linha de cima com os saldos.
  */
 export function MetricsStack({ data }: MetricsStackProps) {
   const refunded = Number(data.balances.refunded) || 0;
 
   return (
     <div className="metrics-stack w-full h-full">
-      <div className="metrics-stack__cell">
-        <KpiCard
-          fill
-          icon={<IconMoneyFlying size={ICON} />}
-          label="Lucro líquido"
-          value={formatBRL(data.metrics.netProfit)}
-        />
-      </div>
       <div className="metrics-stack__cell">
         <KpiCard
           fill
