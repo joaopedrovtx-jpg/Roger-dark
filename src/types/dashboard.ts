@@ -2,6 +2,8 @@ export interface MoneyFields {
   available: number;
   pending: number;
   held: number;
+  /** Total de vendas reembolsadas (lifetime) */
+  refunded?: number;
 }
 
 export interface Metrics {

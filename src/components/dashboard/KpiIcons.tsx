@@ -219,6 +219,27 @@ export function IconClockFilled({
   );
 }
 
+/** Seta circular / reembolso */
+export function IconRefundFilled({
+  size = 24,
+  className,
+  color = "var(--green-use)",
+}: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={className}
+      style={{ color }}
+      aria-hidden
+      {...base}
+    >
+      <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
 /**
  * Transferência / setas (ícone original) total de transações
  */

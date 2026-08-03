@@ -25,7 +25,7 @@ function emptyDashboard(
   return {
     user: { name, avatarUrl: null },
     volume: { current: 0, goal: 1000 },
-    balances: { available: 0, pending: 0, held: 0 },
+    balances: { available: 0, pending: 0, held: 0, refunded: 0 },
     metrics: {
       netProfit: 0,
       totalTransactions: 0,
@@ -68,6 +68,7 @@ function mapApiToDashboard(
       available: Number(bal?.available) || 0,
       pending: Number(bal?.pending) || 0,
       held: Number(bal?.held) || 0,
+      refunded: Number((bal as { refunded?: number } | undefined)?.refunded) || 0,
     },
     metrics: {
       netProfit: Number(metrics?.netProfit) || 0,
@@ -177,7 +178,7 @@ export function DashboardView() {
       <PromoBanner />
 
       {/*
-        [ Disponível | Pendente ]  ← mesma altura e largura
+        [ Disponível | Pendente | Reembolsos ]  ← mesma altura e largura
         [        Gráfico        ]  [ métricas do topo à base do gráfico ]
       */}
       <div className="dash-seller">

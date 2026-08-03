@@ -108,6 +108,8 @@ export interface Balances {
   available: number;
   pending: number;
   held: number;
+  /** Total reembolsado (soma de vendas reembolsadas) */
+  refunded?: number;
 }
 
 export interface SellerProfile {

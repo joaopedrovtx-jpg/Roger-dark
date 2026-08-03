@@ -361,7 +361,7 @@ body {
 }
 
 /*
- * Saldos seller: disponível + pendente (mesma altura e largura).
+ * Saldos seller: disponível + pendente + reembolsos (mesma altura e largura).
  */
 .dash-balances {
   display: grid;
@@ -588,9 +588,9 @@ body {
     align-items: stretch;
   }
 
-  /* Disponível + pendente em duas colunas iguais (largura total do gráfico) */
+  /* Disponível + pendente + reembolsos em 3 colunas iguais */
   .dash-balances {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   /*
@@ -651,10 +651,10 @@ body {
   }
 }
 
-/* Tablet: 2 saldos em linha */
+/* Tablet: 3 indicadores em linha (disponível | pendente | reembolsos) */
 @media (min-width: 640px) and (max-width: 899px) {
   .dash-balances {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .dash-admin-balances {
