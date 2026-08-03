@@ -87,10 +87,11 @@
   --radius-full: 9999px;
 
   /* Sizes — ícones e fundos dos cards maiores */
-  /* Saldos (topo): altura única e igual entre disponível/pendente/retido */
-  --kpi-card-height: 88px;
+  /* Topo (disponível/pendente/lucro): mesma “grossura” aproximada da lateral
+     (gráfico 360 − 3 gaps) / 4 ≈ 81px */
+  --kpi-card-height: 80px;
   --kpi-action-width: 72px;
-  --kpi-icon-size: 42px;
+  --kpi-icon-size: 40px;
   --kpi-icon-glyph: 22px;
   /* Altura mínima do bloco gráfico + lateral (4 métricas preenchem 100%) */
   --dash-chart-min-h: 360px;

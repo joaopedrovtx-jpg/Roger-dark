@@ -41,7 +41,8 @@ export function KpiCard({
       }`}
       style={{
         gap: 12,
-        padding: fill ? "0 14px" : "0 16px",
+        /* Mesma “grossura” visual: padding unificado com a lateral do gráfico */
+        padding: "0 14px",
         height: fill ? "100%" : "var(--kpi-card-height)",
         minHeight: fill ? 0 : "var(--kpi-card-height)",
         maxHeight: fill ? "none" : "var(--kpi-card-height)",
@@ -73,9 +74,10 @@ export function KpiCard({
           {label}
         </span>
         <span
-          className="tabular truncate font-bold"
+          className="tabular truncate"
           style={{
-            fontSize: fill ? 15.5 : 16,
+            fontSize: 15.5,
+            fontWeight: 600,
             color: valueColor || "var(--text-1)",
             lineHeight: 1.15,
           }}
