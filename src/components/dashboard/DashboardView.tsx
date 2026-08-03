@@ -178,8 +178,8 @@ export function DashboardView() {
       <PromoBanner />
 
       {/*
-        [ Disponível | Pendente | Reembolsos ]  ← mesma altura e largura
-        [        Gráfico        ]  [ métricas do topo à base do gráfico ]
+        [ Disponível | Pendente ]
+        [        Gráfico        ]  [ Lucro | Tx | Ticket | Saídas | Reembolsos ]
       */}
       <div className="dash-seller">
         <div className="dash-seller__balances">

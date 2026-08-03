@@ -5,7 +5,6 @@ import { KpiCard } from "./KpiCard";
 import {
   IconDolarSymbol,
   IconClockFilled,
-  IconRefundFilled,
 } from "./KpiIcons";
 import { formatBRL } from "@/lib/format";
 import type { DashboardData } from "@/types/dashboard";
@@ -60,7 +59,8 @@ function WithdrawButton({
 }
 
 /**
- * Saldos: disponível + pendente + reembolsos (mesma altura e largura).
+ * Saldos: disponível + pendente (mesma altura e largura).
+ * Reembolsos fica na lateral do gráfico (MetricsStack).
  */
 export function KpiGrid({
   data,
@@ -85,8 +85,6 @@ export function KpiGrid({
   ) : (
     <WithdrawButton onClick={() => setSaqueOpen(true)} />
   );
-
-  const refunded = Number(data.balances.refunded) || 0;
 
   return (
     <>
@@ -113,12 +111,6 @@ export function KpiGrid({
           icon={<IconClockFilled size={ICON} />}
           label="Saldo pendente"
           value={formatBRL(data.balances.pending)}
-          reserveAction
-        />
-        <KpiCard
-          icon={<IconRefundFilled size={ICON} />}
-          label="Reembolsos"
-          value={formatBRL(refunded)}
           reserveAction
         />
       </div>

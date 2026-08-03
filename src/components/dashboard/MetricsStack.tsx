@@ -4,6 +4,7 @@ import {
   IconTransferFilled,
   IconPercentFilled,
   IconOutflowFilled,
+  IconRefundFilled,
 } from "./KpiIcons";
 import { formatBRL } from "@/lib/format";
 import type { DashboardData } from "@/types/dashboard";
@@ -15,11 +16,12 @@ interface MetricsStackProps {
 const ICON = 22;
 
 /**
- * 4 indicadores laterais do gráfico.
- * fill: dividem a altura do gráfico em 4 partes iguais
- * (topo alinhado ao topo do gráfico, base alinhada à base).
+ * Indicadores laterais do gráfico (mesmo tamanho e alinhados ao gráfico).
+ * fill: dividem a altura do gráfico em partes iguais.
  */
 export function MetricsStack({ data }: MetricsStackProps) {
+  const refunded = Number(data.balances.refunded) || 0;
+
   return (
     <div className="metrics-stack w-full h-full">
       <div className="metrics-stack__cell">
@@ -52,6 +54,14 @@ export function MetricsStack({ data }: MetricsStackProps) {
           icon={<IconOutflowFilled size={ICON} />}
           label="Total de saídas"
           value={formatBRL(data.metrics.totalOutflows)}
+        />
+      </div>
+      <div className="metrics-stack__cell">
+        <KpiCard
+          fill
+          icon={<IconRefundFilled size={ICON} />}
+          label="Reembolsos"
+          value={formatBRL(refunded)}
         />
       </div>
     </div>
