@@ -19,6 +19,19 @@ async function dbOk() {
   }
 }
 
+/**
+ * Total de reembolsos do seller (vendas status=reembolsada).
+ * Fonte única usada em Dashboard e página Transações.
+ */
+export async function sumSellerRefunds(sellerId: string): Promise<number> {
+  if (!(await dbOk())) return 0;
+  const reembolsos = await prisma.transaction.aggregate({
+    where: { sellerId, kind: "venda", status: "reembolsada" },
+    _sum: { amount: true },
+  });
+  return n(reembolsos._sum.amount);
+}
+
 export async function listSellerTransactions(
   sellerId: string,
   opts?: { page?: number; pageSize?: number; status?: string }
@@ -34,7 +47,7 @@ export async function listSellerTransactions(
 
   const baseWhere = { sellerId, kind: "venda" as const };
 
-  const [total, items, pendentes, pagos, recusados, reembolsos, totalAll] =
+  const [total, items, pendentes, pagos, recusados, reembolsosTotal, totalAll] =
     await Promise.all([
       prisma.transaction.count({ where }),
       prisma.transaction.findMany({
@@ -59,10 +72,7 @@ export async function listSellerTransactions(
         },
         _sum: { amount: true },
       }),
-      prisma.transaction.aggregate({
-        where: { ...baseWhere, status: "reembolsada" },
-        _sum: { amount: true },
-      }),
+      sumSellerRefunds(sellerId),
       prisma.transaction.count({ where: baseWhere }),
     ]);
 
@@ -72,7 +82,8 @@ export async function listSellerTransactions(
     pendentes: n(pendentes._sum.amount),
     pagos: paidSum,
     recusados: n(recusados._sum.amount),
-    reembolsos: n(reembolsos._sum.amount),
+    // Mesma fonte do KPI "Reembolso" no dashboard
+    reembolsos: reembolsosTotal,
     ticketMedio: paidCount > 0 ? paidSum / paidCount : 0,
     taxaConversao:
       totalAll > 0 ? Math.round((paidCount / totalAll) * 1000) / 10 : 0,

@@ -100,7 +100,11 @@ export async function getSellerDashboard(
     date: { gte: from, lte: to },
   };
 
-  const [totalCount, decidedCount, totalOutAgg, refundedAgg] = await Promise.all([
+  const { sumSellerRefunds } = await import(
+    "@/lib/server/db/seller-transactions.service"
+  );
+
+  const [totalCount, decidedCount, totalOutAgg, refundedTotal] = await Promise.all([
     prisma.transaction.count({ where: saleWhereCreated }),
     prisma.transaction.count({
       where: {
@@ -116,15 +120,8 @@ export async function getSellerDashboard(
       },
       _sum: { amount: true },
     }),
-    // Total reembolsado (lifetime) — card ao lado de pendente
-    prisma.transaction.aggregate({
-      where: {
-        sellerId,
-        kind: "venda",
-        status: "reembolsada",
-      },
-      _sum: { amount: true },
-    }),
+    // Mesma fonte do card "Reembolso" em /transacoes
+    sumSellerRefunds(sellerId),
   ]);
 
   let volume = 0;
@@ -164,7 +161,7 @@ export async function getSellerDashboard(
       available: n(user.balanceAvailable),
       pending: n(user.balancePending),
       held: n(user.balanceHeld),
-      refunded: n(refundedAgg._sum.amount),
+      refunded: refundedTotal,
     },
     metrics: {
       netProfit: sellerProfit,
